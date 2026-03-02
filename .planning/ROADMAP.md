@@ -30,9 +30,9 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. SQLite database file is created on startup with the correct schema (users, opt-out tables)
   5. Credentials (bot token, API keys) are loaded from environment variables, never hardcoded; .gitignore excludes .env
 **Plans**: 3 plans
-- [ ] 01-01-PLAN.md — Project skeleton, config system (.env + config.yaml), Ukrainian texts
-- [ ] 01-02-PLAN.md — SQLite database, KeyCRM client, Shopify GraphQL client
-- [ ] 01-03-PLAN.md — Bot entry point, /start handler, full wiring + human verification
+- [x] 01-01-PLAN.md — Project skeleton, config system (.env + config.yaml), Ukrainian texts
+- [x] 01-02-PLAN.md — SQLite database, KeyCRM client, Shopify GraphQL client
+- [x] 01-03-PLAN.md — Bot entry point, /start handler, full wiring + human verification
 
 ### Phase 2: Onboarding
 **Goal**: A new user can identify themselves by phone number, the bot finds their orders in both systems, and the identity is persisted for all future sessions
@@ -75,7 +75,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 2/3 | In Progress|  |
+| 1. Foundation | 3/3 | In Progress (awaiting human verify) | 2026-03-02 |
 | 2. Onboarding | 0/TBD | Not started | - |
 | 3. Core Features | 0/TBD | Not started | - |
 | 4. Broadcast | 0/TBD | Not started | - |

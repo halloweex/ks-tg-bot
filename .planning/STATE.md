@@ -10,27 +10,27 @@ See: .planning/PROJECT.md (updated 2026-03-02)
 ## Current Position
 
 Phase: 1 of 4 (Foundation)
-Plan: 2 of 3 in current phase
-Status: In progress
-Last activity: 2026-03-02 — Completed 01-02: SQLite database module, KeyCRM and Shopify API clients
+Plan: 3 of 3 in current phase
+Status: In progress (awaiting human verification checkpoint)
+Last activity: 2026-03-02 — Completed 01-03 automated tasks: bot entry point and /start handler
 
-Progress: [██░░░░░░░░] 17%
+Progress: [███░░░░░░░] 25%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
+- Total plans completed: 3
 - Average duration: 2min
-- Total execution time: 4min
+- Total execution time: 5min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-foundation | 2 | 4min | 2min |
+| 01-foundation | 3 | 5min | 2min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (2min), 01-02 (2min)
+- Last 5 plans: 01-01 (2min), 01-02 (2min), 01-03 (1min)
 - Trend: -
 
 *Updated after each plan completion*
@@ -53,6 +53,9 @@ Recent decisions affecting current work:
 - [01-02]: Shopify uses GraphQL Admin API (2025-01) via httpx POST, no ShopifyAPI SDK (REST deprecated for new apps)
 - [01-02]: Shopify phone query uses WITH + prefix (phone:+380...) — opposite of KeyCRM (no + prefix)
 - [01-02]: Per-operation aiosqlite connections (no module-level shared connection) — avoids "cannot reuse" errors
+- [01-03]: dp["shopify"] = None (not omitting key) when creds absent — handlers can check `if shopify:` without KeyError
+- [01-03]: @dp.startup() decorator for init_db() (aiogram 3.x startup hook pattern)
+- [01-03]: CommandStart() filter (aiogram 3.x) for /start — not commands=["start"] (aiogram 2.x pattern)
 
 ### Pending Todos
 
@@ -66,5 +69,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-02
-Stopped at: Completed 01-02-PLAN.md — SQLite database module, KeyCRM and Shopify API clients
+Stopped at: 01-03-PLAN.md checkpoint:human-verify — bot entry point + /start handler complete, awaiting bot run test
 Resume file: None
