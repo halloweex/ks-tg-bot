@@ -12,7 +12,7 @@ Build a customer-service Telegram bot for a Ukrainian beauty shop in four phases
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundation** - Project skeleton, API clients, SQLite, config — everything downstream depends on this
+- [x] **Phase 1: Foundation** - Project skeleton, API clients, SQLite, config — everything downstream depends on this (completed 2026-03-02)
 - [ ] **Phase 2: Onboarding** - /start, phone collection, dual API lookup (Shopify + KeyCRM), SQLite user storage
 - [ ] **Phase 3: Core Features** - Navigation menus, order display, info pages, support escalation, settings
 - [ ] **Phase 4: Broadcast** - Admin broadcast command with rate limiting and opt-out enforcement
@@ -75,7 +75,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 3/3 | In Progress (awaiting human verify) | 2026-03-02 |
+| 1. Foundation | 3/3 | Complete   | 2026-03-02 |
 | 2. Onboarding | 0/TBD | Not started | - |
 | 3. Core Features | 0/TBD | Not started | - |
 | 4. Broadcast | 0/TBD | Not started | - |

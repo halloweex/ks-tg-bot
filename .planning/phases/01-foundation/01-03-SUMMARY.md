@@ -56,7 +56,7 @@ completed: 2026-03-02
 - **Duration:** 1 min
 - **Started:** 2026-03-02T17:05:51Z
 - **Completed:** 2026-03-02T17:07:03Z
-- **Tasks:** 2 auto-completed, 1 pending human verification
+- **Tasks:** 3 completed (2 auto + 1 human-verify approved)
 - **Files modified:** 2 created, 0 modified
 
 ## Accomplishments
@@ -70,8 +70,9 @@ Each task was committed atomically:
 
 1. **Task 1: Create bot entry point with startup wiring and DI** - `09743de` (feat)
 2. **Task 2: Create /start command handler with branded Ukrainian greeting** - `61c95f5` (feat)
+3. **Task 3: Verify bot starts and responds to /start** - human-verify approved
 
-**Plan metadata:** TBD (docs: complete plan)
+**Plan metadata:** `8bce003` (docs: complete bot entry point and /start handler plan)
 
 ## Files Created/Modified
 - `bot/__main__.py` - Entry point: config loading, Bot (HTML), Dispatcher, DI (config/keycrm/shopify), @dp.startup() for init_db, common_router inclusion, dp.start_polling(bot)
@@ -90,11 +91,13 @@ None - plan executed exactly as written.
 - None
 
 ## User Setup Required
-None - automated tasks complete. Human verification pending (Task 3 checkpoint):
-- Run `python -m bot` in project root with .env present
-- Send /start to @koreanstory_bot in Telegram
-- Confirm bot responds with Ukrainian greeting containing "Korean Story"
-- Confirm bot_data.db is created
+None - all tasks complete including human verification.
+
+Human verification (Task 3) passed:
+- Bot started with `python -m bot` without errors
+- Bot responded to /start with Ukrainian greeting containing "Korean Story"
+- bot_data.db was created on startup
+- Bot ran in KeyCRM-only mode (Shopify warning logged, no crash)
 
 ## Next Phase Readiness
 - Full Phase 1 foundation operational: project skeleton + config + SQLite + API clients + bot entry point + /start handler
