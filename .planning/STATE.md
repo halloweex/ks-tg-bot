@@ -10,27 +10,27 @@ See: .planning/PROJECT.md (updated 2026-03-02)
 ## Current Position
 
 Phase: 1 of 4 (Foundation)
-Plan: 1 of 3 in current phase
+Plan: 2 of 3 in current phase
 Status: In progress
-Last activity: 2026-03-02 — Completed 01-01: project skeleton, config system, Ukrainian text module
+Last activity: 2026-03-02 — Completed 01-02: SQLite database module, KeyCRM and Shopify API clients
 
-Progress: [█░░░░░░░░░] 8%
+Progress: [██░░░░░░░░] 17%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
+- Total plans completed: 2
 - Average duration: 2min
-- Total execution time: 2min
+- Total execution time: 4min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-foundation | 1 | 2min | 2min |
+| 01-foundation | 2 | 4min | 2min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (2min)
+- Last 5 plans: 01-01 (2min), 01-02 (2min)
 - Trend: -
 
 *Updated after each plan completion*
@@ -49,6 +49,10 @@ Recent decisions affecting current work:
 - [01-01]: pydantic-settings BaseSettings for .env loading (not pydantic v1 BaseSettings — pydantic v2 moved it to a separate package)
 - [01-01]: Two-file config: .env secrets (pydantic-settings) + config.yaml non-secrets (yaml.safe_load)
 - [01-01]: All Ukrainian strings centralized in bot/texts.py as module-level constants
+- [01-02]: KeyCRM phone normalization is mandatory — filter[buyer_phone] does exact match, phones stored in mixed formats
+- [01-02]: Shopify uses GraphQL Admin API (2025-01) via httpx POST, no ShopifyAPI SDK (REST deprecated for new apps)
+- [01-02]: Shopify phone query uses WITH + prefix (phone:+380...) — opposite of KeyCRM (no + prefix)
+- [01-02]: Per-operation aiosqlite connections (no module-level shared connection) — avoids "cannot reuse" errors
 
 ### Pending Todos
 
@@ -62,5 +66,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-02
-Stopped at: Completed 01-01-PLAN.md — project skeleton, config system, Ukrainian texts
+Stopped at: Completed 01-02-PLAN.md — SQLite database module, KeyCRM and Shopify API clients
 Resume file: None

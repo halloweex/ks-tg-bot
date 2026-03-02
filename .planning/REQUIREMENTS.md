@@ -63,9 +63,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Infrastructure
 
-- [ ] **INFR-01**: SQLite database stores user data, opt-out status, and settings
-- [ ] **INFR-02**: Shopify API service with phone-based order lookup
-- [ ] **INFR-03**: KeyCRM API service with phone-based order lookup
+- [x] **INFR-01**: SQLite database stores user data, opt-out status, and settings
+- [x] **INFR-02**: Shopify API service with phone-based order lookup
+- [x] **INFR-03**: KeyCRM API service with phone-based order lookup
 - [ ] **INFR-04**: aiogram 3.x bot framework with long-polling mode
 
 ## v2 Requirements
@@ -101,9 +101,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFR-01 | Phase 1 | Pending |
-| INFR-02 | Phase 1 | Pending |
-| INFR-03 | Phase 1 | Pending |
+| INFR-01 | Phase 1 | Complete |
+| INFR-02 | Phase 1 | Complete |
+| INFR-03 | Phase 1 | Complete |
 | INFR-04 | Phase 1 | Pending |
 | CONF-01 | Phase 1 | Complete |
 | CONF-02 | Phase 1 | Complete |
