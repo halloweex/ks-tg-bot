@@ -10,27 +10,27 @@ See: .planning/PROJECT.md (updated 2026-03-02)
 ## Current Position
 
 Phase: 1 of 4 (Foundation)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-03-02 — Roadmap created; all 28 v1 requirements mapped to 4 phases
+Plan: 1 of 3 in current phase
+Status: In progress
+Last activity: 2026-03-02 — Completed 01-01: project skeleton, config system, Ukrainian text module
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 8%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: -
+- Total plans completed: 1
+- Average duration: 2min
+- Total execution time: 2min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 01-foundation | 1 | 2min | 2min |
 
 **Recent Trend:**
-- Last 5 plans: -
+- Last 5 plans: 01-01 (2min)
 - Trend: -
 
 *Updated after each plan completion*
@@ -46,6 +46,9 @@ Recent decisions affecting current work:
 - [Setup]: SQLite for user data, opt-out, settings (not Google Sheets Subscribers tab)
 - [Setup]: aiogram 3.x with long-polling mode
 - [Setup]: Main menu: 5 buttons (Orders, Find more, Contact support, Website, Settings)
+- [01-01]: pydantic-settings BaseSettings for .env loading (not pydantic v1 BaseSettings — pydantic v2 moved it to a separate package)
+- [01-01]: Two-file config: .env secrets (pydantic-settings) + config.yaml non-secrets (yaml.safe_load)
+- [01-01]: All Ukrainian strings centralized in bot/texts.py as module-level constants
 
 ### Pending Todos
 
@@ -59,5 +62,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-02
-Stopped at: Roadmap created; ready to plan Phase 1
+Stopped at: Completed 01-01-PLAN.md — project skeleton, config system, Ukrainian texts
 Resume file: None

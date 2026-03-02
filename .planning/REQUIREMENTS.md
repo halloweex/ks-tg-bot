@@ -55,11 +55,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Configuration
 
-- [ ] **CONF-01**: All bot UI text is in Ukrainian
-- [ ] **CONF-02**: Brand name and greeting text configurable via config file
-- [ ] **CONF-03**: Shopify and KeyCRM API credentials stored in environment variables
-- [ ] **CONF-04**: Support person Telegram chat ID configurable
-- [ ] **CONF-05**: Shop website URL configurable
+- [x] **CONF-01**: All bot UI text is in Ukrainian
+- [x] **CONF-02**: Brand name and greeting text configurable via config file
+- [x] **CONF-03**: Shopify and KeyCRM API credentials stored in environment variables
+- [x] **CONF-04**: Support person Telegram chat ID configurable
+- [x] **CONF-05**: Shop website URL configurable
 
 ### Infrastructure
 
@@ -105,11 +105,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INFR-02 | Phase 1 | Pending |
 | INFR-03 | Phase 1 | Pending |
 | INFR-04 | Phase 1 | Pending |
-| CONF-01 | Phase 1 | Pending |
-| CONF-02 | Phase 1 | Pending |
-| CONF-03 | Phase 1 | Pending |
-| CONF-04 | Phase 1 | Pending |
-| CONF-05 | Phase 1 | Pending |
+| CONF-01 | Phase 1 | Complete |
+| CONF-02 | Phase 1 | Complete |
+| CONF-03 | Phase 1 | Complete |
+| CONF-04 | Phase 1 | Complete |
+| CONF-05 | Phase 1 | Complete |
 | ONBR-01 | Phase 2 | Pending |
 | ONBR-02 | Phase 2 | Pending |
 | ONBR-03 | Phase 2 | Pending |
