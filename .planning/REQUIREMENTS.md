@@ -101,13 +101,46 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (populated during roadmap creation) | | |
+| INFR-01 | Phase 1 | Pending |
+| INFR-02 | Phase 1 | Pending |
+| INFR-03 | Phase 1 | Pending |
+| INFR-04 | Phase 1 | Pending |
+| CONF-01 | Phase 1 | Pending |
+| CONF-02 | Phase 1 | Pending |
+| CONF-03 | Phase 1 | Pending |
+| CONF-04 | Phase 1 | Pending |
+| CONF-05 | Phase 1 | Pending |
+| ONBR-01 | Phase 2 | Pending |
+| ONBR-02 | Phase 2 | Pending |
+| ONBR-03 | Phase 2 | Pending |
+| ONBR-04 | Phase 2 | Pending |
+| ONBR-05 | Phase 2 | Pending |
+| ONBR-06 | Phase 2 | Pending |
+| NAVG-01 | Phase 3 | Pending |
+| NAVG-02 | Phase 3 | Pending |
+| NAVG-03 | Phase 3 | Pending |
+| NAVG-04 | Phase 3 | Pending |
+| NAVG-05 | Phase 3 | Pending |
+| ORDR-01 | Phase 3 | Pending |
+| ORDR-02 | Phase 3 | Pending |
+| ORDR-03 | Phase 3 | Pending |
+| ORDR-04 | Phase 3 | Pending |
+| INFO-01 | Phase 3 | Pending |
+| INFO-02 | Phase 3 | Pending |
+| INFO-03 | Phase 3 | Pending |
+| INFO-04 | Phase 3 | Pending |
+| SUPP-01 | Phase 3 | Pending |
+| SUPP-02 | Phase 3 | Pending |
+| SETT-01 | Phase 3 | Pending |
+| SETT-02 | Phase 3 | Pending |
+| BRDC-01 | Phase 4 | Pending |
+| BRDC-02 | Phase 4 | Pending |
 
 **Coverage:**
 - v1 requirements: 28 total
-- Mapped to phases: 0
-- Unmapped: 28 ⚠️
+- Mapped to phases: 28
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-02*
-*Last updated: 2026-03-02 after initial definition*
+*Last updated: 2026-03-02 — traceability populated after roadmap creation*
