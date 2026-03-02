@@ -1,0 +1,14 @@
+brand_name: "Korean Story"
+website_url: "https://koreanstory.com.ua"
+support_chat_id: 129462784
+
+# Info pages — text shown in Phase 3 menus
+# Placeholder content — owner will fill in real text
+about_text: |
+  Korean Story — магазин корейської косметики та догляду.
+contacts_text: |
+  Зв'яжіться з нами через бот або Instagram.
+payment_text: |
+  Оплата: Monobank, PrivatBank.
+delivery_text: |
+  Доставка: Нова Пошта, Укрпошта.
