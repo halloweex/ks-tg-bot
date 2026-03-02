@@ -1,0 +1,30 @@
+# Secrets — never commit
+.env
+
+# Virtual environment
+.venv/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Packaging artifacts
+*.egg-info/
+dist/
+build/
+
+# IDE
+.idea/
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
+# macOS
+.DS_Store
+
+# Research working files
+.planning/research/
