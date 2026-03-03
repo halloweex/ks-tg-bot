@@ -9,12 +9,12 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Onboarding
 
-- [ ] **ONBR-01**: User receives welcome message with configurable brand name on /start
-- [ ] **ONBR-02**: User can enter phone number in +380... format with validation
-- [ ] **ONBR-03**: Bot looks up phone in Shopify API to find web orders
-- [ ] **ONBR-04**: Bot looks up phone in KeyCRM API to find Instagram orders
-- [ ] **ONBR-05**: User sees helpful message if phone not found in either system
-- [ ] **ONBR-06**: Bot stores Telegram chat_id ↔ phone mapping in SQLite
+- [x] **ONBR-01**: User receives welcome message with configurable brand name on /start
+- [x] **ONBR-02**: User can enter phone number in +380... format with validation
+- [x] **ONBR-03**: Bot looks up phone in Shopify API to find web orders
+- [x] **ONBR-04**: Bot looks up phone in KeyCRM API to find Instagram orders
+- [x] **ONBR-05**: User sees helpful message if phone not found in either system
+- [x] **ONBR-06**: Bot stores Telegram chat_id ↔ phone mapping in SQLite
 
 ### Orders
 
@@ -110,12 +110,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CONF-03 | Phase 1 | Complete |
 | CONF-04 | Phase 1 | Complete |
 | CONF-05 | Phase 1 | Complete |
-| ONBR-01 | Phase 2 | Pending |
-| ONBR-02 | Phase 2 | Pending |
-| ONBR-03 | Phase 2 | Pending |
-| ONBR-04 | Phase 2 | Pending |
-| ONBR-05 | Phase 2 | Pending |
-| ONBR-06 | Phase 2 | Pending |
+| ONBR-01 | Phase 2 | Complete |
+| ONBR-02 | Phase 2 | Complete |
+| ONBR-03 | Phase 2 | Complete |
+| ONBR-04 | Phase 2 | Complete |
+| ONBR-05 | Phase 2 | Complete |
+| ONBR-06 | Phase 2 | Complete |
 | NAVG-01 | Phase 3 | Pending |
 | NAVG-02 | Phase 3 | Pending |
 | NAVG-03 | Phase 3 | Pending |

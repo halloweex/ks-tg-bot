@@ -45,7 +45,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. If the phone is not found in either system, the user sees a friendly Ukrainian message explaining next steps
   5. After successful identification, the chat_id-to-phone mapping is stored in SQLite so the user does not re-enter their phone next time
 **Plans**: 2 plans
-- [ ] 02-01-PLAN.md — FSM states, DB helpers, phone validation, dual-API lookup, /start modification, router wiring
+- [x] 02-01-PLAN.md — FSM states, DB helpers, phone validation, dual-API lookup, /start modification, router wiring (completed 2026-03-03)
 - [ ] 02-02-PLAN.md — Human verification of complete onboarding flow
 
 ### Phase 3: Core Features
@@ -78,6 +78,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete    | 2026-03-02 |
-| 2. Onboarding | 0/2 | Not started | - |
+| 2. Onboarding | 1/2 | In progress | - |
 | 3. Core Features | 0/TBD | Not started | - |
 | 4. Broadcast | 0/TBD | Not started | - |
