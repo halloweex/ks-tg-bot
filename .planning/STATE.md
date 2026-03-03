@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in-progress
-last_updated: "2026-03-03T12:00:00Z"
+last_updated: "2026-03-03T11:32:14Z"
 progress:
-  total_phases: 2
+  total_phases: 3
   completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 9
+  completed_plans: 6
 ---
 
 # Project State
@@ -23,18 +23,18 @@ See: .planning/PROJECT.md (updated 2026-03-02)
 ## Current Position
 
 Phase: 3 of 4 (Core Features)
-Plan: 0 of TBD in current phase — Ready to plan
-Status: Phase 2 complete. Phase 3 not yet planned.
-Last activity: 2026-03-03 — Phase 2 closed, moving to Phase 3 planning
+Plan: 1 of 4 in current phase — Plan 03-01 complete
+Status: Executing Phase 3 plans. Navigation infrastructure done.
+Last activity: 2026-03-03 — Completed 03-01 (navigation infrastructure)
 
-Progress: [█████░░░░░] 50%
+Progress: [██████░░░░] 60%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5
+- Total plans completed: 6
 - Average duration: 3min
-- Total execution time: 13min
+- Total execution time: 15min
 
 **By Phase:**
 
@@ -42,10 +42,11 @@ Progress: [█████░░░░░] 50%
 |-------|-------|-------|----------|
 | 01-foundation | 3 | 5min | 2min |
 | 02-onboarding | 2 | 8min | 4min |
+| 03-core-features | 1 | 2min | 2min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (2min), 01-02 (2min), 01-03 (1min), 02-01 (8min), 02-02 (skipped)
-- Trend: -
+- Last 5 plans: 01-02 (2min), 01-03 (1min), 02-01 (8min), 02-02 (skipped), 03-01 (2min)
+- Trend: stable
 
 *Updated after each plan completion*
 
@@ -77,6 +78,10 @@ Recent decisions affecting current work:
 - [02-02]: Telegram contact sharing as primary onboarding method (ReplyKeyboardMarkup with request_contact=True)
 - [02-02]: Manual phone input kept as fallback alongside contact button
 - [02-02]: Simplified onboarding: no API lookup during registration, only phone validation. Lookup deferred to order viewing (Phase 3)
+- [03-01]: Website button uses url= parameter (opens in browser), not callback_data — no server-side handler needed
+- [03-01]: edit_text with TelegramBadRequest fallback to new message for stale inline keyboards
+- [03-01]: Two-message pattern for returning users: first ReplyKeyboardRemove, second InlineKeyboardMarkup
+- [03-01]: Router order: common -> menu -> onboarding (commands first, callbacks second, FSM catch-all last)
 
 ### Pending Todos
 
@@ -91,5 +96,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-03
-Stopped at: Phase 2 closed, routing to Phase 3 planning
+Stopped at: Completed 03-01-PLAN.md (navigation infrastructure)
 Resume file: None

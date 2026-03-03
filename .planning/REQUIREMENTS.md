@@ -25,11 +25,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Navigation
 
-- [ ] **NAVG-01**: Main menu with 5 buttons: Orders, Find more, Contact support, Website, Settings
-- [ ] **NAVG-02**: "Find more" submenu: About us, Contacts, Payment, Delivery + Back button
-- [ ] **NAVG-03**: "Settings" submenu: Change phone, Language + Back button
-- [ ] **NAVG-04**: Website button opens shop URL in browser
-- [ ] **NAVG-05**: Back buttons in all submenus return to parent menu
+- [x] **NAVG-01**: Main menu with 5 buttons: Orders, Find more, Contact support, Website, Settings
+- [x] **NAVG-02**: "Find more" submenu: About us, Contacts, Payment, Delivery + Back button
+- [x] **NAVG-03**: "Settings" submenu: Change phone, Language + Back button
+- [x] **NAVG-04**: Website button opens shop URL in browser
+- [x] **NAVG-05**: Back buttons in all submenus return to parent menu
 
 ### Info Pages
 
@@ -116,11 +116,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ONBR-04 | Phase 2 | Complete |
 | ONBR-05 | Phase 2 | Complete |
 | ONBR-06 | Phase 2 | Complete |
-| NAVG-01 | Phase 3 | Pending |
-| NAVG-02 | Phase 3 | Pending |
-| NAVG-03 | Phase 3 | Pending |
-| NAVG-04 | Phase 3 | Pending |
-| NAVG-05 | Phase 3 | Pending |
+| NAVG-01 | Phase 3 | Complete |
+| NAVG-02 | Phase 3 | Complete |
+| NAVG-03 | Phase 3 | Complete |
+| NAVG-04 | Phase 3 | Complete |
+| NAVG-05 | Phase 3 | Complete |
 | ORDR-01 | Phase 3 | Pending |
 | ORDR-02 | Phase 3 | Pending |
 | ORDR-03 | Phase 3 | Pending |
