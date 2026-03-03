@@ -11,6 +11,7 @@ from loguru import logger
 from bot.config import load_config
 from bot.db import init_db
 from bot.handlers.common import router as common_router
+from bot.handlers.onboarding import router as onboarding_router
 from bot.services.keycrm import KeyCRMClient
 from bot.services.shopify import ShopifyClient
 
@@ -53,8 +54,9 @@ async def main() -> None:
         await init_db()
         logger.info("Bot started successfully")
 
-    # Register routers
+    # Register routers (order matters: CommandStart first, FSM states second)
     dp.include_router(common_router)
+    dp.include_router(onboarding_router)
 
     # Start long-polling
     logger.info("Starting polling...")
