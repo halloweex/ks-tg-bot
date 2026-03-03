@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in-progress
-last_updated: "2026-03-03T04:23:30Z"
+last_updated: "2026-03-03T12:00:00Z"
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 5
-  completed_plans: 4
+  completed_plans: 5
 ---
 
 # Project State
@@ -18,21 +18,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-02)
 
 **Core value:** Customers can instantly check the status and details of their orders through Telegram without contacting support
-**Current focus:** Phase 2 — Onboarding
+**Current focus:** Phase 3 — Core Features
 
 ## Current Position
 
-Phase: 2 of 4 (Onboarding)
-Plan: 1 of 2 in current phase — COMPLETE
-Status: Plan 02-01 complete (onboarding flow). Ready for 02-02 (human verification).
-Last activity: 2026-03-03 — Completed 02-01: FSM states, phone validation, dual-API lookup, returning user detection
+Phase: 3 of 4 (Core Features)
+Plan: 0 of TBD in current phase — Ready to plan
+Status: Phase 2 complete. Phase 3 not yet planned.
+Last activity: 2026-03-03 — Phase 2 closed, moving to Phase 3 planning
 
-Progress: [████████░░] 80%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
+- Total plans completed: 5
 - Average duration: 3min
 - Total execution time: 13min
 
@@ -41,10 +41,10 @@ Progress: [████████░░] 80%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-foundation | 3 | 5min | 2min |
-| 02-onboarding | 1 | 8min | 8min |
+| 02-onboarding | 2 | 8min | 4min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (2min), 01-02 (2min), 01-03 (1min), 02-01 (8min)
+- Last 5 plans: 01-01 (2min), 01-02 (2min), 01-03 (1min), 02-01 (8min), 02-02 (skipped)
 - Trend: -
 
 *Updated after each plan completion*
@@ -73,6 +73,10 @@ Recent decisions affecting current work:
 - [02-01]: Phone normalization strips spaces/dashes/parens before regex validation — handles common input variations
 - [02-01]: asyncio.gather with return_exceptions=True distinguishes API failure from empty results — ERR_API_UNAVAILABLE vs ERR_PHONE_NOT_FOUND
 - [02-01]: /start always clears FSM state first — prevents stale state if user restarts mid-onboarding
+- [02-02]: Register users by phone even without existing orders (customers may buy later)
+- [02-02]: Telegram contact sharing as primary onboarding method (ReplyKeyboardMarkup with request_contact=True)
+- [02-02]: Manual phone input kept as fallback alongside contact button
+- [02-02]: Simplified onboarding: no API lookup during registration, only phone validation. Lookup deferred to order viewing (Phase 3)
 
 ### Pending Todos
 
@@ -82,9 +86,10 @@ None yet.
 
 - [Phase 1]: KeyCRM API — verify authentication method and phone lookup endpoint before implementing INFR-03
 - [Phase 4]: Verify current Telegram flood control limits (30 msg/s figure is from training data, needs confirmation before implementing rate limiter)
+- [Phase 2→3]: ONBR-03/ONBR-04/ONBR-05 requirements changed — API lookup now happens at order display (Phase 3), not during registration
 
 ## Session Continuity
 
 Last session: 2026-03-03
-Stopped at: Completed 02-01-PLAN.md — Onboarding flow implemented
+Stopped at: Phase 2 closed, routing to Phase 3 planning
 Resume file: None
