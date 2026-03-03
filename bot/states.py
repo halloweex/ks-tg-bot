@@ -8,3 +8,15 @@ class OnboardingStates(StatesGroup):
     """States for the phone verification onboarding flow."""
 
     waiting_phone = State()
+
+
+class SupportStates(StatesGroup):
+    """States for the support message flow."""
+
+    waiting_message = State()
+
+
+class SettingsStates(StatesGroup):
+    """States for the settings change flows."""
+
+    waiting_new_phone = State()

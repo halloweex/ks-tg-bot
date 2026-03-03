@@ -44,6 +44,17 @@ MSG_NO_ORDERS = "У вас поки немає замовлень."
 MSG_PHONE_ACCEPTED = "Номер прийнято! Реєструю вас..."
 MSG_SUPPORT_FORWARDED = "Ваше повідомлення надіслано менеджеру. Очікуйте відповідь."
 
+# Menu headers
+MSG_MAIN_MENU = "Оберіть дію:"
+MSG_INFO_MENU = "Оберіть розділ:"
+MSG_SETTINGS_MENU = "Налаштування:"
+
+# Menu content
+MSG_LANGUAGE_CURRENT = "Поточна мова: Українська \u2705"
+MSG_SUPPORT_PROMPT = "Напишіть ваше повідомлення, і ми передамо його менеджеру:"
+MSG_NEW_PHONE_PROMPT = "Введіть новий номер телефону у форматі +380XXXXXXXXX:"
+MSG_PHONE_CHANGED = "Номер телефону змінено! \u2705"
+
 # Onboarding responses
 MSG_WELCOME_BACK = "З поверненням! \U0001f338"
 MSG_PHONE_VERIFIED = "Номер підтверджено! \u2705"
