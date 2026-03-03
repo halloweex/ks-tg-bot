@@ -16,7 +16,8 @@ from bot.states import OnboardingStates
 
 router = Router()
 
-PHONE_PATTERN = re.compile(r"^\+380\d{9}$")
+# E.164: + followed by 7-15 digits (covers all international numbers)
+PHONE_PATTERN = re.compile(r"^\+\d{7,15}$")
 
 
 async def _register_user(message: Message, state: FSMContext, phone: str) -> None:
