@@ -6,6 +6,7 @@ from typing import Optional
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, ReplyKeyboardRemove
+from loguru import logger
 
 from bot import texts
 from bot.db import save_user
@@ -36,12 +37,21 @@ async def process_contact(
         await message.answer(texts.ERR_INVALID_PHONE)
         return
 
-    # Normalize: ensure +380 format
-    phone = contact.phone_number
-    if not phone.startswith("+"):
-        phone = "+" + phone
+    # Normalize: strip everything except digits, then add +
+    raw_phone = contact.phone_number
+    logger.info("Contact phone raw: '{}'", raw_phone)
+    digits = re.sub(r"\D", "", raw_phone)
+    logger.info("Contact phone digits: '{}'", digits)
 
-    phone = re.sub(r"[\s\-\(\)]", "", phone)
+    # Handle various formats: 380XXXXXXXXX, +380XXXXXXXXX, 0XXXXXXXXX
+    if digits.startswith("380") and len(digits) == 12:
+        phone = "+" + digits
+    elif digits.startswith("0") and len(digits) == 10:
+        phone = "+38" + digits
+    else:
+        phone = "+" + digits
+
+    logger.info("Contact phone normalized: '{}'", phone)
 
     if not PHONE_PATTERN.match(phone):
         await message.answer(texts.ERR_INVALID_PHONE)
