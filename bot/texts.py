@@ -41,3 +41,7 @@ BTN_LANGUAGE = "🌍 Мова"
 MSG_NO_ORDERS = "У вас поки немає замовлень."
 MSG_PHONE_ACCEPTED = "Номер прийнято! Шукаю ваші замовлення..."
 MSG_SUPPORT_FORWARDED = "Ваше повідомлення надіслано менеджеру. Очікуйте відповідь."
+
+# Onboarding responses
+MSG_WELCOME_BACK = "З поверненням! \U0001f338"
+MSG_PHONE_VERIFIED = "Номер підтверджено! \u2705"

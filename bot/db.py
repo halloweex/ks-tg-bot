@@ -39,3 +39,28 @@ async def init_db() -> None:
 async def get_db() -> aiosqlite.Connection:
     """Open a connection. Caller must close it (use as async context manager)."""
     return await aiosqlite.connect(DB_PATH)
+
+
+async def save_user(chat_id: int, phone: str) -> None:
+    """Persist a verified chat_id-to-phone mapping.
+
+    Uses INSERT OR REPLACE — chat_id is PRIMARY KEY, so re-verification
+    overwrites the old phone number.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO users (chat_id, phone) VALUES (?, ?)",
+            (chat_id, phone),
+        )
+        await db.commit()
+
+
+async def get_user_phone(chat_id: int) -> str | None:
+    """Return the phone number for a verified user, or None if not found."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT phone FROM users WHERE chat_id = ?",
+            (chat_id,),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None
