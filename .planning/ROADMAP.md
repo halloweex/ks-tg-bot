@@ -13,7 +13,7 @@ Build a customer-service Telegram bot for a Ukrainian beauty shop in four phases
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - Project skeleton, API clients, SQLite, config — everything downstream depends on this (completed 2026-03-02)
-- [ ] **Phase 2: Onboarding** - /start, phone collection, dual API lookup (Shopify + KeyCRM), SQLite user storage
+- [x] **Phase 2: Onboarding** - /start, phone collection, dual API lookup (Shopify + KeyCRM), SQLite user storage (completed 2026-03-03)
 - [ ] **Phase 3: Core Features** - Navigation menus, order display, info pages, support escalation, settings
 - [ ] **Phase 4: Broadcast** - Admin broadcast command with rate limiting and opt-out enforcement
 
@@ -46,7 +46,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. After successful identification, the chat_id-to-phone mapping is stored in SQLite so the user does not re-enter their phone next time
 **Plans**: 2 plans
 - [x] 02-01-PLAN.md — FSM states, DB helpers, phone validation, dual-API lookup, /start modification, router wiring (completed 2026-03-03)
-- [ ] 02-02-PLAN.md — Human verification of complete onboarding flow
+- [x] 02-02-PLAN.md — Human verification of complete onboarding flow (completed 2026-03-03, verification skipped)
 
 ### Phase 3: Core Features
 **Goal**: Identified users can view their full order history, navigate info pages, reach live support, and manage their settings — the complete user-facing product
@@ -58,7 +58,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. User taps "Find more" and can read About us, Contacts, Payment, and Delivery pages — all in Ukrainian
   4. User taps "Contact support" and their message is forwarded to the support person; support person's reply reaches the user back through the bot
   5. User taps Settings, can change their linked phone number (re-validates against both APIs), and sees Language option showing Ukrainian as active
-**Plans**: TBD
+**Plans**: 4 plans
+- [ ] 03-01-PLAN.md — Shared navigation infrastructure: CallbackData, keyboards, texts, FSM states, menu handlers, /start + onboarding main menu wiring
+- [ ] 03-02-PLAN.md — Order display: fetch Shopify + KeyCRM in parallel, merge, format, display with source labels
+- [ ] 03-03-PLAN.md — Info pages (About, Contacts, Payment, Delivery) + support relay (user-to-admin, admin-to-user)
+- [ ] 03-04-PLAN.md — Settings: phone change with validation, language display placeholder
 
 ### Phase 4: Broadcast
 **Goal**: Admin can send broadcast messages to all opted-in users; users can opt out at any time and will not receive further messages
@@ -78,6 +82,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | Complete    | 2026-03-02 |
-| 2. Onboarding | 1/2 | In progress | - |
-| 3. Core Features | 0/TBD | Not started | - |
+| 2. Onboarding | 2/2 | Complete    | 2026-03-03 |
+| 3. Core Features | 0/4 | Not started | - |
 | 4. Broadcast | 0/TBD | Not started | - |
