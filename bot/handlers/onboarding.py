@@ -9,7 +9,9 @@ from aiogram.types import Message, ReplyKeyboardRemove
 from loguru import logger
 
 from bot import texts
+from bot.config import AppConfig
 from bot.db import save_user
+from bot.keyboards import main_menu_kb
 from bot.services.keycrm import KeyCRMClient
 from bot.services.shopify import ShopifyClient
 from bot.states import OnboardingStates
@@ -20,17 +22,21 @@ router = Router()
 PHONE_PATTERN = re.compile(r"^\+\d{7,15}$")
 
 
-async def _register_user(message: Message, state: FSMContext, phone: str) -> None:
-    """Save user and complete onboarding."""
+async def _register_user(
+    message: Message, state: FSMContext, phone: str, config: AppConfig
+) -> None:
+    """Save user, complete onboarding, and show main menu."""
     await save_user(message.chat.id, phone)
     await state.clear()
     await message.answer(texts.MSG_PHONE_VERIFIED, reply_markup=ReplyKeyboardRemove())
+    await message.answer(texts.MSG_MAIN_MENU, reply_markup=main_menu_kb(config.website_url))
 
 
 @router.message(OnboardingStates.waiting_phone, F.contact)
 async def process_contact(
     message: Message,
     state: FSMContext,
+    config: AppConfig,
 ) -> None:
     """Handle shared Telegram contact."""
     contact = message.contact
@@ -59,13 +65,14 @@ async def process_contact(
         return
 
     await message.answer(texts.MSG_PHONE_ACCEPTED)
-    await _register_user(message, state, phone)
+    await _register_user(message, state, phone, config)
 
 
 @router.message(OnboardingStates.waiting_phone)
 async def process_phone(
     message: Message,
     state: FSMContext,
+    config: AppConfig,
     keycrm: KeyCRMClient,
     shopify: Optional[ShopifyClient],
 ) -> None:
@@ -78,4 +85,4 @@ async def process_phone(
         return
 
     await message.answer(texts.MSG_PHONE_ACCEPTED)
-    await _register_user(message, state, phone)
+    await _register_user(message, state, phone, config)
