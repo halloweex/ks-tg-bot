@@ -4,7 +4,7 @@ from __future__ import annotations
 from aiogram import Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove
 
 from bot import texts
 from bot.config import AppConfig
@@ -25,10 +25,15 @@ async def cmd_start(
     # Returning user — already verified, skip phone entry
     phone = await get_user_phone(message.chat.id)
     if phone:
-        await message.answer(texts.MSG_WELCOME_BACK)
+        await message.answer(texts.MSG_WELCOME_BACK, reply_markup=ReplyKeyboardRemove())
         return
 
-    # New user — send branded greeting (includes phone prompt) and enter FSM
+    # New user — send greeting with share-phone keyboard
     greeting = texts.GREETING.format(brand_name=config.brand_name)
-    await message.answer(greeting)
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=texts.BTN_SHARE_PHONE, request_contact=True)]],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
+    await message.answer(greeting, reply_markup=keyboard)
     await state.set_state(OnboardingStates.waiting_phone)

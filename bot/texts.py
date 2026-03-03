@@ -8,9 +8,11 @@ No string literals should appear in handler files — import from here instead.
 GREETING = (
     "Вітаємо у {brand_name}! 🌸\n\n"
     "Я допоможу вам, покажу та проведу за руку у світ краси.\n\n"
-    "Надішліть свій номер телефону у форматі +380XXXXXXXXX, "
-    "щоб я знайшла ваші замовлення."
+    "Натисніть кнопку нижче, щоб поділитися номером, "
+    "або введіть його вручну у форматі +380XXXXXXXXX."
 )
+
+BTN_SHARE_PHONE = "📱 Поділитися номером"
 
 # Error messages (neutral/factual tone)
 ERR_GENERIC = "Виникла технічна помилка. Спробуйте пізніше."
@@ -39,7 +41,7 @@ BTN_LANGUAGE = "🌍 Мова"
 
 # Status messages
 MSG_NO_ORDERS = "У вас поки немає замовлень."
-MSG_PHONE_ACCEPTED = "Номер прийнято! Шукаю ваші замовлення..."
+MSG_PHONE_ACCEPTED = "Номер прийнято! Реєструю вас..."
 MSG_SUPPORT_FORWARDED = "Ваше повідомлення надіслано менеджеру. Очікуйте відповідь."
 
 # Onboarding responses
