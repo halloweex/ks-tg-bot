@@ -11,8 +11,12 @@ from loguru import logger
 from bot.config import load_config
 from bot.db import init_db
 from bot.handlers.common import router as common_router
+from bot.handlers.info import router as info_router
 from bot.handlers.menu import router as menu_router
 from bot.handlers.onboarding import router as onboarding_router
+from bot.handlers.orders import router as orders_router
+from bot.handlers.settings import router as settings_router
+from bot.handlers.support import router as support_router
 from bot.services.keycrm import KeyCRMClient
 from bot.services.shopify import ShopifyClient
 
@@ -58,7 +62,11 @@ async def main() -> None:
     # Register routers (order matters: commands first, callbacks second, FSM last)
     dp.include_router(common_router)
     dp.include_router(menu_router)
-    dp.include_router(onboarding_router)
+    dp.include_router(orders_router)
+    dp.include_router(info_router)
+    dp.include_router(support_router)
+    dp.include_router(settings_router)
+    dp.include_router(onboarding_router)  # FSM catch-all — ALWAYS last
 
     # Start long-polling
     logger.info("Starting polling...")
