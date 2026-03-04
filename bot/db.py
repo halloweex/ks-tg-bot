@@ -64,3 +64,44 @@ async def get_user_phone(chat_id: int) -> str | None:
         )
         row = await cursor.fetchone()
         return row[0] if row else None
+
+
+async def opt_out_user(chat_id: int) -> None:
+    """Mark a user as opted out of broadcasts."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO opt_out (chat_id) VALUES (?)",
+            (chat_id,),
+        )
+        await db.commit()
+
+
+async def opt_in_user(chat_id: int) -> None:
+    """Remove a user from the opt-out list (re-subscribe)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "DELETE FROM opt_out WHERE chat_id = ?",
+            (chat_id,),
+        )
+        await db.commit()
+
+
+async def is_opted_out(chat_id: int) -> bool:
+    """Check whether a user has opted out of broadcasts."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT 1 FROM opt_out WHERE chat_id = ?",
+            (chat_id,),
+        )
+        return await cursor.fetchone() is not None
+
+
+async def get_broadcast_recipients() -> list[int]:
+    """Return chat_ids of all users who have NOT opted out."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT u.chat_id FROM users u "
+            "WHERE u.chat_id NOT IN (SELECT chat_id FROM opt_out)",
+        )
+        rows = await cursor.fetchall()
+        return [row[0] for row in rows]

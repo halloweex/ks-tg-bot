@@ -20,3 +20,10 @@ class SettingsStates(StatesGroup):
     """States for the settings change flows."""
 
     waiting_new_phone = State()
+
+
+class BroadcastStates(StatesGroup):
+    """States for the admin broadcast flow."""
+
+    waiting_message = State()
+    waiting_confirm = State()

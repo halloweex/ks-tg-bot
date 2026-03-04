@@ -10,6 +10,7 @@ from loguru import logger
 
 from bot.config import load_config
 from bot.db import init_db
+from bot.handlers.broadcast import router as broadcast_router
 from bot.handlers.common import router as common_router
 from bot.handlers.info import router as info_router
 from bot.handlers.menu import router as menu_router
@@ -61,6 +62,7 @@ async def main() -> None:
 
     # Register routers (order matters: commands first, callbacks second, FSM last)
     dp.include_router(common_router)
+    dp.include_router(broadcast_router)
     dp.include_router(menu_router)
     dp.include_router(orders_router)
     dp.include_router(info_router)

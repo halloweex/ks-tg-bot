@@ -8,7 +8,7 @@ from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKey
 
 from bot import texts
 from bot.config import AppConfig
-from bot.db import get_user_phone
+from bot.db import get_user_phone, is_opted_out, opt_in_user
 from bot.keyboards import main_menu_kb
 from bot.states import OnboardingStates
 
@@ -22,6 +22,11 @@ async def cmd_start(
     """Handle /start command — greet new users or welcome back returning ones."""
     # Always clear any active FSM state (e.g. user sends /start mid-onboarding)
     await state.clear()
+
+    # Re-subscribe if user was opted out of broadcasts
+    if await is_opted_out(message.chat.id):
+        await opt_in_user(message.chat.id)
+        await message.answer(texts.MSG_OPT_IN_CONFIRM)
 
     # Returning user — already verified, show main menu
     phone = await get_user_phone(message.chat.id)

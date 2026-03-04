@@ -70,3 +70,15 @@ MSG_SUPPORT_REPLY_PREFIX = "Відповідь від менеджера:"
 MSG_SUPPORT_ADMIN_NOTE = "📩 Повідомлення від користувача (chat_id: {chat_id}):"
 MSG_SUPPORT_REPLY_INSTRUCTION = "↩️ Відповідайте на переслане повідомлення, щоб відповісти клієнту."
 MSG_SUPPORT_NO_REPLY_TARGET = "Будь ласка, відповідайте на переслане повідомлення клієнта."
+
+# Broadcast opt-out
+MSG_OPT_OUT_CONFIRM = "Ви відписались від розсилки. Щоб підписатись знову, надішліть /start"
+MSG_OPT_IN_CONFIRM = "Ви знову підписані на розсилку!"
+
+# Admin broadcast
+MSG_BROADCAST_PROMPT = "Введіть текст розсилки:"
+MSG_BROADCAST_CONFIRM = "Надіслати це повідомлення {count} користувачам?\n\nНадішліть 'так' для підтвердження або 'ні' для скасування."
+MSG_BROADCAST_CANCELLED = "Розсилку скасовано."
+MSG_BROADCAST_STARTED = "Розсилка розпочата..."
+MSG_BROADCAST_COMPLETE = "Розсилку завершено!\n\nНадіслано: {sent}\nПомилок: {failed}\nЗаблоковано: {blocked}"
+MSG_BROADCAST_NO_RECIPIENTS = "Немає активних підписників для розсилки."
