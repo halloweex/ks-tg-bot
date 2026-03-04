@@ -39,6 +39,12 @@ BTN_BACK = "◀️ Назад"
 BTN_CHANGE_PHONE = "📱 Змінити номер"
 BTN_LANGUAGE = "🌍 Мова"
 
+# Order display
+MSG_ORDERS_LOADING = "Завантажую ваші замовлення..."
+MSG_ORDERS_HEADER = "📦 Ваші замовлення:"
+MSG_ORDER_SOURCE_WEB = "🌐 Сайт"
+MSG_ORDER_SOURCE_INSTAGRAM = "📸 Instagram"
+
 # Status messages
 MSG_NO_ORDERS = "У вас поки немає замовлень."
 MSG_PHONE_ACCEPTED = "Номер прийнято! Реєструю вас..."
@@ -58,3 +64,9 @@ MSG_PHONE_CHANGED = "Номер телефону змінено! \u2705"
 # Onboarding responses
 MSG_WELCOME_BACK = "З поверненням! \U0001f338"
 MSG_PHONE_VERIFIED = "Номер підтверджено! \u2705"
+
+# Support relay (admin-side)
+MSG_SUPPORT_REPLY_PREFIX = "Відповідь від менеджера:"
+MSG_SUPPORT_ADMIN_NOTE = "📩 Повідомлення від користувача (chat_id: {chat_id}):"
+MSG_SUPPORT_REPLY_INSTRUCTION = "↩️ Відповідайте на переслане повідомлення, щоб відповісти клієнту."
+MSG_SUPPORT_NO_REPLY_TARGET = "Будь ласка, відповідайте на переслане повідомлення клієнта."
