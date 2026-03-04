@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in-progress
-last_updated: "2026-03-03T11:32:14Z"
+last_updated: "2026-03-04"
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 9
-  completed_plans: 6
+  completed_plans: 9
 ---
 
 # Project State
@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-03-02)
 
 ## Current Position
 
-Phase: 3 of 4 (Core Features)
-Plan: 1 of 4 in current phase — Plan 03-01 complete
-Status: Executing Phase 3 plans. Navigation infrastructure done.
-Last activity: 2026-03-03 — Completed 03-01 (navigation infrastructure)
+Phase: 3 of 4 (Core Features) — COMPLETE
+Plan: 4 of 4 in current phase — All plans complete
+Status: Phase 3 complete. All core features implemented.
+Last activity: 2026-03-04 — Completed 03-02, 03-03, 03-04
 
-Progress: [██████░░░░] 60%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
@@ -42,7 +42,7 @@ Progress: [██████░░░░] 60%
 |-------|-------|-------|----------|
 | 01-foundation | 3 | 5min | 2min |
 | 02-onboarding | 2 | 8min | 4min |
-| 03-core-features | 1 | 2min | 2min |
+| 03-core-features | 4 | ~10min | ~2.5min |
 
 **Recent Trend:**
 - Last 5 plans: 01-02 (2min), 01-03 (1min), 02-01 (8min), 02-02 (skipped), 03-01 (2min)
@@ -82,6 +82,12 @@ Recent decisions affecting current work:
 - [03-01]: edit_text with TelegramBadRequest fallback to new message for stale inline keyboards
 - [03-01]: Two-message pattern for returning users: first ReplyKeyboardRemove, second InlineKeyboardMarkup
 - [03-01]: Router order: common -> menu -> onboarding (commands first, callbacks second, FSM catch-all last)
+- [03-02]: asyncio.gather with return_exceptions=True for parallel order fetch; parse_mode=None for order display to avoid HTML issues
+- [03-02]: 3800 char soft limit with truncation marker for long order lists
+- [03-03]: Support relay uses chat_id metadata for privacy-safe routing (forward_from may be None)
+- [03-03]: Three-message pattern to admin: metadata line, forwarded message, reply instruction
+- [03-04]: Phone change uses format-only validation (same PHONE_PATTERN as onboarding, no API lookup)
+- [03-04]: Language button uses show_alert=True popup, stays on settings menu
 
 ### Pending Todos
 
@@ -95,6 +101,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-03
-Stopped at: Completed 03-01-PLAN.md (navigation infrastructure)
+Last session: 2026-03-04
+Stopped at: Phase 3 complete. Ready for Phase 4 (Production Hardening).
 Resume file: None
