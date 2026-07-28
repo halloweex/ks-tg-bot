@@ -12,7 +12,7 @@ from loguru import logger
 from bot import texts
 from bot.config import AppConfig
 from bot.db import save_user, upsert_orders
-from bot.keyboards import main_menu_kb
+from bot.keyboards import main_menu_kb, share_phone_kb
 from bot.services.keycrm import KeyCRMClient, keycrm_order_to_dict
 from bot.services.shopify import ShopifyClient, shopify_order_to_dict
 from bot.states import OnboardingStates
@@ -43,6 +43,23 @@ def normalize_phone(raw: str | None) -> str | None:
     else:
         phone = "+" + digits
     return phone if PHONE_PATTERN.match(phone) else None
+
+
+def own_contact_phone(message: Message) -> str | None:
+    """Return the sender's *own* verified phone from a shared contact, else None.
+
+    Security boundary: Telegram sets ``contact.user_id`` to the sharer's own id
+    only when they tap the request_contact button to share THEIR number. A
+    forwarded or address-book contact of another person has a different (or
+    missing) user_id and is rejected — otherwise anyone could bind a victim's
+    phone to their chat and read that person's orders + delivery address (IDOR).
+    """
+    contact = message.contact
+    if not contact or not contact.phone_number:
+        return None
+    if not message.from_user or contact.user_id != message.from_user.id:
+        return None
+    return normalize_phone(contact.phone_number)
 
 
 async def _sync_orders(
@@ -113,35 +130,24 @@ async def process_contact(
     keycrm: KeyCRMClient,
     shopify: Optional[ShopifyClient],
 ) -> None:
-    """Handle shared Telegram contact."""
-    contact = message.contact
-    if not contact or not contact.phone_number:
-        await message.answer(texts.ERR_INVALID_PHONE)
+    """Register the user from their OWN shared contact (ownership-verified)."""
+    if message.contact and message.contact.user_id != (message.from_user.id if message.from_user else None):
+        # Forwarded / someone else's contact card — refuse.
+        await message.answer(texts.ERR_CONTACT_NOT_OWN, reply_markup=share_phone_kb())
         return
 
-    phone = normalize_phone(contact.phone_number)
+    phone = own_contact_phone(message)
     if not phone:
-        await message.answer(texts.ERR_INVALID_PHONE)
+        await message.answer(texts.ERR_INVALID_PHONE, reply_markup=share_phone_kb())
         return
-    logger.info("Contact registered, normalized phone: {}", phone)
+    logger.info("Verified own contact registered for chat {}", message.chat.id)
 
     await message.answer(texts.MSG_PHONE_ACCEPTED)
     await _register_user(message, state, phone, config, keycrm=keycrm, shopify=shopify)
 
 
 @router.message(OnboardingStates.waiting_phone)
-async def process_phone(
-    message: Message,
-    state: FSMContext,
-    config: AppConfig,
-    keycrm: KeyCRMClient,
-    shopify: Optional[ShopifyClient],
-) -> None:
-    """Validate phone number typed manually."""
-    phone = normalize_phone(message.text)
-    if not phone:
-        await message.answer(texts.ERR_INVALID_PHONE)
-        return
-
-    await message.answer(texts.MSG_PHONE_ACCEPTED)
-    await _register_user(message, state, phone, config, keycrm=keycrm, shopify=shopify)
+async def reject_typed_phone(message: Message) -> None:
+    """Refuse manually typed numbers — ownership can't be proven, so allowing
+    them would expose another person's orders. User must tap the button."""
+    await message.answer(texts.MSG_USE_SHARE_BUTTON, reply_markup=share_phone_kb())

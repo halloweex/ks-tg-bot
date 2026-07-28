@@ -1,11 +1,24 @@
 """Inline keyboard builders for menu navigation."""
 from __future__ import annotations
 
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot import texts
 from bot.callbacks import BroadcastAction, DeliveryAction, InfoAction, MenuAction, SettingsAction
+
+
+def share_phone_kb() -> ReplyKeyboardMarkup:
+    """Reply keyboard with the single request_contact button.
+
+    request_contact is the only way to prove phone ownership: Telegram fills in
+    contact.user_id with the sender's own id, which handlers verify.
+    """
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=texts.BTN_SHARE_PHONE, request_contact=True)]],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
 
 
 def main_menu_kb(website_url: str) -> InlineKeyboardMarkup:

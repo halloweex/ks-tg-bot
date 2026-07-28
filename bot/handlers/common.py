@@ -4,12 +4,12 @@ from __future__ import annotations
 from aiogram import Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from aiogram.types import Message, ReplyKeyboardRemove
 
 from bot import texts
 from bot.config import AppConfig
 from bot.db import get_user, get_user_phone, is_opted_out, opt_in_user
-from bot.keyboards import main_menu_kb
+from bot.keyboards import main_menu_kb, share_phone_kb
 from bot.states import OnboardingStates
 
 router = Router()
@@ -39,12 +39,7 @@ async def cmd_start(
         await message.answer(texts.MSG_MAIN_MENU, reply_markup=main_menu_kb(config.website_url))
         return
 
-    # New user — send greeting with share-phone keyboard
+    # New user — send greeting with share-phone keyboard (request_contact only)
     greeting = texts.GREETING.format(brand_name=config.brand_name)
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=texts.BTN_SHARE_PHONE, request_contact=True)]],
-        resize_keyboard=True,
-        one_time_keyboard=True,
-    )
-    await message.answer(greeting, reply_markup=keyboard)
+    await message.answer(greeting, reply_markup=share_phone_kb())
     await state.set_state(OnboardingStates.waiting_phone)

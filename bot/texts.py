@@ -8,11 +8,22 @@ No string literals should appear in handler files — import from here instead.
 GREETING = (
     "Вітаємо у {brand_name}! 🌸\n\n"
     "Я допоможу вам, покажу та проведу за руку у світ краси.\n\n"
-    "Натисніть кнопку нижче, щоб поділитися номером, "
-    "або введіть його вручну у форматі +380XXXXXXXXX."
+    "Натисніть кнопку нижче, щоб поділитися своїм номером телефону."
 )
 
 BTN_SHARE_PHONE = "📱 Поділитися номером"
+
+# Security: the phone must be proven via the request_contact button (own number
+# only). Manual entry / forwarded contacts are rejected to prevent viewing
+# someone else's orders and delivery address (IDOR).
+ERR_CONTACT_NOT_OWN = (
+    "❗ Поділіться, будь ласка, своїм власним номером через кнопку "
+    "«📱 Поділитися номером» нижче.\nПереслані або чужі контакти не приймаються."
+)
+MSG_USE_SHARE_BUTTON = (
+    "З міркувань безпеки номер не можна вводити вручну.\n"
+    "Скористайтеся кнопкою «📱 Поділитися номером» нижче 👇"
+)
 
 # Error messages (neutral/factual tone)
 ERR_GENERIC = "Виникла технічна помилка. Спробуйте пізніше."
@@ -61,7 +72,7 @@ MSG_SETTINGS_MENU = "Налаштування:"
 # Menu content
 MSG_LANGUAGE_CURRENT = "Поточна мова: Українська \u2705"
 MSG_SUPPORT_PROMPT = "Напишіть ваше повідомлення, і ми передамо його менеджеру:"
-MSG_NEW_PHONE_PROMPT = "Введіть новий номер телефону у форматі +380XXXXXXXXX:"
+MSG_NEW_PHONE_PROMPT = "Щоб оновити номер, поділіться ним через кнопку нижче 👇"
 MSG_PHONE_CHANGED = "Номер телефону змінено! \u2705"
 
 # Onboarding responses
