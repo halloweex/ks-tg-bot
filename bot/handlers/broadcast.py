@@ -25,6 +25,7 @@ from bot.db import (
 )
 from bot.keyboards import broadcast_confirm_kb
 from bot.states import BroadcastStates
+from bot.tasks import spawn
 
 router = Router()
 
@@ -109,8 +110,9 @@ async def resume_broadcasts(bot: Bot) -> None:
     """On startup, continue any broadcast interrupted by a restart/redeploy."""
     for job in await get_unfinished_broadcasts():
         logger.warning("Resuming interrupted broadcast job #{}", job["id"])
-        asyncio.create_task(
-            run_broadcast_job(bot, job["id"], job["text"], job["created_by"])
+        spawn(
+            run_broadcast_job(bot, job["id"], job["text"], job["created_by"]),
+            name=f"broadcast_job_{job['id']}",
         )
 
 
@@ -118,7 +120,7 @@ async def _start_broadcast(bot: Bot, text: str, admin_id: int) -> None:
     """Persist a new job (snapshotting recipients) and run it in the background."""
     job_id = await create_broadcast_job(text, admin_id)
     logger.info("Broadcast job #{} created by admin {}", job_id, admin_id)
-    asyncio.create_task(run_broadcast_job(bot, job_id, text, admin_id))
+    spawn(run_broadcast_job(bot, job_id, text, admin_id), name=f"broadcast_job_{job_id}")
 
 
 @router.message(Command("broadcast"))

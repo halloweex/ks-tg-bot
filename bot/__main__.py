@@ -22,6 +22,7 @@ from bot.handlers.support import router as support_router
 from bot.services.keycrm import KeyCRMClient
 from bot.services.novaposhta import NovaPoshtaClient
 from bot.services.shopify import ShopifyClient
+from bot.tasks import drain
 
 
 async def main() -> None:
@@ -71,6 +72,11 @@ async def main() -> None:
         # Continue any broadcast that a previous restart/redeploy interrupted.
         await resume_broadcasts(bot)
         logger.info("Bot started successfully")
+
+    # Shutdown hook: let outstanding background tasks finish before exit.
+    @dp.shutdown()
+    async def on_shutdown() -> None:
+        await drain()
 
     # Register routers (order matters: commands first, callbacks second, FSM last)
     dp.include_router(common_router)

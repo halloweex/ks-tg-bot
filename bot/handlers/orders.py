@@ -16,6 +16,7 @@ from bot.db import get_cached_orders, get_last_sync_time, get_user_phone, save_u
 from bot.keyboards import main_menu_kb
 from bot.services.keycrm import KeyCRMClient, keycrm_order_to_dict
 from bot.services.shopify import ShopifyClient, shopify_order_to_dict
+from bot.tasks import spawn
 
 router = Router()
 
@@ -237,7 +238,7 @@ async def show_orders(
         # Fire-and-forget background refresh — but only if the cache is stale,
         # so repeated taps and post-broadcast bursts don't re-hit the APIs.
         if not await _is_cache_fresh(chat_id):
-            asyncio.create_task(_refresh_orders(chat_id, phone, keycrm, shopify))
+            spawn(_refresh_orders(chat_id, phone, keycrm, shopify), name="refresh_orders")
     else:
         # No cache — show loading, fetch synchronously, then display
         await callback.message.answer(texts.MSG_ORDERS_LOADING)
