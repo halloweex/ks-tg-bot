@@ -23,6 +23,28 @@ router = Router()
 PHONE_PATTERN = re.compile(r"^\+\d{7,15}$")
 
 
+def normalize_phone(raw: str | None) -> str | None:
+    """Normalize any input to an E.164 number (+digits). Accepts all countries.
+
+    Ukrainian local formats are handled for convenience:
+      380XXXXXXXXX (12 digits) -> +380XXXXXXXXX
+      0XXXXXXXXX   (10 digits) -> +380XXXXXXXXX
+    Anything else becomes '+' + digits (so a US/UK/DE/etc. number typed with or
+    without a leading '+' is accepted). Returns None if the result isn't a valid
+    E.164 number.
+    """
+    digits = re.sub(r"\D", "", raw or "")
+    if not digits:
+        return None
+    if digits.startswith("380") and len(digits) == 12:
+        phone = "+" + digits
+    elif digits.startswith("0") and len(digits) == 10:
+        phone = "+38" + digits
+    else:
+        phone = "+" + digits
+    return phone if PHONE_PATTERN.match(phone) else None
+
+
 async def _sync_orders(
     chat_id: int, phone: str,
     keycrm: KeyCRMClient | None, shopify: ShopifyClient | None,
@@ -97,25 +119,11 @@ async def process_contact(
         await message.answer(texts.ERR_INVALID_PHONE)
         return
 
-    # Normalize: strip everything except digits, then add +
-    raw_phone = contact.phone_number
-    logger.info("Contact phone raw: '{}'", raw_phone)
-    digits = re.sub(r"\D", "", raw_phone)
-    logger.info("Contact phone digits: '{}'", digits)
-
-    # Handle various formats: 380XXXXXXXXX, +380XXXXXXXXX, 0XXXXXXXXX
-    if digits.startswith("380") and len(digits) == 12:
-        phone = "+" + digits
-    elif digits.startswith("0") and len(digits) == 10:
-        phone = "+38" + digits
-    else:
-        phone = "+" + digits
-
-    logger.info("Contact phone normalized: '{}'", phone)
-
-    if not PHONE_PATTERN.match(phone):
+    phone = normalize_phone(contact.phone_number)
+    if not phone:
         await message.answer(texts.ERR_INVALID_PHONE)
         return
+    logger.info("Contact registered, normalized phone: {}", phone)
 
     await message.answer(texts.MSG_PHONE_ACCEPTED)
     await _register_user(message, state, phone, config, keycrm=keycrm, shopify=shopify)
@@ -130,10 +138,8 @@ async def process_phone(
     shopify: Optional[ShopifyClient],
 ) -> None:
     """Validate phone number typed manually."""
-    raw = message.text or ""
-    phone = re.sub(r"[\s\-\(\)]", "", raw.strip())
-
-    if not PHONE_PATTERN.match(phone):
+    phone = normalize_phone(message.text)
+    if not phone:
         await message.answer(texts.ERR_INVALID_PHONE)
         return
 
