@@ -1,0 +1,15 @@
+.git
+.gitignore
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.db
+*.db-wal
+*.db-shm
+.env
+.planning
+deploy
+data
+backups
+*.md
