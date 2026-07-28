@@ -72,6 +72,31 @@ CREATE TABLE IF NOT EXISTS orders (
 """
 
 
+# Durable broadcast: a job + a per-recipient progress row so a broadcast
+# interrupted by a restart/redeploy resumes exactly where it stopped.
+_CREATE_BROADCAST_JOBS = """
+CREATE TABLE IF NOT EXISTS broadcast_jobs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    text        TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'running',   -- running | done
+    created_by  INTEGER,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    finished_at TEXT
+);
+"""
+
+_CREATE_BROADCAST_TARGETS = """
+CREATE TABLE IF NOT EXISTS broadcast_targets (
+    job_id     INTEGER NOT NULL REFERENCES broadcast_jobs(id),
+    chat_id    INTEGER NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'pending',    -- pending | sent | failed | blocked
+    error      TEXT,
+    updated_at TEXT,
+    PRIMARY KEY (job_id, chat_id)
+);
+"""
+
+
 _MIGRATIONS = [
     "ALTER TABLE users ADD COLUMN full_name TEXT",
     "ALTER TABLE users ADD COLUMN email TEXT",
@@ -92,6 +117,8 @@ async def init_db() -> None:
         await db.execute(_CREATE_USERS)
         await db.execute(_CREATE_OPT_OUT)
         await db.execute(_CREATE_ORDERS)
+        await db.execute(_CREATE_BROADCAST_JOBS)
+        await db.execute(_CREATE_BROADCAST_TARGETS)
         for migration in _MIGRATIONS:
             try:
                 await db.execute(migration)
@@ -100,6 +127,11 @@ async def init_db() -> None:
         # Order lookups always filter by chat_id; without this they full-scan.
         await db.execute(
             "CREATE INDEX IF NOT EXISTS ix_orders_chat_id ON orders(chat_id)"
+        )
+        # Resuming a job scans its still-pending targets.
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS ix_targets_status "
+            "ON broadcast_targets(job_id, status)"
         )
         await db.commit()
     logger.info("Database initialized at {} (WAL mode)", DB_PATH)
@@ -254,3 +286,91 @@ async def get_last_sync_time(chat_id: int) -> str | None:
         )
         row = await cursor.fetchone()
         return row[0] if row and row[0] else None
+
+
+# ---------------------------------------------------------------------------
+# Durable broadcast
+# ---------------------------------------------------------------------------
+
+
+async def create_broadcast_job(text: str, created_by: int) -> int:
+    """Create a broadcast job and snapshot the current recipient list into
+    broadcast_targets (all 'pending'). Returns the new job id.
+
+    The recipient set is frozen at creation time so a later opt-out/opt-in
+    can't change which people this job is responsible for.
+    """
+    async with _connect() as db:
+        cursor = await db.execute(
+            "INSERT INTO broadcast_jobs (text, created_by) VALUES (?, ?)",
+            (text, created_by),
+        )
+        job_id = cursor.lastrowid
+        await db.execute(
+            "INSERT INTO broadcast_targets (job_id, chat_id) "
+            "SELECT ?, chat_id FROM users "
+            "WHERE chat_id NOT IN (SELECT chat_id FROM opt_out)",
+            (job_id,),
+        )
+        await db.commit()
+        return job_id
+
+
+async def get_pending_targets(job_id: int) -> list[int]:
+    """Return chat_ids of this job's targets that still need sending."""
+    async with _connect() as db:
+        cursor = await db.execute(
+            "SELECT chat_id FROM broadcast_targets "
+            "WHERE job_id = ? AND status = 'pending'",
+            (job_id,),
+        )
+        return [row[0] for row in await cursor.fetchall()]
+
+
+async def mark_target(
+    job_id: int, chat_id: int, status: str, error: str | None = None
+) -> None:
+    """Record the delivery outcome for one recipient (sent/failed/blocked)."""
+    async with _connect() as db:
+        await db.execute(
+            "UPDATE broadcast_targets SET status = ?, error = ?, "
+            "updated_at = datetime('now') WHERE job_id = ? AND chat_id = ?",
+            (status, error, job_id, chat_id),
+        )
+        await db.commit()
+
+
+async def get_unfinished_broadcasts() -> list[dict]:
+    """Return jobs still marked 'running' (to resume after a restart)."""
+    async with _connect() as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT id, text, created_by FROM broadcast_jobs "
+            "WHERE status = 'running' ORDER BY id"
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+
+
+async def finish_broadcast_job(job_id: int) -> None:
+    """Mark a job done once all its targets are processed."""
+    async with _connect() as db:
+        await db.execute(
+            "UPDATE broadcast_jobs SET status = 'done', "
+            "finished_at = datetime('now') WHERE id = ?",
+            (job_id,),
+        )
+        await db.commit()
+
+
+async def broadcast_job_stats(job_id: int) -> dict:
+    """Return counts per status for a job: sent/failed/blocked/pending."""
+    async with _connect() as db:
+        cursor = await db.execute(
+            "SELECT status, COUNT(*) FROM broadcast_targets "
+            "WHERE job_id = ? GROUP BY status",
+            (job_id,),
+        )
+        stats = {"sent": 0, "failed": 0, "blocked": 0, "pending": 0}
+        for status, count in await cursor.fetchall():
+            stats[status] = count
+        return stats

@@ -1,4 +1,4 @@
-"""Broadcast handlers — opt-out commands and admin broadcast flow."""
+"""Broadcast handlers — opt-out commands and durable admin broadcast flow."""
 from __future__ import annotations
 
 import asyncio
@@ -8,15 +8,29 @@ from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
+from loguru import logger
 
 from bot import texts
 from bot.callbacks import BroadcastAction
 from bot.config import AppConfig
-from bot.db import get_broadcast_recipients, opt_out_user
+from bot.db import (
+    broadcast_job_stats,
+    create_broadcast_job,
+    finish_broadcast_job,
+    get_broadcast_recipients,
+    get_pending_targets,
+    get_unfinished_broadcasts,
+    mark_target,
+    opt_out_user,
+)
 from bot.keyboards import broadcast_confirm_kb
 from bot.states import BroadcastStates
 
 router = Router()
+
+# Only one job sends at a time so the ~20 msg/sec Telegram rate limit is global
+# across a fresh job and any jobs being resumed after a restart.
+_send_lock = asyncio.Lock()
 
 
 # --------------- Opt-out commands (/stop, /unsubscribe) ---------------
@@ -37,27 +51,74 @@ def _is_admin(user_id: int, config: AppConfig) -> bool:
     return user_id in config.env.admin_ids
 
 
-async def _run_broadcast(bot: Bot, text: str) -> tuple[int, int, int]:
-    """Send `text` to every opted-in recipient. Returns (sent, failed, blocked)."""
-    recipients = await get_broadcast_recipients()
-    sent = failed = blocked = 0
-    for chat_id in recipients:
+async def _send_one(bot: Bot, job_id: int, chat_id: int, text: str) -> None:
+    """Send to one recipient and persist the outcome so a restart can resume.
+
+    403 Forbidden (bot blocked / account deactivated) → mark blocked AND opt the
+    user out, so future broadcasts skip them and the dead-chat_id set can't grow.
+    429 Too Many Requests → honour retry_after, then retry once.
+    """
+    try:
+        await bot.send_message(chat_id, text)
+        await mark_target(job_id, chat_id, "sent")
+    except TelegramForbiddenError:
+        await mark_target(job_id, chat_id, "blocked")
+        await opt_out_user(chat_id)
+    except TelegramRetryAfter as e:
+        await asyncio.sleep(e.retry_after)
         try:
             await bot.send_message(chat_id, text)
-            sent += 1
+            await mark_target(job_id, chat_id, "sent")
         except TelegramForbiddenError:
-            blocked += 1
-        except TelegramRetryAfter as e:
-            await asyncio.sleep(e.retry_after)
-            try:
-                await bot.send_message(chat_id, text)
-                sent += 1
-            except Exception:
-                failed += 1
-        except Exception:
-            failed += 1
-        await asyncio.sleep(0.05)  # ~20 msg/sec Telegram rate limit
-    return sent, failed, blocked
+            await mark_target(job_id, chat_id, "blocked")
+            await opt_out_user(chat_id)
+        except Exception as exc:  # noqa: BLE001
+            await mark_target(job_id, chat_id, "failed", str(exc))
+    except Exception as exc:  # noqa: BLE001
+        await mark_target(job_id, chat_id, "failed", str(exc))
+
+
+async def run_broadcast_job(
+    bot: Bot, job_id: int, text: str, notify_chat_id: int | None
+) -> None:
+    """Drive a job to completion over its still-pending targets, then report.
+
+    Safe to call again after a restart: already-processed recipients are no
+    longer 'pending', so only the remainder are sent.
+    """
+    async with _send_lock:
+        pending = await get_pending_targets(job_id)
+        logger.info("Broadcast job #{}: sending to {} recipient(s)", job_id, len(pending))
+        for chat_id in pending:
+            await _send_one(bot, job_id, chat_id, text)
+            await asyncio.sleep(0.05)  # ~20 msg/sec
+
+        await finish_broadcast_job(job_id)
+        stats = await broadcast_job_stats(job_id)
+        logger.info("Broadcast job #{} done: {}", job_id, stats)
+        if notify_chat_id:
+            await bot.send_message(
+                notify_chat_id,
+                texts.MSG_BROADCAST_COMPLETE.format(
+                    sent=stats["sent"], failed=stats["failed"], blocked=stats["blocked"]
+                ),
+            )
+
+
+async def resume_broadcasts(bot: Bot) -> None:
+    """On startup, continue any broadcast interrupted by a restart/redeploy."""
+    for job in await get_unfinished_broadcasts():
+        logger.warning("Resuming interrupted broadcast job #{}", job["id"])
+        asyncio.create_task(
+            run_broadcast_job(bot, job["id"], job["text"], job["created_by"])
+        )
+
+
+async def _start_broadcast(bot: Bot, text: str, admin_id: int) -> None:
+    """Persist a new job (snapshotting recipients) and run it in the background."""
+    job_id = await create_broadcast_job(text, admin_id)
+    logger.info("Broadcast job #{} created by admin {}", job_id, admin_id)
+    asyncio.create_task(run_broadcast_job(bot, job_id, text, admin_id))
 
 
 @router.message(Command("broadcast"))
@@ -120,10 +181,7 @@ async def process_broadcast_confirm(
         return
 
     await callback.message.edit_text(texts.MSG_BROADCAST_STARTED)
-    sent, failed, blocked = await _run_broadcast(bot, broadcast_text)
-    await callback.message.answer(
-        texts.MSG_BROADCAST_COMPLETE.format(sent=sent, failed=failed, blocked=blocked)
-    )
+    await _start_broadcast(bot, broadcast_text, callback.from_user.id)
 
 
 @router.message(BroadcastStates.waiting_confirm, F.text)
@@ -144,7 +202,4 @@ async def process_broadcast_confirm_text(
     await state.clear()
 
     await message.answer(texts.MSG_BROADCAST_STARTED)
-    sent, failed, blocked = await _run_broadcast(bot, broadcast_text)
-    await message.answer(
-        texts.MSG_BROADCAST_COMPLETE.format(sent=sent, failed=failed, blocked=blocked)
-    )
+    await _start_broadcast(bot, broadcast_text, message.from_user.id)

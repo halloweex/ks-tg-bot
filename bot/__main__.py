@@ -10,7 +10,7 @@ from loguru import logger
 
 from bot.config import load_config
 from bot.db import init_db
-from bot.handlers.broadcast import router as broadcast_router
+from bot.handlers.broadcast import resume_broadcasts, router as broadcast_router
 from bot.handlers.common import router as common_router
 from bot.handlers.delivery import router as delivery_router
 from bot.handlers.info import router as info_router
@@ -68,6 +68,8 @@ async def main() -> None:
     @dp.startup()
     async def on_startup() -> None:
         await init_db()
+        # Continue any broadcast that a previous restart/redeploy interrupted.
+        await resume_broadcasts(bot)
         logger.info("Bot started successfully")
 
     # Register routers (order matters: commands first, callbacks second, FSM last)
