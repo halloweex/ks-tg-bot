@@ -26,3 +26,9 @@ class DeliveryAction(CallbackData, prefix="dlvr"):
     """Delivery tracking actions: view, refresh."""
 
     action: str
+
+
+class BroadcastAction(CallbackData, prefix="bcast"):
+    """Admin broadcast confirmation: send, cancel."""
+
+    action: str

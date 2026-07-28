@@ -5,7 +5,7 @@ from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot import texts
-from bot.callbacks import DeliveryAction, InfoAction, MenuAction, SettingsAction
+from bot.callbacks import BroadcastAction, DeliveryAction, InfoAction, MenuAction, SettingsAction
 
 
 def main_menu_kb(website_url: str) -> InlineKeyboardMarkup:
@@ -33,6 +33,15 @@ def info_menu_kb() -> InlineKeyboardMarkup:
     builder.button(text=texts.BTN_DELIVERY, callback_data=InfoAction(page="delivery"))
     builder.button(text=texts.BTN_BACK, callback_data=InfoAction(page="back"))
     builder.adjust(2, 2, 1)
+    return builder.as_markup()
+
+
+def broadcast_confirm_kb() -> InlineKeyboardMarkup:
+    """Yes/No confirmation for the admin broadcast flow."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text=texts.BTN_BROADCAST_YES, callback_data=BroadcastAction(action="send"))
+    builder.button(text=texts.BTN_BROADCAST_NO, callback_data=BroadcastAction(action="cancel"))
+    builder.adjust(2)
     return builder.as_markup()
 
 

@@ -81,7 +81,9 @@ MSG_OPT_IN_CONFIRM = "Ви знову підписані на розсилку!"
 
 # Admin broadcast
 MSG_BROADCAST_PROMPT = "Введіть текст розсилки:"
-MSG_BROADCAST_CONFIRM = "Надіслати це повідомлення {count} користувачам?\n\nНадішліть 'так' для підтвердження або 'ні' для скасування."
+MSG_BROADCAST_CONFIRM = "Надіслати це повідомлення {count} користувачам?"
+BTN_BROADCAST_YES = "✅ Так"
+BTN_BROADCAST_NO = "❌ Ні"
 MSG_BROADCAST_CANCELLED = "Розсилку скасовано."
 MSG_BROADCAST_STARTED = "Розсилка розпочата..."
 MSG_BROADCAST_COMPLETE = "Розсилку завершено!\n\nНадіслано: {sent}\nПомилок: {failed}\nЗаблоковано: {blocked}"
