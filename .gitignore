@@ -20,6 +20,8 @@ build/
 
 # SQLite databases
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 

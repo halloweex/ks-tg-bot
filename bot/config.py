@@ -17,6 +17,7 @@ class EnvSettings(BaseSettings):
     shopify_api_token: str | None = None
     shopify_store_url: str | None = None
     admin_user_ids: str = ""
+    novaposhta_api_key: str | None = None
 
     @property
     def admin_ids(self) -> list[int]:

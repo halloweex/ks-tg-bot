@@ -1,172 +1,157 @@
-"""Order display handler — fetch, merge, format, and show orders from both APIs."""
+"""Order display handler — show cached orders instantly, refresh in background."""
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import CallbackQuery
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import CallbackQuery, KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from loguru import logger
 
 from bot import texts
 from bot.callbacks import MenuAction
 from bot.config import AppConfig
-from bot.db import get_user_phone
-from bot.services.keycrm import KeyCRMClient, KeyCRMOrder
-from bot.services.shopify import ShopifyClient, ShopifyOrder
+from bot.db import get_cached_orders, get_last_sync_time, get_user_phone, save_user, upsert_orders
+from bot.keyboards import main_menu_kb
+from bot.services.keycrm import KeyCRMClient, keycrm_order_to_dict
+from bot.services.shopify import ShopifyClient, shopify_order_to_dict
 
 router = Router()
 
+# Skip a background refresh if the cache was synced more recently than this.
+# Prevents a broadcast burst from firing thousands of redundant API fetches.
+_REFRESH_TTL_SECONDS = 300
 
-def _format_keycrm_order(order: KeyCRMOrder) -> str:
-    """Format a single KeyCRM order as a text block with Instagram source label."""
-    products_str = ", ".join(
-        f"{p['name']} x {p['qty']}" for p in order.products
-    ) if order.products else "-"
+# Caps how many background refreshes hit the external APIs at once, so a burst
+# of users after a promo push can't trigger KeyCRM/Shopify rate limits.
+_refresh_semaphore = asyncio.Semaphore(10)
+
+
+# ---------------------------------------------------------------------------
+# Formatting helpers
+# ---------------------------------------------------------------------------
+
+def _format_cached_order(row: dict, *, is_latest: bool = False) -> str:
+    """Format a single cached order (from DB dict) as a text block."""
+    source = row.get("source", "")
+    order_name = row.get("order_name", "")
+
+    if source == "shopify":
+        source_label = f"{texts.MSG_ORDER_SOURCE_WEB} {order_name}".strip()
+    else:
+        source_label = texts.MSG_ORDER_SOURCE_INSTAGRAM
 
     try:
-        dt = datetime.fromisoformat(order.ordered_at)
+        products = json.loads(row.get("products_json", "[]"))
+    except (json.JSONDecodeError, TypeError):
+        products = []
+
+    products_str = ", ".join(
+        f"{p['name']} x {p['qty']}" for p in products
+    ) if products else "-"
+
+    ordered_at = row.get("ordered_at", "")
+    try:
+        dt = datetime.fromisoformat(ordered_at)
         date_str = dt.strftime("%d.%m.%Y")
     except (ValueError, TypeError):
-        date_str = order.ordered_at or "-"
+        date_str = ordered_at or "-"
 
-    return (
-        f"{texts.MSG_ORDER_SOURCE_INSTAGRAM}\n"
-        f"  Статус: {order.status_name}\n"
-        f"  Товари: {products_str}\n"
-        f"  Сума: {order.grand_total} грн\n"
-        f"  Дата: {date_str}"
-    )
+    status = row.get("status_name", "") or "-"
+    total = row.get("grand_total", 0)
+    currency = row.get("currency", "грн")
 
+    prefix = f"{texts.MSG_ORDER_LATEST}\n" if is_latest else ""
 
-def _format_shopify_order(order: ShopifyOrder) -> str:
-    """Format a single Shopify order as a text block with web source label."""
-    products_str = ", ".join(
-        f"{p['name']} x {p['qty']}" for p in order.line_items
-    ) if order.line_items else "-"
+    lines = [
+        f"{prefix}{source_label}",
+        f"  Статус: {status}",
+        f"  Товари: {products_str}",
+        f"  Сума: {total} {currency}",
+        f"  Дата: {date_str}",
+    ]
 
-    try:
-        dt = datetime.fromisoformat(order.created_at)
-        date_str = dt.strftime("%d.%m.%Y")
-    except (ValueError, TypeError):
-        date_str = order.created_at or "-"
+    tracking = row.get("tracking_code", "")
+    if tracking:
+        lines.append(f"  {texts.MSG_ORDER_TRACKING.format(code=tracking)}")
 
-    status = order.fulfillment_status or order.financial_status or "-"
+    location_parts = [p for p in (row.get("delivery_city", ""), row.get("receive_point", "")) if p]
+    if location_parts:
+        lines.append(f"  {texts.MSG_ORDER_LOCATION.format(location=', '.join(location_parts))}")
 
-    return (
-        f"{texts.MSG_ORDER_SOURCE_WEB} {order.name}\n"
-        f"  Статус: {status}\n"
-        f"  Товари: {products_str}\n"
-        f"  Сума: {order.total_price} {order.currency}\n"
-        f"  Дата: {date_str}"
-    )
+    return "\n".join(lines)
 
 
-def _parse_date_key(date_str: str) -> str:
-    """Parse a date string to ISO format for sorting. Return raw string on failure."""
-    try:
-        return datetime.fromisoformat(date_str).isoformat()
-    except (ValueError, TypeError):
-        return ""
-
-
-def _format_all_orders(
-    keycrm_result: list[KeyCRMOrder] | Exception,
-    shopify_result: list[ShopifyOrder] | Exception,
-) -> str:
-    """Merge and format orders from both APIs into a single text.
-
-    Args:
-        keycrm_result: List of KeyCRM orders or an Exception if the call failed.
-        shopify_result: List of Shopify orders or an Exception if the call failed.
-
-    Returns:
-        Formatted text ready for Telegram message.
-    """
-    # Check if both APIs failed
-    both_failed = isinstance(keycrm_result, Exception) and isinstance(shopify_result, Exception)
-    if both_failed:
-        return texts.ERR_API_UNAVAILABLE
-
-    # Build (sort_key, formatted_text) tuples
-    items: list[tuple[str, str]] = []
-
-    if not isinstance(keycrm_result, Exception):
-        for order in keycrm_result:
-            sort_key = _parse_date_key(order.ordered_at)
-            items.append((sort_key, _format_keycrm_order(order)))
-
-    if not isinstance(shopify_result, Exception):
-        for order in shopify_result:
-            sort_key = _parse_date_key(order.created_at)
-            items.append((sort_key, _format_shopify_order(order)))
-
-    if not items:
+def _format_orders_from_cache(orders: list[dict]) -> str:
+    """Format all cached orders into a single message text."""
+    if not orders:
         return texts.MSG_NO_ORDERS
 
-    # Sort by date descending (newest first)
-    items.sort(key=lambda x: x[0], reverse=True)
-
-    # Build text respecting 4096 char Telegram limit (leave margin for header)
     max_len = 3800
     header = texts.MSG_ORDERS_HEADER + "\n\n"
     result_parts: list[str] = []
     current_len = len(header)
 
-    for _, formatted in items:
-        block = formatted + "\n"
+    for i, row in enumerate(orders):
+        block = _format_cached_order(row, is_latest=(i == 0)) + "\n"
         if current_len + len(block) + 2 > max_len:
             result_parts.append("\n...та інші замовлення")
             break
         result_parts.append(block)
-        current_len += len(block) + 2  # account for separator
+        current_len += len(block) + 2
 
     return header + "\n".join(result_parts)
 
 
-def _back_to_menu_kb() -> "InlineKeyboardBuilder":
-    """Build a single-button keyboard to return to main menu."""
-    builder = InlineKeyboardBuilder()
-    builder.button(text=texts.BTN_BACK, callback_data=MenuAction(action="back"))
-    builder.adjust(1)
-    return builder.as_markup()
+def _menu_reply_kb() -> ReplyKeyboardMarkup:
+    """Reply keyboard with a single Menu button."""
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=texts.BTN_MENU)]],
+        resize_keyboard=True,
+    )
 
 
-@router.callback_query(MenuAction.filter(F.action == "orders"))
-async def show_orders(
-    callback: CallbackQuery,
-    callback_data: MenuAction,
+# ---------------------------------------------------------------------------
+# Background refresh
+# ---------------------------------------------------------------------------
+
+async def _is_cache_fresh(chat_id: int) -> bool:
+    """True if the cached orders were synced within the TTL window.
+
+    synced_at is written as SQLite datetime('now') (UTC, 'YYYY-MM-DD HH:MM:SS').
+    """
+    last = await get_last_sync_time(chat_id)
+    if not last:
+        return False
+    try:
+        synced = datetime.strptime(last, "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return False
+    return (datetime.utcnow() - synced).total_seconds() < _REFRESH_TTL_SECONDS
+
+
+async def _refresh_orders(
+    chat_id: int,
+    phone: str,
     keycrm: KeyCRMClient,
     shopify: ShopifyClient | None,
-    config: AppConfig,
 ) -> None:
-    """Display merged order list from Shopify and KeyCRM."""
-    await callback.answer()
+    """Fetch fresh orders from APIs and upsert into cache.
 
-    # Get user phone from DB
-    phone = await get_user_phone(callback.from_user.id)
-    if not phone:
-        try:
-            await callback.message.edit_text(
-                texts.ERR_PHONE_NOT_FOUND,
-                reply_markup=_back_to_menu_kb(),
-            )
-        except TelegramBadRequest:
-            await callback.message.answer(
-                texts.ERR_PHONE_NOT_FOUND,
-                reply_markup=_back_to_menu_kb(),
-            )
-        return
+    Bounded by _refresh_semaphore so concurrent refreshes can't overwhelm the
+    external APIs during a post-broadcast activity burst.
+    """
+    async with _refresh_semaphore:
+        await _do_refresh_orders(chat_id, phone, keycrm, shopify)
 
-    # Show loading indicator
-    try:
-        await callback.message.edit_text(texts.MSG_ORDERS_LOADING)
-    except TelegramBadRequest:
-        pass  # message unchanged is fine, continue
 
-    # Build coroutines for parallel fetch
+async def _do_refresh_orders(
+    chat_id: int,
+    phone: str,
+    keycrm: KeyCRMClient,
+    shopify: ShopifyClient | None,
+) -> None:
     async def _empty_list() -> list:
         return []
 
@@ -180,21 +165,93 @@ async def show_orders(
     keycrm_result = results[0]
     shopify_result = results[1]
 
-    # Format merged results
-    formatted_text = _format_all_orders(keycrm_result, shopify_result)
+    db_rows: list[dict] = []
 
-    # Display orders with back button (parse_mode=None to avoid HTML issues)
-    back_kb = _back_to_menu_kb()
-    try:
-        await callback.message.edit_text(
-            formatted_text,
-            reply_markup=back_kb,
-            parse_mode=None,
+    if not isinstance(keycrm_result, Exception):
+        db_rows.extend(keycrm_order_to_dict(o, chat_id) for o in keycrm_result)
+        # Silent buyer profile refresh
+        if keycrm_result:
+            first = keycrm_result[0]
+            if first.buyer_name or first.buyer_email:
+                try:
+                    await save_user(
+                        chat_id, phone,
+                        full_name=first.buyer_name or None,
+                        email=first.buyer_email or None,
+                    )
+                except Exception:
+                    pass
+
+    if not isinstance(shopify_result, Exception):
+        db_rows.extend(shopify_order_to_dict(o, chat_id) for o in shopify_result)
+
+    if db_rows:
+        await upsert_orders(chat_id, db_rows)
+
+
+# ---------------------------------------------------------------------------
+# Handlers
+# ---------------------------------------------------------------------------
+
+async def _send_orders(message: Message, chat_id: int) -> None:
+    """Read cached orders and send as a message with menu reply keyboard."""
+    cached = await get_cached_orders(chat_id)
+    formatted_text = _format_orders_from_cache(cached)
+    await message.answer(
+        formatted_text,
+        reply_markup=_menu_reply_kb(),
+        parse_mode=None,
+    )
+
+
+@router.callback_query(MenuAction.filter(F.action == "orders"))
+async def show_orders(
+    callback: CallbackQuery,
+    callback_data: MenuAction,
+    keycrm: KeyCRMClient,
+    shopify: ShopifyClient | None,
+    config: AppConfig,
+) -> None:
+    """Display orders from local cache, refresh from APIs in background."""
+    await callback.answer()
+
+    chat_id = callback.from_user.id
+    phone = await get_user_phone(chat_id)
+    if not phone:
+        await callback.message.answer(
+            texts.ERR_PHONE_NOT_FOUND,
+            reply_markup=_menu_reply_kb(),
         )
-    except TelegramBadRequest as exc:
-        logger.debug("edit_text failed ({}), sending new message", exc.message)
+        return
+
+    # Try to show cached orders instantly
+    cached = await get_cached_orders(chat_id)
+
+    if cached:
+        formatted_text = _format_orders_from_cache(cached)
         await callback.message.answer(
             formatted_text,
-            reply_markup=back_kb,
+            reply_markup=_menu_reply_kb(),
             parse_mode=None,
         )
+        # Fire-and-forget background refresh — but only if the cache is stale,
+        # so repeated taps and post-broadcast bursts don't re-hit the APIs.
+        if not await _is_cache_fresh(chat_id):
+            asyncio.create_task(_refresh_orders(chat_id, phone, keycrm, shopify))
+    else:
+        # No cache — show loading, fetch synchronously, then display
+        await callback.message.answer(texts.MSG_ORDERS_LOADING)
+        await _refresh_orders(chat_id, phone, keycrm, shopify)
+        await _send_orders(callback.message, chat_id)
+
+
+@router.message(F.text == texts.BTN_MENU)
+async def menu_button_handler(
+    message: Message,
+    config: AppConfig,
+) -> None:
+    """Handle the reply-keyboard Menu button — show main menu."""
+    await message.answer(
+        texts.MSG_MAIN_MENU,
+        reply_markup=main_menu_kb(config.website_url),
+    )

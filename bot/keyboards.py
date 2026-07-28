@@ -5,7 +5,7 @@ from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot import texts
-from bot.callbacks import InfoAction, MenuAction, SettingsAction
+from bot.callbacks import DeliveryAction, InfoAction, MenuAction, SettingsAction
 
 
 def main_menu_kb(website_url: str) -> InlineKeyboardMarkup:
@@ -15,6 +15,7 @@ def main_menu_kb(website_url: str) -> InlineKeyboardMarkup:
     """
     builder = InlineKeyboardBuilder()
     builder.button(text=texts.BTN_ORDERS, callback_data=MenuAction(action="orders"))
+    builder.button(text=texts.BTN_DELIVERY_STATUS, callback_data=DeliveryAction(action="view"))
     builder.button(text=texts.BTN_INFO, callback_data=MenuAction(action="info"))
     builder.button(text=texts.BTN_SUPPORT, callback_data=MenuAction(action="support"))
     builder.button(text=texts.BTN_WEBSITE, url=website_url)

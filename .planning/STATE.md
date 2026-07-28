@@ -5,10 +5,10 @@ milestone_name: milestone
 status: in-progress
 last_updated: "2026-03-04"
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 9
-  completed_plans: 9
+  total_phases: 4
+  completed_phases: 4
+  total_plans: 11
+  completed_plans: 11
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-02)
 
 **Core value:** Customers can instantly check the status and details of their orders through Telegram without contacting support
-**Current focus:** Phase 3 — Core Features
+**Current focus:** Phase 4 — Broadcast (COMPLETE)
 
 ## Current Position
 
-Phase: 3 of 4 (Core Features) — COMPLETE
-Plan: 4 of 4 in current phase — All plans complete
-Status: Phase 3 complete. All core features implemented.
-Last activity: 2026-03-04 — Completed 03-02, 03-03, 03-04
+Phase: 4 of 4 (Broadcast) — COMPLETE
+Plan: 2 of 2 in current phase — All plans complete
+Status: All phases complete. v1.0 milestone done.
+Last activity: 2026-03-04 — Completed 04-01, 04-02
 
-Progress: [█████████░] 90%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -43,6 +43,7 @@ Progress: [█████████░] 90%
 | 01-foundation | 3 | 5min | 2min |
 | 02-onboarding | 2 | 8min | 4min |
 | 03-core-features | 4 | ~10min | ~2.5min |
+| 04-broadcast | 2 | ~4min | ~2min |
 
 **Recent Trend:**
 - Last 5 plans: 01-02 (2min), 01-03 (1min), 02-01 (8min), 02-02 (skipped), 03-01 (2min)
@@ -88,6 +89,11 @@ Recent decisions affecting current work:
 - [03-03]: Three-message pattern to admin: metadata line, forwarded message, reply instruction
 - [03-04]: Phone change uses format-only validation (same PHONE_PATTERN as onboarding, no API lookup)
 - [03-04]: Language button uses show_alert=True popup, stays on settings menu
+- [04-01]: /stop and /unsubscribe both map to same cmd_stop handler; /start re-subscribes opted-out users
+- [04-01]: Router order: common -> broadcast -> menu -> orders -> info -> support -> settings -> onboarding
+- [04-02]: Text-only broadcast for v1; admin check via _is_admin helper (not filter class)
+- [04-02]: Rate limit 20 msg/sec (asyncio.sleep(0.05)); TelegramForbiddenError/TelegramRetryAfter handled
+- [04-02]: Confirmation step: "так"/"yes"/"да" to proceed, anything else cancels
 
 ### Pending Todos
 
@@ -102,5 +108,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-04
-Stopped at: Phase 3 complete. Ready for Phase 4 (Production Hardening).
+Stopped at: All 4 phases complete. v1.0 milestone done.
 Resume file: None

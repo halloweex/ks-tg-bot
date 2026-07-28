@@ -36,6 +36,7 @@ BTN_CONTACTS = "Контакти"
 BTN_PAYMENT = "Оплата"
 BTN_DELIVERY = "Доставка"
 BTN_BACK = "◀️ Назад"
+BTN_MENU = "📋 Меню"
 BTN_CHANGE_PHONE = "📱 Змінити номер"
 BTN_LANGUAGE = "🌍 Мова"
 
@@ -44,6 +45,8 @@ MSG_ORDERS_LOADING = "Завантажую ваші замовлення..."
 MSG_ORDERS_HEADER = "📦 Ваші замовлення:"
 MSG_ORDER_SOURCE_WEB = "🌐 Сайт"
 MSG_ORDER_SOURCE_INSTAGRAM = "📸 Instagram"
+MSG_ORDER_TRACKING = "🚚 ТТН: {code}"
+MSG_ORDER_LOCATION = "📍 {location}"
 
 # Status messages
 MSG_NO_ORDERS = "У вас поки немає замовлень."
@@ -63,6 +66,7 @@ MSG_PHONE_CHANGED = "Номер телефону змінено! \u2705"
 
 # Onboarding responses
 MSG_WELCOME_BACK = "З поверненням! \U0001f338"
+MSG_WELCOME_BACK_NAME = "З поверненням, {name}! \U0001f338"
 MSG_PHONE_VERIFIED = "Номер підтверджено! \u2705"
 
 # Support relay (admin-side)
@@ -70,3 +74,30 @@ MSG_SUPPORT_REPLY_PREFIX = "Відповідь від менеджера:"
 MSG_SUPPORT_ADMIN_NOTE = "📩 Повідомлення від користувача (chat_id: {chat_id}):"
 MSG_SUPPORT_REPLY_INSTRUCTION = "↩️ Відповідайте на переслане повідомлення, щоб відповісти клієнту."
 MSG_SUPPORT_NO_REPLY_TARGET = "Будь ласка, відповідайте на переслане повідомлення клієнта."
+
+# Broadcast opt-out
+MSG_OPT_OUT_CONFIRM = "Ви відписались від розсилки. Щоб підписатись знову, надішліть /start"
+MSG_OPT_IN_CONFIRM = "Ви знову підписані на розсилку!"
+
+# Admin broadcast
+MSG_BROADCAST_PROMPT = "Введіть текст розсилки:"
+MSG_BROADCAST_CONFIRM = "Надіслати це повідомлення {count} користувачам?\n\nНадішліть 'так' для підтвердження або 'ні' для скасування."
+MSG_BROADCAST_CANCELLED = "Розсилку скасовано."
+MSG_BROADCAST_STARTED = "Розсилка розпочата..."
+MSG_BROADCAST_COMPLETE = "Розсилку завершено!\n\nНадіслано: {sent}\nПомилок: {failed}\nЗаблоковано: {blocked}"
+MSG_BROADCAST_NO_RECIPIENTS = "Немає активних підписників для розсилки."
+
+# Order cache
+MSG_ORDER_LATEST = "⭐ Останнє замовлення:"
+MSG_ORDERS_SYNCING = "Оновлюю замовлення..."
+
+# Delivery status
+BTN_DELIVERY_STATUS = "🚚 Статус доставки"
+MSG_DELIVERY_HEADER = "🚚 Статус доставки:"
+MSG_DELIVERY_LOADING = "Перевіряю статус доставки..."
+MSG_NO_DELIVERIES = "Наразі немає відправлень для відстеження."
+MSG_DELIVERY_STATUS = "📍 {status}"
+MSG_DELIVERY_SCHEDULED = "📅 Очікувана дата: {date}"
+MSG_DELIVERY_ACTUAL = "✅ Отримано: {date}"
+MSG_DELIVERY_WAREHOUSE = "🏤 {warehouse}"
+MSG_DELIVERY_NO_TRACKING = "⏳ ТТН ще не присвоєно"
