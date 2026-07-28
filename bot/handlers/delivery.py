@@ -1,0 +1,151 @@
+"""Delivery status handler — show Nova Poshta tracking for user's orders."""
+from __future__ import annotations
+
+import json
+from datetime import datetime
+
+from aiogram import F, Router
+from aiogram.types import CallbackQuery, KeyboardButton, ReplyKeyboardMarkup
+
+from bot import texts
+from bot.callbacks import DeliveryAction
+from bot.config import AppConfig
+from bot.db import get_orders_with_tracking, get_user_phone, get_cached_orders
+from bot.services.novaposhta import NovaPoshtaClient
+
+router = Router()
+
+
+def _menu_reply_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=texts.BTN_MENU)]],
+        resize_keyboard=True,
+    )
+
+
+def _format_order_label(row: dict) -> str:
+    """Short label for an order: source + products summary."""
+    source = row.get("source", "")
+    order_name = row.get("order_name", "")
+
+    if source == "shopify":
+        label = f"{texts.MSG_ORDER_SOURCE_WEB} {order_name}".strip()
+    else:
+        label = texts.MSG_ORDER_SOURCE_INSTAGRAM
+
+    try:
+        products = json.loads(row.get("products_json", "[]"))
+    except (json.JSONDecodeError, TypeError):
+        products = []
+
+    if products:
+        items = ", ".join(p["name"] for p in products[:2])
+        if len(products) > 2:
+            items += f" +{len(products) - 2}"
+        label += f" ({items})"
+
+    return label
+
+
+def _format_date(raw: str) -> str:
+    """Try to format a date string to DD.MM.YYYY."""
+    if not raw:
+        return ""
+    for fmt in ("%d-%m-%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S", "%d.%m.%Y %H:%M:%S"):
+        try:
+            return datetime.strptime(raw, fmt).strftime("%d.%m.%Y")
+        except ValueError:
+            continue
+    return raw
+
+
+def _format_delivery_block(row: dict, tracking_info: dict | None) -> str:
+    """Format a single delivery block with tracking info."""
+    label = _format_order_label(row)
+    ttn = row.get("tracking_code", "")
+
+    lines = [label, f"  🚚 ТТН: {ttn}"]
+
+    if tracking_info:
+        ts = tracking_info
+        if ts.status:
+            lines.append(f"  {texts.MSG_DELIVERY_STATUS.format(status=ts.status)}")
+        if ts.warehouse_recipient:
+            lines.append(f"  {texts.MSG_DELIVERY_WAREHOUSE.format(warehouse=ts.warehouse_recipient)}")
+        if ts.actual_delivery:
+            lines.append(f"  {texts.MSG_DELIVERY_ACTUAL.format(date=_format_date(ts.actual_delivery))}")
+        elif ts.scheduled_delivery:
+            lines.append(f"  {texts.MSG_DELIVERY_SCHEDULED.format(date=_format_date(ts.scheduled_delivery))}")
+    else:
+        # Fallback: use data from CRM
+        shipping_status = row.get("shipping_status", "")
+        if shipping_status:
+            lines.append(f"  {texts.MSG_DELIVERY_STATUS.format(status=shipping_status)}")
+        location_parts = [p for p in (row.get("delivery_city", ""), row.get("receive_point", "")) if p]
+        if location_parts:
+            lines.append(f"  📍 {', '.join(location_parts)}")
+
+    return "\n".join(lines)
+
+
+@router.callback_query(DeliveryAction.filter(F.action == "view"))
+async def show_delivery_status(
+    callback: CallbackQuery,
+    callback_data: DeliveryAction,
+    config: AppConfig,
+    novaposhta: NovaPoshtaClient | None,
+) -> None:
+    """Show delivery tracking status for orders with TTNs."""
+    await callback.answer()
+
+    chat_id = callback.from_user.id
+    phone = await get_user_phone(chat_id)
+    if not phone:
+        await callback.message.answer(
+            texts.ERR_PHONE_NOT_FOUND,
+            reply_markup=_menu_reply_kb(),
+        )
+        return
+
+    tracked_orders = await get_orders_with_tracking(chat_id)
+
+    if not tracked_orders:
+        # Check if user has orders at all but none with tracking
+        all_orders = await get_cached_orders(chat_id)
+        if all_orders:
+            msg = texts.MSG_DELIVERY_NO_TRACKING
+        else:
+            msg = texts.MSG_NO_DELIVERIES
+        await callback.message.answer(msg, reply_markup=_menu_reply_kb())
+        return
+
+    await callback.message.answer(texts.MSG_DELIVERY_LOADING)
+
+    # Fetch real-time status from Nova Poshta if available
+    tracking_map: dict = {}
+    if novaposhta:
+        ttns = [o["tracking_code"] for o in tracked_orders]
+        tracking_map = await novaposhta.track_many(ttns, phone)
+
+    # Format output
+    blocks: list[str] = []
+    max_len = 3800
+    current_len = len(texts.MSG_DELIVERY_HEADER) + 4
+
+    for row in tracked_orders:
+        ttn = row.get("tracking_code", "")
+        info = tracking_map.get(ttn)
+        block = _format_delivery_block(row, info)
+        if current_len + len(block) + 4 > max_len:
+            blocks.append("\n...та інші відправлення")
+            break
+        blocks.append(block)
+        current_len += len(block) + 4
+
+    result = texts.MSG_DELIVERY_HEADER + "\n\n" + "\n\n".join(blocks)
+
+    await callback.message.answer(
+        result,
+        reply_markup=_menu_reply_kb(),
+        parse_mode=None,
+    )

@@ -12,6 +12,7 @@ from bot.config import load_config
 from bot.db import init_db
 from bot.handlers.broadcast import router as broadcast_router
 from bot.handlers.common import router as common_router
+from bot.handlers.delivery import router as delivery_router
 from bot.handlers.info import router as info_router
 from bot.handlers.menu import router as menu_router
 from bot.handlers.onboarding import router as onboarding_router
@@ -19,6 +20,7 @@ from bot.handlers.orders import router as orders_router
 from bot.handlers.settings import router as settings_router
 from bot.handlers.support import router as support_router
 from bot.services.keycrm import KeyCRMClient
+from bot.services.novaposhta import NovaPoshtaClient
 from bot.services.shopify import ShopifyClient
 
 
@@ -40,6 +42,14 @@ async def main() -> None:
     # Dependency injection via dp workflow_data
     dp["config"] = config
     dp["keycrm"] = KeyCRMClient(api_key=config.env.keycrm_api_key)
+
+    # Conditional Nova Poshta client
+    if config.env.novaposhta_api_key:
+        dp["novaposhta"] = NovaPoshtaClient(api_key=config.env.novaposhta_api_key)
+        logger.info("Nova Poshta client initialized")
+    else:
+        dp["novaposhta"] = None
+        logger.warning("Nova Poshta API key not configured — delivery tracking will use CRM data only")
 
     # Conditional Shopify client (graceful degradation)
     if config.env.shopify_api_token and config.env.shopify_store_url:
@@ -65,6 +75,7 @@ async def main() -> None:
     dp.include_router(broadcast_router)
     dp.include_router(menu_router)
     dp.include_router(orders_router)
+    dp.include_router(delivery_router)
     dp.include_router(info_router)
     dp.include_router(support_router)
     dp.include_router(settings_router)

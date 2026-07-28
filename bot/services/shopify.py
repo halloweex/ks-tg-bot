@@ -1,6 +1,7 @@
 """Shopify GraphQL Admin API client for order lookup by phone number."""
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 
 import httpx
@@ -74,6 +75,28 @@ def _parse_shopify_order(node: dict) -> ShopifyOrder:
         created_at=node.get("createdAt", ""),
         line_items=line_items,
     )
+
+
+def shopify_order_to_dict(order: ShopifyOrder, chat_id: int) -> dict:
+    """Convert a ShopifyOrder dataclass to a dict for upsert_orders()."""
+    return {
+        "chat_id": chat_id,
+        "source": "shopify",
+        "source_order_id": order.id,
+        "order_name": order.name,
+        "status_name": order.fulfillment_status or order.financial_status or "",
+        "grand_total": float(order.total_price),
+        "currency": order.currency,
+        "ordered_at": order.created_at,
+        "products_json": json.dumps(order.line_items, ensure_ascii=False),
+        "buyer_name": "",
+        "payment_status": order.financial_status,
+        "tracking_code": "",
+        "shipping_status": order.fulfillment_status,
+        "delivery_city": "",
+        "receive_point": "",
+        "recipient_name": "",
+    }
 
 
 class ShopifyClient:

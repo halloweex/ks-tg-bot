@@ -36,6 +36,7 @@ BTN_CONTACTS = "Контакти"
 BTN_PAYMENT = "Оплата"
 BTN_DELIVERY = "Доставка"
 BTN_BACK = "◀️ Назад"
+BTN_MENU = "📋 Меню"
 BTN_CHANGE_PHONE = "📱 Змінити номер"
 BTN_LANGUAGE = "🌍 Мова"
 
@@ -44,6 +45,8 @@ MSG_ORDERS_LOADING = "Завантажую ваші замовлення..."
 MSG_ORDERS_HEADER = "📦 Ваші замовлення:"
 MSG_ORDER_SOURCE_WEB = "🌐 Сайт"
 MSG_ORDER_SOURCE_INSTAGRAM = "📸 Instagram"
+MSG_ORDER_TRACKING = "🚚 ТТН: {code}"
+MSG_ORDER_LOCATION = "📍 {location}"
 
 # Status messages
 MSG_NO_ORDERS = "У вас поки немає замовлень."
@@ -63,6 +66,7 @@ MSG_PHONE_CHANGED = "Номер телефону змінено! \u2705"
 
 # Onboarding responses
 MSG_WELCOME_BACK = "З поверненням! \U0001f338"
+MSG_WELCOME_BACK_NAME = "З поверненням, {name}! \U0001f338"
 MSG_PHONE_VERIFIED = "Номер підтверджено! \u2705"
 
 # Support relay (admin-side)
@@ -82,3 +86,18 @@ MSG_BROADCAST_CANCELLED = "Розсилку скасовано."
 MSG_BROADCAST_STARTED = "Розсилка розпочата..."
 MSG_BROADCAST_COMPLETE = "Розсилку завершено!\n\nНадіслано: {sent}\nПомилок: {failed}\nЗаблоковано: {blocked}"
 MSG_BROADCAST_NO_RECIPIENTS = "Немає активних підписників для розсилки."
+
+# Order cache
+MSG_ORDER_LATEST = "⭐ Останнє замовлення:"
+MSG_ORDERS_SYNCING = "Оновлюю замовлення..."
+
+# Delivery status
+BTN_DELIVERY_STATUS = "🚚 Статус доставки"
+MSG_DELIVERY_HEADER = "🚚 Статус доставки:"
+MSG_DELIVERY_LOADING = "Перевіряю статус доставки..."
+MSG_NO_DELIVERIES = "Наразі немає відправлень для відстеження."
+MSG_DELIVERY_STATUS = "📍 {status}"
+MSG_DELIVERY_SCHEDULED = "📅 Очікувана дата: {date}"
+MSG_DELIVERY_ACTUAL = "✅ Отримано: {date}"
+MSG_DELIVERY_WAREHOUSE = "🏤 {warehouse}"
+MSG_DELIVERY_NO_TRACKING = "⏳ ТТН ще не присвоєно"

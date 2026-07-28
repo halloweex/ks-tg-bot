@@ -8,7 +8,7 @@ from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKey
 
 from bot import texts
 from bot.config import AppConfig
-from bot.db import get_user_phone, is_opted_out, opt_in_user
+from bot.db import get_user, get_user_phone, is_opted_out, opt_in_user
 from bot.keyboards import main_menu_kb
 from bot.states import OnboardingStates
 
@@ -29,9 +29,13 @@ async def cmd_start(
         await message.answer(texts.MSG_OPT_IN_CONFIRM)
 
     # Returning user — already verified, show main menu
-    phone = await get_user_phone(message.chat.id)
-    if phone:
-        await message.answer(texts.MSG_WELCOME_BACK, reply_markup=ReplyKeyboardRemove())
+    user = await get_user(message.chat.id)
+    if user:
+        if user.get("full_name"):
+            greeting = texts.MSG_WELCOME_BACK_NAME.format(name=user["full_name"])
+        else:
+            greeting = texts.MSG_WELCOME_BACK
+        await message.answer(greeting, reply_markup=ReplyKeyboardRemove())
         await message.answer(texts.MSG_MAIN_MENU, reply_markup=main_menu_kb(config.website_url))
         return
 

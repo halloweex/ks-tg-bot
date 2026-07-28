@@ -20,3 +20,9 @@ class SettingsAction(CallbackData, prefix="sett"):
     """Settings submenu actions: phone, language, back."""
 
     action: str
+
+
+class DeliveryAction(CallbackData, prefix="dlvr"):
+    """Delivery tracking actions: view, refresh."""
+
+    action: str
