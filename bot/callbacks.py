@@ -28,6 +28,18 @@ class SettingsAction(CallbackData, prefix="sett"):
     value: str = ""
 
 
+class OrderAction(CallbackData, prefix="ord"):
+    """Expand/collapse the item list of one order in the order list message.
+
+    `order_id` is the local cache row id, and 0 means "nothing expanded". The id
+    only ever selects among the requester's own cached orders, so it cannot be
+    used to reach someone else's (the list is always re-read for that chat).
+    """
+
+    action: str
+    order_id: int = 0
+
+
 class DeliveryAction(CallbackData, prefix="dlvr"):
     """Delivery tracking actions: view, refresh."""
 

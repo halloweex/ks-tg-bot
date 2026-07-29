@@ -7,12 +7,15 @@ from datetime import datetime
 from html import escape
 
 from aiogram import F, Router
-from aiogram.types import CallbackQuery, KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import (CallbackQuery, InlineKeyboardMarkup, KeyboardButton, Message,
+                           ReplyKeyboardMarkup, ReplyKeyboardRemove)
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from loguru import logger
 
 from bot import texts
 from bot.i18n import Texts, variants
-from bot.callbacks import MenuAction
+from bot.callbacks import MenuAction, OrderAction
 from bot.config import AppConfig
 from bot.db import get_cached_orders, get_last_sync_time, get_user_phone, save_user, upsert_orders
 from bot.keyboards import main_menu_kb
@@ -30,25 +33,62 @@ _REFRESH_TTL_SECONDS = 300
 # of users after a promo push can't trigger KeyCRM/Shopify rate limits.
 _refresh_semaphore = asyncio.Semaphore(10)
 
+# 78% of orders have 4 items or fewer (measured over 43,374 orders), so at this
+# threshold most orders show in full and only the long ones get a button.
+_MAX_INLINE_ITEMS = 4
+# What a shortened order still shows before "…and N more".
+_COLLAPSED_ITEMS = 2
+# KeyCRM product names average 85 chars and reach 147.
+_NAME_MAX_LEN = 40
+
 
 # ---------------------------------------------------------------------------
 # Formatting helpers
 # ---------------------------------------------------------------------------
 
-def _format_cached_order(row: dict, t: Texts, *, is_latest: bool = False) -> str:
-    """Format a single cached order (from DB dict) as a text block."""
+def _order_products(row: dict) -> list[dict]:
+    """Cached product lines for an order, or [] if the JSON is unusable."""
+    try:
+        return json.loads(row.get("products_json", "[]")) or []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def _item_line(product: dict, t: Texts) -> str:
+    """One product as its own line, name shortened to stay readable on a phone.
+
+    KeyCRM names average 85 characters and run to 147 — brand, description and
+    volume are all packed into one string, so the full name is unreadable in a
+    list. Sent with parse_mode="HTML", hence the escaping: product names really
+    do contain '&'.
+    """
+    name = str(product.get("name", ""))
+    if len(name) > _NAME_MAX_LEN:
+        name = name[:_NAME_MAX_LEN].rstrip() + "…"
+    return f"   • {escape(name)} ×{escape(str(product.get('qty', '')))}"
+
+
+def _format_cached_order(
+    row: dict, t: Texts, *, is_latest: bool = False, expanded: bool = False
+) -> str:
+    """Format a single cached order (from DB dict) as a text block.
+
+    Orders with more than _MAX_INLINE_ITEMS lines are shortened — 22% of orders
+    have that many — and the caller offers a button to expand this one.
+    """
     source_label = t.order_source_label(row)
 
-    try:
-        products = json.loads(row.get("products_json", "[]"))
-    except (json.JSONDecodeError, TypeError):
-        products = []
-
-    # Sent with parse_mode="HTML" so the TTN can be a link — every interpolated
-    # value has to be escaped. Product names really do contain '&'.
-    products_str = ", ".join(
-        f"{escape(str(p['name']))} x {escape(str(p['qty']))}" for p in products
-    ) if products else "-"
+    products = _order_products(row)
+    if not products:
+        item_lines = ["   -"]
+    elif expanded or len(products) <= _MAX_INLINE_ITEMS:
+        item_lines = [_item_line(p, t) for p in products]
+    else:
+        shown = products[:_COLLAPSED_ITEMS]
+        item_lines = [_item_line(p, t) for p in shown]
+        item_lines.append(
+            "   " + t.MSG_ORDER_MORE_ITEMS.format(count=len(products) - len(shown))
+        )
 
     ordered_at = row.get("ordered_at", "")
     try:
@@ -66,7 +106,8 @@ def _format_cached_order(row: dict, t: Texts, *, is_latest: bool = False) -> str
     lines = [
         f"{prefix}{escape(source_label)}",
         f"  {t.LBL_STATUS}: {status}",
-        f"  {t.LBL_PRODUCTS}: {products_str}",
+        f"  {t.LBL_PRODUCTS}:",
+        *item_lines,
         f"  {t.LBL_TOTAL}: {total} {currency}",
         f"  {t.LBL_DATE}: {escape(date_str)}",
     ]
@@ -83,8 +124,15 @@ def _format_cached_order(row: dict, t: Texts, *, is_latest: bool = False) -> str
     return "\n".join(lines)
 
 
-def _format_orders_from_cache(orders: list[dict], t: Texts) -> str:
-    """Format all cached orders into a single message text."""
+def _format_orders_from_cache(
+    orders: list[dict], t: Texts, expanded_id: int = 0
+) -> str:
+    """Format all cached orders into a single message text.
+
+    `expanded_id` is the cache row whose full item list should be shown; every
+    other long order stays shortened. Only one at a time, so the message can't
+    grow past Telegram's limit and the state fits in the callback data.
+    """
     if not orders:
         return t.MSG_NO_ORDERS
 
@@ -94,14 +142,59 @@ def _format_orders_from_cache(orders: list[dict], t: Texts) -> str:
     current_len = len(header)
 
     for i, row in enumerate(orders):
-        block = _format_cached_order(row, t, is_latest=(i == 0)) + "\n"
+        block = _format_cached_order(
+            row, t, is_latest=(i == 0), expanded=(row.get("id") == expanded_id)
+        ) + "\n"
         if current_len + len(block) + 2 > max_len:
-            result_parts.append("\n...та інші замовлення")
+            result_parts.append("\n" + t.MSG_ORDERS_TRUNCATED)
             break
         result_parts.append(block)
         current_len += len(block) + 2
 
     return header + "\n".join(result_parts)
+
+
+def _order_date(row: dict) -> str:
+    """dd.mm.yyyy for an order, or '' if the stored timestamp is unparseable."""
+    try:
+        return datetime.fromisoformat(row.get("ordered_at", "")).strftime("%d.%m.%Y")
+    except (ValueError, TypeError):
+        return ""
+
+
+def _button_label(row: dict, t: Texts) -> str:
+    """Identify an order in a button: source label plus its date.
+
+    The source label alone is not enough — most orders are Instagram ones with
+    no order number, so several buttons in the same message would read
+    identically and there would be no way to tell which is which.
+    """
+    label = t.order_source_label(row)
+    date = _order_date(row)
+    return f"{label}, {date}" if date else label
+
+
+def _orders_kb(orders: list[dict], t: Texts, expanded_id: int = 0) -> InlineKeyboardMarkup:
+    """Expand/collapse buttons for the orders that had to be shortened."""
+    builder = InlineKeyboardBuilder()
+    for row in orders:
+        if len(_order_products(row)) <= _MAX_INLINE_ITEMS:
+            continue
+        row_id = row.get("id", 0)
+        label = _button_label(row, t)
+        if row_id == expanded_id:
+            builder.button(
+                text=t.BTN_HIDE_ITEMS.format(order=label),
+                callback_data=OrderAction(action="items", order_id=0),
+            )
+        else:
+            builder.button(
+                text=t.BTN_SHOW_ITEMS.format(order=label),
+                callback_data=OrderAction(action="items", order_id=row_id),
+            )
+    builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="back"))
+    builder.adjust(1)
+    return builder.as_markup()
 
 
 def _menu_reply_kb(t: Texts) -> ReplyKeyboardMarkup:
@@ -210,12 +303,11 @@ async def _do_refresh_orders(
 # ---------------------------------------------------------------------------
 
 async def _send_orders(message: Message, chat_id: int, t: Texts) -> None:
-    """Read cached orders and send as a message with menu reply keyboard."""
+    """Read cached orders and send them with expand/collapse buttons."""
     cached = await get_cached_orders(chat_id)
-    formatted_text = _format_orders_from_cache(cached, t)
     await message.answer(
-        formatted_text,
-        reply_markup=_menu_reply_kb(t),
+        _format_orders_from_cache(cached, t),
+        reply_markup=_orders_kb(cached, t) if cached else _menu_reply_kb(t),
         parse_mode="HTML",
     )
 
@@ -245,10 +337,9 @@ async def show_orders(
     cached = await get_cached_orders(chat_id)
 
     if cached:
-        formatted_text = _format_orders_from_cache(cached, t)
         await callback.message.answer(
-            formatted_text,
-            reply_markup=_menu_reply_kb(t),
+            _format_orders_from_cache(cached, t),
+            reply_markup=_orders_kb(cached, t),
             parse_mode="HTML",
         )
         # Fire-and-forget background refresh — but only if the cache is stale,
@@ -260,6 +351,35 @@ async def show_orders(
         await callback.message.answer(t.MSG_ORDERS_LOADING)
         await _refresh_orders(chat_id, phone, keycrm, shopify)
         await _send_orders(callback.message, chat_id, t)
+
+
+@router.callback_query(OrderAction.filter(F.action == "items"))
+async def toggle_order_items(
+    callback: CallbackQuery,
+    callback_data: OrderAction,
+    t: Texts,
+) -> None:
+    """Expand or collapse one order's item list, in place.
+
+    The list is re-read for the caller's own chat, so the id in the callback can
+    only ever pick one of their orders — a forged id simply expands nothing.
+    """
+    await callback.answer()
+
+    cached = await get_cached_orders(callback.from_user.id)
+    if not cached:
+        return
+
+    expanded_id = callback_data.order_id
+    try:
+        await callback.message.edit_text(
+            _format_orders_from_cache(cached, t, expanded_id),
+            reply_markup=_orders_kb(cached, t, expanded_id),
+            parse_mode="HTML",
+        )
+    except TelegramBadRequest:
+        # Same content (double tap) or the message is too old to edit.
+        logger.debug("Order list edit skipped for chat {}", callback.from_user.id)
 
 
 @router.message(F.text.in_(variants("BTN_MENU")))
