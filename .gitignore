@@ -1,6 +1,12 @@
 # Secrets — never commit
 .env
 
+# Server-specific backup target (see deploy/backup.env.example)
+deploy/backup.env
+
+# Local copies of database backups
+backups/
+
 # Virtual environment
 .venv/
 

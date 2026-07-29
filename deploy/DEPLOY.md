@@ -72,24 +72,72 @@ docker compose logs -f          # expect "Bot started successfully"; Ctrl-C to d
 
 ## 6. Daily database backups
 
+> **Copies next to the database are not backups.** Archives inside the `botdata`
+> volume die with the volume — one `docker volume rm` in the wrong terminal, one
+> failed disk, one rebuilt server, and the database and all 14 "backups" are
+> gone together. The off-site copy is the backup; the rest is convenience.
+
+`deploy/backup.sh` snapshots the DB (WAL-safe), **verifies the snapshot**,
+copies it out of the volume onto the host, and pushes it to a Hetzner Storage
+Box. It exits non-zero until the off-site target is configured, so a
+half-finished setup shows up in cron mail instead of going unnoticed.
+
+### 6.1 Create the Storage Box target
+
+In the Hetzner console: **Storage Box** (BX11, ~1 EUR/month) → **Sub-accounts**
+→ create one with **SSH enabled**, access **Read/Write**, its own directory.
+
+On the server, make a passphrase-less key for cron and upload the public half to
+that sub-account:
+
 ```bash
-chmod +x /opt/ks-tg-bot/deploy/backup.sh
-
-# Run daily at 03:30
-( crontab -l 2>/dev/null; \
-  echo "30 3 * * * /opt/ks-tg-bot/deploy/backup.sh" ) | crontab -
-
-# Test it now:
-/opt/ks-tg-bot/deploy/backup.sh
+ssh-keygen -t ed25519 -N "" -f /root/.ssh/storagebox_ed25519
+cat /root/.ssh/storagebox_ed25519.pub     # paste into the sub-account's SSH keys
 ```
 
-Backups live inside the `botdata` volume at `/app/data/backups` (last 14 kept).
-For off-server safety, copy them to the host and pull them down:
+Storage Box uses **port 23** for SSH/rsync/sftp. Check the login works:
 
 ```bash
-docker compose cp bot:/app/data/backups ./backups
-scp -r root@YOUR_SERVER_IP:/opt/ks-tg-bot/backups .
+sftp -P 23 -i /root/.ssh/storagebox_ed25519 u123456-sub1@u123456.your-storagebox.de
 ```
+
+### 6.2 Configure and schedule
+
+```bash
+cd /opt/ks-tg-bot
+cp deploy/backup.env.example deploy/backup.env
+nano deploy/backup.env          # BACKUP_REMOTE, BACKUP_SSH_KEY, …
+chmod 600 deploy/backup.env
+chmod +x deploy/backup.sh deploy/restore-test.sh
+
+deploy/backup.sh                # run it now — must end with "Backup done"
+```
+
+```bash
+( crontab -l 2>/dev/null
+  echo "30 3 * * * /opt/ks-tg-bot/deploy/backup.sh"
+  echo "0 4 1 * * /opt/ks-tg-bot/deploy/restore-test.sh"   # monthly drill
+) | crontab -
+```
+
+Cron mails failures to root — make sure that mail is somewhere you read, or the
+first sign of a broken backup will be the day you need one.
+
+### 6.3 Prove it restores
+
+```bash
+deploy/restore-test.sh
+```
+
+It pulls the **newest off-site archive** (not the local copy — the point is to
+exercise what survives losing this server), restores it to a throwaway file,
+and checks integrity, table presence, and that the data is actually populated.
+Nothing the bot uses is touched. Run it after setup and monthly thereafter;
+it also warns if the newest archive is over 48h old.
+
+Retention is 14 archives in each location. Pruning the Storage Box goes through
+sftp rather than `rsync --delete`, so an emptied local directory can never
+propagate and wipe the off-site history.
 
 ---
 
@@ -116,18 +164,44 @@ docker compose logs -f
 
 ## Restoring from a backup
 
+Stop the bot first — replacing the file under a running poller corrupts it.
+
 ```bash
 cd /opt/ks-tg-bot
-docker compose down
-# copy the chosen archive into the running data dir via a throwaway container:
-docker compose up -d
-docker compose exec -T bot sh -c '
-  cd /app/data
-  rm -f bot_data.db bot_data.db-wal bot_data.db-shm
-  gunzip -c backups/bot_data-YYYYMMDD-HHMMSS.db.gz > bot_data.db
-'
-docker compose restart
+. deploy/backup.env
+
+# 1. fetch the archive you want (skip if restoring from the host copy)
+sftp -P "$BACKUP_SSH_PORT" -i "$BACKUP_SSH_KEY" "$BACKUP_REMOTE" <<'EOF'
+cd ks-tg-bot
+ls -1
+EOF
+sftp -P "$BACKUP_SSH_PORT" -i "$BACKUP_SSH_KEY" "$BACKUP_REMOTE":ks-tg-bot/bot_data-YYYYMMDD-HHMMSS.db.gz .
+
+# 2. put it in place with the bot stopped
+docker compose stop bot
+gunzip -c bot_data-YYYYMMDD-HHMMSS.db.gz \
+  | docker compose run --rm --no-deps -T --entrypoint sh bot -c \
+      'cat > /app/data/bot_data.db && rm -f /app/data/bot_data.db-wal /app/data/bot_data.db-shm'
+
+# 3. back up
+docker compose start bot
+docker compose logs -f          # expect "Database initialized" + "Bot started successfully"
 ```
+
+Two details that decide whether this works:
+
+- **Remove the `-wal`/`-shm` sidecars.** They belong to the *old* database file
+  and SQLite would replay them over the restored one.
+- **Write the file from inside the container, not with `docker compose cp`.**
+  `cp` writes as root; the bot runs as the unprivileged `ksbot` and would be
+  unable to open its own database for writing.
+
+### Rebuilding the server from scratch
+
+Nothing here depends on the old machine — that is the point of the off-site
+copy. New VPS → steps 1-5 → step 6.1/6.2 with the *same* Storage Box
+sub-account → the restore above. `.env` is the only thing not in the backup;
+keep those secrets somewhere you can reach without this server.
 
 ## Notes
 
