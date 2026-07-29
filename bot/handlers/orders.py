@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime
+from html import escape
 
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, KeyboardButton, Message, ReplyKeyboardMarkup, ReplyKeyboardRemove
@@ -42,8 +43,10 @@ def _format_cached_order(row: dict, *, is_latest: bool = False) -> str:
     except (json.JSONDecodeError, TypeError):
         products = []
 
+    # Sent with parse_mode="HTML" so the TTN can be a link — every interpolated
+    # value has to be escaped. Product names really do contain '&'.
     products_str = ", ".join(
-        f"{p['name']} x {p['qty']}" for p in products
+        f"{escape(str(p['name']))} x {escape(str(p['qty']))}" for p in products
     ) if products else "-"
 
     ordered_at = row.get("ordered_at", "")
@@ -53,27 +56,28 @@ def _format_cached_order(row: dict, *, is_latest: bool = False) -> str:
     except (ValueError, TypeError):
         date_str = ordered_at or "-"
 
-    status = row.get("status_name", "") or "-"
+    status = escape(row.get("status_name", "") or "-")
     total = row.get("grand_total", 0)
-    currency = row.get("currency", "грн")
+    currency = escape(row.get("currency", "грн"))
 
     prefix = f"{texts.MSG_ORDER_LATEST}\n" if is_latest else ""
 
     lines = [
-        f"{prefix}{source_label}",
+        f"{prefix}{escape(source_label)}",
         f"  Статус: {status}",
         f"  Товари: {products_str}",
         f"  Сума: {total} {currency}",
-        f"  Дата: {date_str}",
+        f"  Дата: {escape(date_str)}",
     ]
 
     tracking = row.get("tracking_code", "")
     if tracking:
-        lines.append(f"  {texts.MSG_ORDER_TRACKING.format(code=tracking)}")
+        lines.append(f"  {texts.MSG_ORDER_TRACKING.format(code=texts.tracking_link(tracking))}")
 
     location_parts = [p for p in (row.get("delivery_city", ""), row.get("receive_point", "")) if p]
     if location_parts:
-        lines.append(f"  {texts.MSG_ORDER_LOCATION.format(location=', '.join(location_parts))}")
+        location = escape(", ".join(location_parts))
+        lines.append(f"  {texts.MSG_ORDER_LOCATION.format(location=location)}")
 
     return "\n".join(lines)
 
@@ -211,7 +215,7 @@ async def _send_orders(message: Message, chat_id: int) -> None:
     await message.answer(
         formatted_text,
         reply_markup=_menu_reply_kb(),
-        parse_mode=None,
+        parse_mode="HTML",
     )
 
 
@@ -243,7 +247,7 @@ async def show_orders(
         await callback.message.answer(
             formatted_text,
             reply_markup=_menu_reply_kb(),
-            parse_mode=None,
+            parse_mode="HTML",
         )
         # Fire-and-forget background refresh — but only if the cache is stale,
         # so repeated taps and post-broadcast bursts don't re-hit the APIs.

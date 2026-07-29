@@ -2,6 +2,8 @@
 
 No string literals should appear in handler files — import from here instead.
 """
+from html import escape
+from urllib.parse import quote
 
 # Greeting (warm personal tone)
 # Use .format(brand_name=config.brand_name) at runtime
@@ -56,6 +58,21 @@ MSG_ORDERS_LOADING = "Завантажую ваші замовлення..."
 MSG_ORDERS_HEADER = "📦 Ваші замовлення:"
 MSG_ORDER_SOURCE_WEB = "🌐 Сайт"
 MSG_ORDER_SOURCE_INSTAGRAM = "📸 Instagram"
+
+
+NOVAPOSHTA_TRACKING_URL = "https://novaposhta.ua/tracking/?cargo_number={ttn}"
+
+
+def tracking_link(ttn: str) -> str:
+    """A TTN rendered as a link to the Nova Poshta tracking page.
+
+    Order and delivery messages are sent with parse_mode="HTML", so every
+    dynamic value they interpolate must be escaped — product names carry '&'
+    (5k+ of them: "Differ & Deeper", "Skin&Lab"), which is what made an earlier
+    version give up on markup entirely.
+    """
+    safe = escape(ttn)
+    return f'<a href="{NOVAPOSHTA_TRACKING_URL.format(ttn=quote(ttn, safe=""))}">{safe}</a>'
 
 
 def order_source_label(row: dict) -> str:

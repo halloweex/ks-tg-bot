@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from html import escape
 
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, KeyboardButton, ReplyKeyboardMarkup
@@ -25,7 +26,7 @@ def _menu_reply_kb() -> ReplyKeyboardMarkup:
 
 def _format_order_label(row: dict) -> str:
     """Short label for an order: source + products summary."""
-    label = texts.order_source_label(row)
+    label = escape(texts.order_source_label(row))
 
     try:
         products = json.loads(row.get("products_json", "[]"))
@@ -33,7 +34,7 @@ def _format_order_label(row: dict) -> str:
         products = []
 
     if products:
-        items = ", ".join(p["name"] for p in products[:2])
+        items = ", ".join(escape(str(p["name"])) for p in products[:2])
         if len(products) > 2:
             items += f" +{len(products) - 2}"
         label += f" ({items})"
@@ -58,14 +59,14 @@ def _format_delivery_block(row: dict, tracking_info: dict | None) -> str:
     label = _format_order_label(row)
     ttn = row.get("tracking_code", "")
 
-    lines = [label, f"  🚚 ТТН: {ttn}"]
+    lines = [label, f"  {texts.MSG_ORDER_TRACKING.format(code=texts.tracking_link(ttn))}"]
 
     if tracking_info:
         ts = tracking_info
         if ts.status:
-            lines.append(f"  {texts.MSG_DELIVERY_STATUS.format(status=ts.status)}")
+            lines.append(f"  {texts.MSG_DELIVERY_STATUS.format(status=escape(ts.status))}")
         if ts.warehouse_recipient:
-            lines.append(f"  {texts.MSG_DELIVERY_WAREHOUSE.format(warehouse=ts.warehouse_recipient)}")
+            lines.append(f"  {texts.MSG_DELIVERY_WAREHOUSE.format(warehouse=escape(ts.warehouse_recipient))}")
         if ts.actual_delivery:
             lines.append(f"  {texts.MSG_DELIVERY_ACTUAL.format(date=_format_date(ts.actual_delivery))}")
         elif ts.scheduled_delivery:
@@ -74,10 +75,10 @@ def _format_delivery_block(row: dict, tracking_info: dict | None) -> str:
         # Fallback: use data from CRM
         shipping_status = row.get("shipping_status", "")
         if shipping_status:
-            lines.append(f"  {texts.MSG_DELIVERY_STATUS.format(status=shipping_status)}")
+            lines.append(f"  {texts.MSG_DELIVERY_STATUS.format(status=escape(shipping_status))}")
         location_parts = [p for p in (row.get("delivery_city", ""), row.get("receive_point", "")) if p]
         if location_parts:
-            lines.append(f"  📍 {', '.join(location_parts)}")
+            lines.append(f"  📍 {escape(', '.join(location_parts))}")
 
     return "\n".join(lines)
 
@@ -141,5 +142,5 @@ async def show_delivery_status(
     await callback.message.answer(
         result,
         reply_markup=_menu_reply_kb(),
-        parse_mode=None,
+        parse_mode="HTML",
     )
