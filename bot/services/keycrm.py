@@ -18,6 +18,13 @@ class KeyCRMOrder:
     status_name: str
     grand_total: float
     ordered_at: str
+    # Identity of the same order in the upstream store, for orders KeyCRM pulled
+    # in through an integration. For the Shopify source these are, respectively,
+    # the Shopify numeric order id (matches the tail of the GraphQL gid) and the
+    # human order number ('19966' -> Shopify calls the order '#19966').
+    # Both are null for manually created orders (Instagram, Telegram, expo).
+    external_id: str = ""
+    external_number: str = ""
     products: list[dict] = field(default_factory=list)
     buyer_name: str = ""
     buyer_email: str = ""
@@ -63,6 +70,8 @@ def _parse_order(raw: dict) -> KeyCRMOrder:
         status_name=status_name,
         grand_total=float(raw.get("grand_total", 0)),
         ordered_at=raw.get("created_at", ""),
+        external_id=str(raw.get("global_source_uuid") or ""),
+        external_number=str(raw.get("source_uuid") or ""),
         products=products,
         buyer_name=buyer_name,
         buyer_email=buyer_email,
@@ -76,12 +85,19 @@ def _parse_order(raw: dict) -> KeyCRMOrder:
 
 
 def keycrm_order_to_dict(order: KeyCRMOrder, chat_id: int) -> dict:
-    """Convert a KeyCRMOrder dataclass to a dict for upsert_orders()."""
+    """Convert a KeyCRMOrder dataclass to a dict for upsert_orders().
+
+    Orders that came from the Shopify integration carry the store's order
+    number, so they render as web orders ('🌐 Сайт #19966') rather than falling
+    back to the Instagram label — and their external_id lets the merge step drop
+    the Shopify copy of the same order.
+    """
     return {
         "chat_id": chat_id,
         "source": "keycrm",
         "source_order_id": str(order.id),
-        "order_name": "",
+        "external_id": order.external_id,
+        "order_name": f"#{order.external_number}" if order.external_number else "",
         "status_name": order.status_name,
         "grand_total": order.grand_total,
         "currency": "грн",

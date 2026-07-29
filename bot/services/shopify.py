@@ -77,12 +77,25 @@ def _parse_shopify_order(node: dict) -> ShopifyOrder:
     )
 
 
+def shopify_external_id(gid: str) -> str:
+    """Numeric order id from a Shopify GraphQL gid.
+
+    'gid://shopify/Order/13025577828684' -> '13025577828684'. This is the value
+    KeyCRM stores as `global_source_uuid` on orders it pulled in through the
+    Shopify integration, so it is the key that matches the two systems' copies
+    of one order. Returns '' if the gid has no numeric tail.
+    """
+    tail = gid.rsplit("/", 1)[-1] if gid else ""
+    return tail if tail.isdigit() else ""
+
+
 def shopify_order_to_dict(order: ShopifyOrder, chat_id: int) -> dict:
     """Convert a ShopifyOrder dataclass to a dict for upsert_orders()."""
     return {
         "chat_id": chat_id,
         "source": "shopify",
         "source_order_id": order.id,
+        "external_id": shopify_external_id(order.id),
         "order_name": order.name,
         "status_name": order.fulfillment_status or order.financial_status or "",
         "grand_total": float(order.total_price),

@@ -35,10 +35,12 @@ _refresh_semaphore = asyncio.Semaphore(10)
 
 def _format_cached_order(row: dict, *, is_latest: bool = False) -> str:
     """Format a single cached order (from DB dict) as a text block."""
-    source = row.get("source", "")
+    # A store order number means the order came from the website — whether the
+    # row was fetched from Shopify directly or from KeyCRM, which mirrors the
+    # number for orders its Shopify integration pulled in.
     order_name = row.get("order_name", "")
 
-    if source == "shopify":
+    if order_name:
         source_label = f"{texts.MSG_ORDER_SOURCE_WEB} {order_name}".strip()
     else:
         source_label = texts.MSG_ORDER_SOURCE_INSTAGRAM
@@ -167,9 +169,14 @@ async def _do_refresh_orders(
     shopify_result = results[1]
 
     db_rows: list[dict] = []
+    # External ids of orders KeyCRM already knows about. Anything Shopify
+    # returns with a matching id is the same physical order, and would
+    # otherwise be listed twice with two different statuses.
+    keycrm_external_ids: set[str] = set()
 
     if not isinstance(keycrm_result, Exception):
         db_rows.extend(keycrm_order_to_dict(o, chat_id) for o in keycrm_result)
+        keycrm_external_ids = {o.external_id for o in keycrm_result if o.external_id}
         # Silent buyer profile refresh
         if keycrm_result:
             first = keycrm_result[0]
@@ -184,7 +191,18 @@ async def _do_refresh_orders(
                     pass
 
     if not isinstance(shopify_result, Exception):
-        db_rows.extend(shopify_order_to_dict(o, chat_id) for o in shopify_result)
+        skipped = 0
+        for order in shopify_result:
+            row = shopify_order_to_dict(order, chat_id)
+            if row["external_id"] and row["external_id"] in keycrm_external_ids:
+                skipped += 1
+                continue
+            db_rows.append(row)
+        if skipped:
+            logger.debug(
+                "Deduped {} Shopify order(s) already present in KeyCRM for chat {}",
+                skipped, chat_id,
+            )
 
     if db_rows:
         await upsert_orders(chat_id, db_rows)

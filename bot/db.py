@@ -53,6 +53,10 @@ CREATE TABLE IF NOT EXISTS orders (
     chat_id         INTEGER NOT NULL REFERENCES users(chat_id),
     source          TEXT NOT NULL,
     source_order_id TEXT NOT NULL,
+    -- Same physical order seen in two systems shares this id (Shopify's numeric
+    -- order id, which KeyCRM mirrors as global_source_uuid). Empty for orders
+    -- that exist in one system only. See dedupe_shadowed_orders().
+    external_id     TEXT DEFAULT '',
     order_name      TEXT DEFAULT '',
     status_name     TEXT DEFAULT '',
     grand_total     REAL DEFAULT 0,
@@ -101,7 +105,21 @@ _MIGRATIONS = [
     "ALTER TABLE users ADD COLUMN full_name TEXT",
     "ALTER TABLE users ADD COLUMN email TEXT",
     "ALTER TABLE users ADD COLUMN updated_at TEXT",
+    "ALTER TABLE orders ADD COLUMN external_id TEXT DEFAULT ''",
 ]
+
+# Rows cached before external_id existed can't be deduped by it, so they'd keep
+# showing a second copy of the order forever. The Shopify side is recoverable
+# from the stored gid, and the KeyCRM side is refilled on the next refresh —
+# together that's enough for dedupe_shadowed_orders to sweep the old pairs.
+# Idempotent: matches zero rows once it has run.
+_BACKFILL_SHOPIFY_EXTERNAL_ID = """
+UPDATE orders
+   SET external_id = replace(source_order_id, 'gid://shopify/Order/', '')
+ WHERE source = 'shopify'
+   AND (external_id IS NULL OR external_id = '')
+   AND source_order_id LIKE 'gid://shopify/Order/%'
+"""
 
 
 async def init_db() -> None:
@@ -124,9 +142,15 @@ async def init_db() -> None:
                 await db.execute(migration)
             except Exception:  # noqa: BLE001 — OperationalError if column exists
                 pass
+        await db.execute(_BACKFILL_SHOPIFY_EXTERNAL_ID)
         # Order lookups always filter by chat_id; without this they full-scan.
         await db.execute(
             "CREATE INDEX IF NOT EXISTS ix_orders_chat_id ON orders(chat_id)"
+        )
+        # Cross-system dedup matches rows by external_id within one user.
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS ix_orders_external "
+            "ON orders(chat_id, external_id)"
         )
         # Resuming a job scans its still-pending targets.
         await db.execute(
@@ -225,11 +249,25 @@ async def get_broadcast_recipients() -> list[int]:
 
 
 _ORDER_COLUMNS = (
-    "chat_id", "source", "source_order_id", "order_name", "status_name",
-    "grand_total", "currency", "ordered_at", "products_json", "buyer_name",
-    "payment_status", "tracking_code", "shipping_status", "delivery_city",
-    "receive_point", "recipient_name",
+    "chat_id", "source", "source_order_id", "external_id", "order_name",
+    "status_name", "grand_total", "currency", "ordered_at", "products_json",
+    "buyer_name", "payment_status", "tracking_code", "shipping_status",
+    "delivery_city", "receive_point", "recipient_name",
 )
+
+# A Shopify row is redundant once KeyCRM reports the same order: KeyCRM is the
+# operational system of record (fulfilment status, tracking code, delivery
+# point), and it carries the store order number too, so nothing is lost.
+_DELETE_SHADOWED = """
+DELETE FROM orders
+ WHERE chat_id = ?
+   AND source = 'shopify'
+   AND external_id != ''
+   AND external_id IN (
+         SELECT external_id FROM orders
+          WHERE chat_id = ? AND source = 'keycrm' AND external_id != ''
+       )
+"""
 
 
 async def upsert_orders(chat_id: int, orders: list[dict]) -> None:
@@ -237,6 +275,11 @@ async def upsert_orders(chat_id: int, orders: list[dict]) -> None:
 
     Each dict must have keys matching _ORDER_COLUMNS.
     Uses INSERT OR REPLACE keyed on UNIQUE(source, source_order_id).
+
+    Afterwards drops any Shopify row shadowed by a KeyCRM row for the same
+    physical order, so one order is never shown twice with two statuses. The
+    sweep runs on every refresh, which also cleans out duplicates written by
+    earlier versions of the bot.
     """
     if not orders:
         return
@@ -249,6 +292,7 @@ async def upsert_orders(chat_id: int, orders: list[dict]) -> None:
         for order in orders:
             values = tuple(order.get(col, "") for col in _ORDER_COLUMNS)
             await db.execute(sql, values)
+        await db.execute(_DELETE_SHADOWED, (chat_id, chat_id))
         await db.commit()
 
 
