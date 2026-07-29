@@ -5,12 +5,12 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
-from bot import texts
+from bot.i18n import Texts, normalize
 from bot.callbacks import SettingsAction
 from bot.config import AppConfig
-from bot.db import save_user
+from bot.db import save_user, set_user_language
 from bot.handlers.onboarding import own_contact_phone
-from bot.keyboards import main_menu_kb, share_phone_kb
+from bot.keyboards import language_kb, main_menu_kb, share_phone_kb
 from bot.states import SettingsStates
 
 router = Router()
@@ -21,12 +21,13 @@ async def start_phone_change(
     callback: CallbackQuery,
     callback_data: SettingsAction,
     state: FSMContext,
+    t: Texts,
 ) -> None:
     """Ask the user to re-share their number via the request_contact button."""
     await callback.answer()
     await state.set_state(SettingsStates.waiting_new_phone)
     await callback.message.answer(
-        texts.MSG_NEW_PHONE_PROMPT, reply_markup=share_phone_kb()
+        t.MSG_NEW_PHONE_PROMPT, reply_markup=share_phone_kb(t)
     )
 
 
@@ -35,33 +36,57 @@ async def process_new_contact(
     message: Message,
     state: FSMContext,
     config: AppConfig,
+    t: Texts,
 ) -> None:
     """Update the phone only from the user's OWN verified contact."""
     if message.contact and message.contact.user_id != (message.from_user.id if message.from_user else None):
-        await message.answer(texts.ERR_CONTACT_NOT_OWN, reply_markup=share_phone_kb())
+        await message.answer(t.ERR_CONTACT_NOT_OWN, reply_markup=share_phone_kb(t))
         return
 
     phone = own_contact_phone(message)
     if not phone:
-        await message.answer(texts.ERR_INVALID_PHONE, reply_markup=share_phone_kb())
+        await message.answer(t.ERR_INVALID_PHONE, reply_markup=share_phone_kb(t))
         return
 
     await save_user(message.chat.id, phone)
     await state.clear()
-    await message.answer(texts.MSG_PHONE_CHANGED, reply_markup=ReplyKeyboardRemove())
-    await message.answer(texts.MSG_MAIN_MENU, reply_markup=main_menu_kb(config.website_url))
+    await message.answer(t.MSG_PHONE_CHANGED, reply_markup=ReplyKeyboardRemove())
+    await message.answer(t.MSG_MAIN_MENU, reply_markup=main_menu_kb(t, config.website_url))
 
 
 @router.message(SettingsStates.waiting_new_phone)
-async def reject_typed_new_phone(message: Message) -> None:
+async def reject_typed_new_phone(message: Message, t: Texts) -> None:
     """Refuse manually typed numbers when changing the phone."""
-    await message.answer(texts.MSG_USE_SHARE_BUTTON, reply_markup=share_phone_kb())
+    await message.answer(t.MSG_USE_SHARE_BUTTON, reply_markup=share_phone_kb(t))
 
 
 @router.callback_query(SettingsAction.filter(F.action == "language"))
 async def show_language(
     callback: CallbackQuery,
     callback_data: SettingsAction,
+    t: Texts,
+    lang: str,
 ) -> None:
-    """Show current language as a popup alert (stays on settings menu)."""
-    await callback.answer(texts.MSG_LANGUAGE_CURRENT, show_alert=True)
+    """Offer the supported languages, ticking the active one."""
+    await callback.answer()
+    await callback.message.answer(t.MSG_LANGUAGE_CHOOSE, reply_markup=language_kb(lang))
+
+
+@router.callback_query(SettingsAction.filter(F.action == "lang"))
+async def set_language(
+    callback: CallbackQuery,
+    callback_data: SettingsAction,
+    config: AppConfig,
+) -> None:
+    """Persist the chosen language and redraw the menu in it.
+
+    `t` from the middleware still holds the OLD language — this request was
+    resolved before the choice was stored — so build a fresh one.
+    """
+    chosen = normalize(callback_data.value)
+    await set_user_language(callback.from_user.id, chosen)
+    await callback.answer()
+
+    t = Texts(chosen)
+    await callback.message.answer(t.MSG_LANGUAGE_SET)
+    await callback.message.answer(t.MSG_MAIN_MENU, reply_markup=main_menu_kb(t, config.website_url))

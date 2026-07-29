@@ -9,7 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, ReplyKeyboardRemove
 from loguru import logger
 
-from bot import texts
+from bot.i18n import Texts
 from bot.config import AppConfig
 from bot.db import save_user, upsert_orders
 from bot.keyboards import main_menu_kb, share_phone_kb
@@ -92,7 +92,11 @@ async def _sync_orders(
 
 
 async def _register_user(
-    message: Message, state: FSMContext, phone: str, config: AppConfig,
+    message: Message,
+    state: FSMContext,
+    phone: str,
+    config: AppConfig,
+    t: Texts,
     keycrm: KeyCRMClient | None = None,
     shopify: ShopifyClient | None = None,
 ) -> None:
@@ -118,8 +122,8 @@ async def _register_user(
         logger.debug("Order sync on registration failed for {}", phone)
 
     await state.clear()
-    await message.answer(texts.MSG_PHONE_VERIFIED, reply_markup=ReplyKeyboardRemove())
-    await message.answer(texts.MSG_MAIN_MENU, reply_markup=main_menu_kb(config.website_url))
+    await message.answer(t.MSG_PHONE_VERIFIED, reply_markup=ReplyKeyboardRemove())
+    await message.answer(t.MSG_MAIN_MENU, reply_markup=main_menu_kb(t, config.website_url))
 
 
 @router.message(OnboardingStates.waiting_phone, F.contact)
@@ -129,25 +133,26 @@ async def process_contact(
     config: AppConfig,
     keycrm: KeyCRMClient,
     shopify: Optional[ShopifyClient],
+    t: Texts,
 ) -> None:
     """Register the user from their OWN shared contact (ownership-verified)."""
     if message.contact and message.contact.user_id != (message.from_user.id if message.from_user else None):
         # Forwarded / someone else's contact card — refuse.
-        await message.answer(texts.ERR_CONTACT_NOT_OWN, reply_markup=share_phone_kb())
+        await message.answer(t.ERR_CONTACT_NOT_OWN, reply_markup=share_phone_kb(t))
         return
 
     phone = own_contact_phone(message)
     if not phone:
-        await message.answer(texts.ERR_INVALID_PHONE, reply_markup=share_phone_kb())
+        await message.answer(t.ERR_INVALID_PHONE, reply_markup=share_phone_kb(t))
         return
     logger.info("Verified own contact registered for chat {}", message.chat.id)
 
-    await message.answer(texts.MSG_PHONE_ACCEPTED)
-    await _register_user(message, state, phone, config, keycrm=keycrm, shopify=shopify)
+    await message.answer(t.MSG_PHONE_ACCEPTED)
+    await _register_user(message, state, phone, config, t, keycrm=keycrm, shopify=shopify)
 
 
 @router.message(OnboardingStates.waiting_phone)
-async def reject_typed_phone(message: Message) -> None:
+async def reject_typed_phone(message: Message, t: Texts) -> None:
     """Refuse manually typed numbers — ownership can't be proven, so allowing
     them would expose another person's orders. User must tap the button."""
-    await message.answer(texts.MSG_USE_SHARE_BUTTON, reply_markup=share_phone_kb())
+    await message.answer(t.MSG_USE_SHARE_BUTTON, reply_markup=share_phone_kb(t))

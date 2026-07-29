@@ -87,6 +87,12 @@ def order_source_label(row: dict) -> str:
     if order_name:
         return f"{MSG_ORDER_SOURCE_WEB} {order_name}".strip()
     return MSG_ORDER_SOURCE_INSTAGRAM
+# Field labels inside an order block — these were inline literals in the handler,
+# which meant they stayed Ukrainian in every language.
+LBL_STATUS = "Статус"
+LBL_PRODUCTS = "Товари"
+LBL_TOTAL = "Сума"
+LBL_DATE = "Дата"
 MSG_ORDER_TRACKING = "🚚 ТТН: {code}"
 MSG_ORDER_LOCATION = "📍 {location}"
 

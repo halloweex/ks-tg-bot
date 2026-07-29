@@ -8,7 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from loguru import logger
 
-from bot import texts
+from bot.i18n import Texts
 from bot.callbacks import MenuAction
 from bot.config import AppConfig
 from bot.keyboards import main_menu_kb
@@ -22,11 +22,12 @@ async def enter_support_mode(
     callback: CallbackQuery,
     callback_data: MenuAction,
     state: FSMContext,
+    t: Texts,
 ) -> None:
     """Prompt user to type a message for the support team."""
     await callback.answer()
     await state.set_state(SupportStates.waiting_message)
-    await callback.message.edit_text(texts.MSG_SUPPORT_PROMPT)
+    await callback.message.edit_text(t.MSG_SUPPORT_PROMPT)
 
 
 @router.message(SupportStates.waiting_message)
@@ -34,6 +35,7 @@ async def forward_to_support(
     message: Message,
     state: FSMContext,
     config: AppConfig,
+    t: Texts,
 ) -> None:
     """Forward user's message to admin chat with metadata."""
     bot = message.bot
@@ -41,7 +43,7 @@ async def forward_to_support(
     # Send metadata line with chat_id (privacy-safe identifier)
     await bot.send_message(
         chat_id=config.support_chat_id,
-        text=texts.MSG_SUPPORT_ADMIN_NOTE.format(chat_id=message.chat.id),
+        text=t.MSG_SUPPORT_ADMIN_NOTE.format(chat_id=message.chat.id),
     )
 
     # Forward the actual message
@@ -54,13 +56,13 @@ async def forward_to_support(
     # Send instruction for replying
     await bot.send_message(
         chat_id=config.support_chat_id,
-        text=texts.MSG_SUPPORT_REPLY_INSTRUCTION,
+        text=t.MSG_SUPPORT_REPLY_INSTRUCTION,
     )
 
     # Confirm to user and return to main menu
     await state.clear()
     await message.answer(
-        texts.MSG_SUPPORT_FORWARDED,
+        t.MSG_SUPPORT_FORWARDED,
         reply_markup=main_menu_kb(config.website_url),
     )
 
@@ -69,6 +71,7 @@ async def forward_to_support(
 async def admin_reply(
     message: Message,
     config: AppConfig,
+    t: Texts,
 ) -> None:
     """Route admin's reply back to the user via chat_id from metadata."""
     # Only process messages from the admin chat
@@ -90,12 +93,12 @@ async def admin_reply(
             user_chat_id = int(match.group(1))
 
     if not user_chat_id:
-        await message.answer(texts.MSG_SUPPORT_NO_REPLY_TARGET)
+        await message.answer(t.MSG_SUPPORT_NO_REPLY_TARGET)
         return
 
     # Send admin's reply to the user
     await bot.send_message(
         chat_id=user_chat_id,
-        text=f"{texts.MSG_SUPPORT_REPLY_PREFIX}\n\n{message.text}",
+        text=f"{t.MSG_SUPPORT_REPLY_PREFIX}\n\n{message.text}",
     )
     logger.info("Support reply sent to chat_id={}", user_chat_id)

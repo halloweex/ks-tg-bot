@@ -10,7 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from loguru import logger
 
-from bot import texts
+from bot.i18n import Texts
 from bot.callbacks import BroadcastAction
 from bot.config import AppConfig
 from bot.db import (
@@ -39,10 +39,10 @@ _send_lock = asyncio.Lock()
 
 @router.message(Command("stop"))
 @router.message(Command("unsubscribe"))
-async def cmd_stop(message: Message) -> None:
+async def cmd_stop(message: Message, t: Texts) -> None:
     """Opt the user out of broadcast messages."""
     await opt_out_user(message.chat.id)
-    await message.answer(texts.MSG_OPT_OUT_CONFIRM)
+    await message.answer(t.MSG_OPT_OUT_CONFIRM)
 
 
 # --------------- Admin broadcast flow ---------------
@@ -80,9 +80,16 @@ async def _send_one(bot: Bot, job_id: int, chat_id: int, text: str) -> None:
 
 
 async def run_broadcast_job(
-    bot: Bot, job_id: int, text: str, notify_chat_id: int | None
+    bot: Bot,
+    job_id: int,
+    text: str,
+    notify_chat_id: int | None,
+    t: Texts | None = None,
 ) -> None:
     """Drive a job to completion over its still-pending targets, then report.
+
+    `t` is the admin's language when a person started the job. Resuming after a
+    restart has no user context, so the summary falls back to the default.
 
     Safe to call again after a restart: already-processed recipients are no
     longer 'pending', so only the remainder are sent.
@@ -100,7 +107,7 @@ async def run_broadcast_job(
         if notify_chat_id:
             await bot.send_message(
                 notify_chat_id,
-                texts.MSG_BROADCAST_COMPLETE.format(
+                (t or Texts()).MSG_BROADCAST_COMPLETE.format(
                     sent=stats["sent"], failed=stats["failed"], blocked=stats["blocked"]
                 ),
             )
@@ -116,27 +123,29 @@ async def resume_broadcasts(bot: Bot) -> None:
         )
 
 
-async def _start_broadcast(bot: Bot, text: str, admin_id: int) -> None:
+async def _start_broadcast(bot: Bot, text: str, admin_id: int, t: Texts) -> None:
     """Persist a new job (snapshotting recipients) and run it in the background."""
     job_id = await create_broadcast_job(text, admin_id)
     logger.info("Broadcast job #{} created by admin {}", job_id, admin_id)
-    spawn(run_broadcast_job(bot, job_id, text, admin_id), name=f"broadcast_job_{job_id}")
+    spawn(run_broadcast_job(bot, job_id, text, admin_id, t), name=f"broadcast_job_{job_id}")
 
 
 @router.message(Command("broadcast"))
 async def cmd_broadcast(
-    message: Message, config: AppConfig, state: FSMContext
+    message: Message, config: AppConfig, state: FSMContext,
+    t: Texts,
 ) -> None:
     """Start the broadcast flow (admin only)."""
     if not _is_admin(message.from_user.id, config):
         return
     await state.set_state(BroadcastStates.waiting_message)
-    await message.answer(texts.MSG_BROADCAST_PROMPT)
+    await message.answer(t.MSG_BROADCAST_PROMPT)
 
 
 @router.message(BroadcastStates.waiting_message, F.text)
 async def process_broadcast_message(
-    message: Message, config: AppConfig, state: FSMContext
+    message: Message, config: AppConfig, state: FSMContext,
+    t: Texts,
 ) -> None:
     """Receive the broadcast text and ask for confirmation."""
     if not _is_admin(message.from_user.id, config):
@@ -144,15 +153,15 @@ async def process_broadcast_message(
 
     recipients = await get_broadcast_recipients()
     if not recipients:
-        await message.answer(texts.MSG_BROADCAST_NO_RECIPIENTS)
+        await message.answer(t.MSG_BROADCAST_NO_RECIPIENTS)
         await state.clear()
         return
 
     await state.update_data(broadcast_text=message.text)
     await state.set_state(BroadcastStates.waiting_confirm)
     await message.answer(
-        texts.MSG_BROADCAST_CONFIRM.format(count=len(recipients)),
-        reply_markup=broadcast_confirm_kb(),
+        t.MSG_BROADCAST_CONFIRM.format(count=len(recipients)),
+        reply_markup=broadcast_confirm_kb(t),
     )
 
 
@@ -163,6 +172,7 @@ async def process_broadcast_confirm(
     config: AppConfig,
     state: FSMContext,
     bot: Bot,
+    t: Texts,
 ) -> None:
     """Execute or cancel the broadcast from the inline Yes/No buttons."""
     if not _is_admin(callback.from_user.id, config):
@@ -172,30 +182,31 @@ async def process_broadcast_confirm(
 
     if callback_data.action != "send":
         await state.clear()
-        await callback.message.edit_text(texts.MSG_BROADCAST_CANCELLED)
+        await callback.message.edit_text(t.MSG_BROADCAST_CANCELLED)
         return
 
     data = await state.get_data()
     broadcast_text = data.get("broadcast_text")
     await state.clear()
     if not broadcast_text:
-        await callback.message.edit_text(texts.MSG_BROADCAST_CANCELLED)
+        await callback.message.edit_text(t.MSG_BROADCAST_CANCELLED)
         return
 
-    await callback.message.edit_text(texts.MSG_BROADCAST_STARTED)
+    await callback.message.edit_text(t.MSG_BROADCAST_STARTED)
     await _start_broadcast(bot, broadcast_text, callback.from_user.id)
 
 
 @router.message(BroadcastStates.waiting_confirm, F.text)
 async def process_broadcast_confirm_text(
-    message: Message, config: AppConfig, state: FSMContext, bot: Bot
+    message: Message, config: AppConfig, state: FSMContext, bot: Bot,
+    t: Texts,
 ) -> None:
     """Fallback: typing так/yes/да still confirms; anything else cancels."""
     if not _is_admin(message.from_user.id, config):
         return
 
     if message.text.lower().strip() not in ("так", "yes", "да"):
-        await message.answer(texts.MSG_BROADCAST_CANCELLED)
+        await message.answer(t.MSG_BROADCAST_CANCELLED)
         await state.clear()
         return
 
@@ -203,5 +214,5 @@ async def process_broadcast_confirm_text(
     broadcast_text = data["broadcast_text"]
     await state.clear()
 
-    await message.answer(texts.MSG_BROADCAST_STARTED)
+    await message.answer(t.MSG_BROADCAST_STARTED)
     await _start_broadcast(bot, broadcast_text, message.from_user.id)

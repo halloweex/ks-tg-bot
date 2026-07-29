@@ -22,6 +22,7 @@ from bot.handlers.support import router as support_router
 from bot.services.keycrm import KeyCRMClient
 from bot.services.novaposhta import NovaPoshtaClient
 from bot.services.shopify import ShopifyClient
+from bot.middlewares import LanguageMiddleware
 from bot.tasks import drain
 
 
@@ -77,6 +78,11 @@ async def main() -> None:
     @dp.shutdown()
     async def on_shutdown() -> None:
         await drain()
+
+    # Resolve each user's language before any handler runs, so every handler
+    # can just use the injected `t`.
+    dp.message.middleware(LanguageMiddleware())
+    dp.callback_query.middleware(LanguageMiddleware())
 
     # Register routers (order matters: commands first, callbacks second, FSM last)
     dp.include_router(common_router)

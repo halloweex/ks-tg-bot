@@ -1,0 +1,175 @@
+"""Per-user language resolution and the English string table.
+
+`texts.py` stays the Ukrainian source of truth — every key is defined there.
+This module holds translations keyed by the same names and a `Texts` view that
+handlers receive as `t`, so `texts.MSG_ORDERS_HEADER` becomes `t.MSG_ORDERS_HEADER`
+and resolves per user.
+
+A key missing from a translation falls back to Ukrainian rather than raising:
+a half-translated string table degrades to the default language instead of
+breaking the handler that uses it.
+"""
+from __future__ import annotations
+
+from bot import texts
+
+DEFAULT_LANG = "uk"
+
+# Adding a language is one entry here plus one table below — nothing else in the
+# codebase enumerates languages.
+LANGUAGE_NAMES = {
+    "uk": "Українська",
+    "en": "English",
+}
+SUPPORTED = tuple(LANGUAGE_NAMES)
+
+EN: dict[str, str] = {
+    "GREETING": (
+        "Welcome to {brand_name}! 🌸\n\n"
+        "I'll help you out and guide you through the world of beauty.\n\n"
+        "Tap the button below to share your phone number."
+    ),
+    "BTN_SHARE_PHONE": "📱 Share my number",
+    "ERR_CONTACT_NOT_OWN": (
+        "❗ Please share your own number using the «📱 Share my number» button "
+        "below.\nForwarded or third-party contacts are not accepted."
+    ),
+    "MSG_USE_SHARE_BUTTON": (
+        "For security reasons the number cannot be typed in.\n"
+        "Please use the «📱 Share my number» button below 👇"
+    ),
+    "ERR_GENERIC": "Something went wrong. Please try again later.",
+    "ERR_API_UNAVAILABLE": "The service is temporarily unavailable. Please try again in a few minutes.",
+    "ERR_PHONE_NOT_FOUND": (
+        "We couldn't find any orders for this number.\n"
+        "Please check the number or contact support."
+    ),
+    "ERR_INVALID_PHONE": "Invalid number format. Please use the international format, e.g. +380XXXXXXXXX.",
+    "BTN_ORDERS": "📦 My orders",
+    "BTN_INFO": "ℹ️ Learn more",
+    "BTN_SUPPORT": "💬 Contact a manager",
+    "BTN_WEBSITE": "🌐 Website",
+    "BTN_SETTINGS": "⚙️ Settings",
+    "BTN_ABOUT": "About us",
+    "BTN_CONTACTS": "Contacts",
+    "BTN_PAYMENT": "Payment",
+    "BTN_DELIVERY": "Delivery",
+    "BTN_BACK": "◀️ Back",
+    "BTN_MENU": "📋 Menu",
+    "BTN_CHANGE_PHONE": "📱 Change number",
+    "BTN_LANGUAGE": "🌍 Language",
+    "MSG_ORDERS_LOADING": "Loading your orders...",
+    "MSG_ORDERS_HEADER": "📦 Your orders:",
+    "MSG_ORDER_SOURCE_WEB": "🌐 Website",
+    "MSG_ORDER_SOURCE_INSTAGRAM": "📸 Instagram",
+    "LBL_STATUS": "Status",
+    "LBL_PRODUCTS": "Items",
+    "LBL_TOTAL": "Total",
+    "LBL_DATE": "Date",
+    "MSG_ORDER_TRACKING": "🚚 Tracking: {code}",
+    "MSG_ORDER_LOCATION": "📍 {location}",
+    "MSG_NO_ORDERS": "You don't have any orders yet.",
+    "MSG_PHONE_ACCEPTED": "Number accepted! Registering you...",
+    "MSG_SUPPORT_FORWARDED": "Your message has been sent to a manager. Please wait for a reply.",
+    "MSG_MAIN_MENU": "Choose an action:",
+    "MSG_INFO_MENU": "Choose a section:",
+    "MSG_SETTINGS_MENU": "Settings:",
+    "MSG_LANGUAGE_CURRENT": "Current language: English ✅",
+    "MSG_SUPPORT_PROMPT": "Write your message and we'll pass it on to a manager:",
+    "MSG_NEW_PHONE_PROMPT": "To update your number, share it using the button below 👇",
+    "MSG_PHONE_CHANGED": "Phone number updated! ✅",
+    "MSG_WELCOME_BACK": "Welcome back! 🌸",
+    "MSG_WELCOME_BACK_NAME": "Welcome back, {name}! 🌸",
+    "MSG_PHONE_VERIFIED": "Number verified! ✅",
+    "MSG_SUPPORT_REPLY_PREFIX": "Reply from a manager:",
+    "MSG_SUPPORT_ADMIN_NOTE": "📩 Message from a user (chat_id: {chat_id}):",
+    "MSG_SUPPORT_REPLY_INSTRUCTION": "↩️ Reply to the forwarded message to answer the customer.",
+    "MSG_SUPPORT_NO_REPLY_TARGET": "Please reply to the customer's forwarded message.",
+    "MSG_OPT_OUT_CONFIRM": "You have unsubscribed from our updates. Send /start to subscribe again.",
+    "MSG_OPT_IN_CONFIRM": "You are subscribed to our updates again!",
+    "MSG_BROADCAST_PROMPT": "Enter the broadcast text:",
+    "MSG_BROADCAST_CONFIRM": "Send this message to {count} users?",
+    "BTN_BROADCAST_YES": "✅ Yes",
+    "BTN_BROADCAST_NO": "❌ No",
+    "MSG_BROADCAST_CANCELLED": "Broadcast cancelled.",
+    "MSG_BROADCAST_STARTED": "Broadcast started...",
+    "MSG_BROADCAST_COMPLETE": "Broadcast finished!\n\nSent: {sent}\nFailed: {failed}\nBlocked: {blocked}",
+    "MSG_BROADCAST_NO_RECIPIENTS": "There are no active subscribers to send to.",
+    "MSG_ORDER_LATEST": "⭐ Latest order:",
+    "MSG_ORDERS_SYNCING": "Refreshing orders...",
+    "BTN_DELIVERY_STATUS": "🚚 Delivery status",
+    "MSG_DELIVERY_HEADER": "🚚 Delivery status:",
+    "MSG_DELIVERY_LOADING": "Checking delivery status...",
+    "MSG_NO_DELIVERIES": "There are no shipments to track right now.",
+    "MSG_DELIVERY_STATUS": "📍 {status}",
+    "MSG_DELIVERY_SCHEDULED": "📅 Estimated date: {date}",
+    "MSG_DELIVERY_ACTUAL": "✅ Received: {date}",
+    "MSG_DELIVERY_WAREHOUSE": "🏤 {warehouse}",
+    "MSG_DELIVERY_NO_TRACKING": "⏳ No tracking number assigned yet",
+    # Language switching — no Ukrainian counterpart needed in texts.py, both
+    # sides live here because the offer is shown in both languages at once.
+    "MSG_LANGUAGE_OFFER": (
+        "Your Telegram is set to {language}. Would you like to continue in "
+        "{language}, or stay in Ukrainian?"
+    ),
+    "MSG_LANGUAGE_SET": "Language set to English ✅",
+    "MSG_LANGUAGE_CHOOSE": "Choose a language:",
+}
+
+UK_EXTRA: dict[str, str] = {
+    "MSG_LANGUAGE_OFFER": (
+        "У вашому Telegram обрано {language}. Продовжити цією мовою "
+        "чи залишити українську?"
+    ),
+    "MSG_LANGUAGE_SET": "Мову змінено на українську ✅",
+    "MSG_LANGUAGE_CHOOSE": "Оберіть мову:",
+}
+
+_TABLES: dict[str, dict[str, str]] = {"uk": UK_EXTRA, "en": EN}
+
+
+def normalize(code: str | None) -> str:
+    """Map a Telegram language_code to a language we actually support.
+
+    Telegram sends things like 'en', 'en-GB', 'uk', or nothing at all. Anything
+    we don't have strings for falls back to Ukrainian — the shop's language.
+    """
+    if not code:
+        return DEFAULT_LANG
+    base = code.split("-")[0].lower()
+    return base if base in SUPPORTED else DEFAULT_LANG
+
+
+class Texts:
+    """A language-bound view over the string tables.
+
+    Attribute access mirrors the `texts` module, so handlers read the same
+    names they always did.
+    """
+
+    __slots__ = ("lang",)
+
+    def __init__(self, lang: str = DEFAULT_LANG) -> None:
+        self.lang = lang if lang in SUPPORTED else DEFAULT_LANG
+
+    def __getattr__(self, name: str) -> str:
+        table = _TABLES.get(self.lang, {})
+        if name in table:
+            return table[name]
+        return getattr(texts, name)
+
+    def order_source_label(self, row: dict) -> str:
+        """Language-aware version of the shared order label."""
+        order_name = row.get("order_name", "")
+        if order_name:
+            return f"{self.MSG_ORDER_SOURCE_WEB} {order_name}".strip()
+        return self.MSG_ORDER_SOURCE_INSTAGRAM
+
+
+def variants(key: str) -> set[str]:
+    """Every language's value for a key.
+
+    Router filters that match on button text are built at import time, so they
+    must accept the button in any language the bot can render it in.
+    """
+    return {getattr(Texts(lang), key) for lang in SUPPORTED}

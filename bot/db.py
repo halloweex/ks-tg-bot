@@ -106,6 +106,9 @@ _MIGRATIONS = [
     "ALTER TABLE users ADD COLUMN email TEXT",
     "ALTER TABLE users ADD COLUMN updated_at TEXT",
     "ALTER TABLE orders ADD COLUMN external_id TEXT DEFAULT ''",
+    # NULL means "never chosen": the user's Telegram language still decides.
+    # Once they pick one explicitly it is stored and wins from then on.
+    "ALTER TABLE users ADD COLUMN language TEXT",
 ]
 
 # Rows cached before external_id existed can't be deduped by it, so they'd keep
@@ -172,12 +175,21 @@ async def save_user(
 
     Uses INSERT OR REPLACE — chat_id is PRIMARY KEY, so re-verification
     overwrites the old row. Optional full_name/email are stored when provided.
+
+    REPLACE writes a whole new row, so any column not listed here would be reset
+    to its default. The chosen language and the original signup date are carried
+    over explicitly: losing them on a phone re-verification would silently flip
+    the user back to Ukrainian and destroy the signup cohort.
     """
     async with _connect() as db:
         await db.execute(
-            "INSERT OR REPLACE INTO users (chat_id, phone, full_name, email, updated_at) "
-            "VALUES (?, ?, ?, ?, datetime('now'))",
-            (chat_id, phone, full_name, email),
+            "INSERT OR REPLACE INTO users "
+            "(chat_id, phone, full_name, email, language, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, "
+            "  (SELECT language FROM users WHERE chat_id = ?), "
+            "  COALESCE((SELECT created_at FROM users WHERE chat_id = ?), datetime('now')), "
+            "  datetime('now'))",
+            (chat_id, phone, full_name, email, chat_id, chat_id),
         )
         await db.commit()
 
@@ -191,6 +203,35 @@ async def get_user_phone(chat_id: int) -> str | None:
         )
         row = await cursor.fetchone()
         return row[0] if row else None
+
+
+async def get_user_language(chat_id: int) -> str | None:
+    """Return the language the user explicitly chose, or None if they never did.
+
+    None is meaningful: it means fall back to their Telegram language_code.
+    """
+    async with _connect() as db:
+        cursor = await db.execute(
+            "SELECT language FROM users WHERE chat_id = ?",
+            (chat_id,),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row and row[0] else None
+
+
+async def set_user_language(chat_id: int, lang: str) -> None:
+    """Persist an explicit language choice.
+
+    Only touches the language column — save_user() does INSERT OR REPLACE and
+    would wipe the profile fields if used here.
+    """
+    async with _connect() as db:
+        await db.execute(
+            "UPDATE users SET language = ?, updated_at = datetime('now') "
+            "WHERE chat_id = ?",
+            (lang, chat_id),
+        )
+        await db.commit()
 
 
 async def get_user(chat_id: int) -> dict | None:

@@ -11,6 +11,7 @@ from aiogram.types import CallbackQuery, KeyboardButton, Message, ReplyKeyboardM
 from loguru import logger
 
 from bot import texts
+from bot.i18n import Texts, variants
 from bot.callbacks import MenuAction
 from bot.config import AppConfig
 from bot.db import get_cached_orders, get_last_sync_time, get_user_phone, save_user, upsert_orders
@@ -34,9 +35,9 @@ _refresh_semaphore = asyncio.Semaphore(10)
 # Formatting helpers
 # ---------------------------------------------------------------------------
 
-def _format_cached_order(row: dict, *, is_latest: bool = False) -> str:
+def _format_cached_order(row: dict, t: Texts, *, is_latest: bool = False) -> str:
     """Format a single cached order (from DB dict) as a text block."""
-    source_label = texts.order_source_label(row)
+    source_label = t.order_source_label(row)
 
     try:
         products = json.loads(row.get("products_json", "[]"))
@@ -60,40 +61,40 @@ def _format_cached_order(row: dict, *, is_latest: bool = False) -> str:
     total = row.get("grand_total", 0)
     currency = escape(row.get("currency", "грн"))
 
-    prefix = f"{texts.MSG_ORDER_LATEST}\n" if is_latest else ""
+    prefix = f"{t.MSG_ORDER_LATEST}\n" if is_latest else ""
 
     lines = [
         f"{prefix}{escape(source_label)}",
-        f"  Статус: {status}",
-        f"  Товари: {products_str}",
-        f"  Сума: {total} {currency}",
-        f"  Дата: {escape(date_str)}",
+        f"  {t.LBL_STATUS}: {status}",
+        f"  {t.LBL_PRODUCTS}: {products_str}",
+        f"  {t.LBL_TOTAL}: {total} {currency}",
+        f"  {t.LBL_DATE}: {escape(date_str)}",
     ]
 
     tracking = row.get("tracking_code", "")
     if tracking:
-        lines.append(f"  {texts.MSG_ORDER_TRACKING.format(code=texts.tracking_link(tracking))}")
+        lines.append(f"  {t.MSG_ORDER_TRACKING.format(code=texts.tracking_link(tracking))}")
 
     location_parts = [p for p in (row.get("delivery_city", ""), row.get("receive_point", "")) if p]
     if location_parts:
         location = escape(", ".join(location_parts))
-        lines.append(f"  {texts.MSG_ORDER_LOCATION.format(location=location)}")
+        lines.append(f"  {t.MSG_ORDER_LOCATION.format(location=location)}")
 
     return "\n".join(lines)
 
 
-def _format_orders_from_cache(orders: list[dict]) -> str:
+def _format_orders_from_cache(orders: list[dict], t: Texts) -> str:
     """Format all cached orders into a single message text."""
     if not orders:
-        return texts.MSG_NO_ORDERS
+        return t.MSG_NO_ORDERS
 
     max_len = 3800
-    header = texts.MSG_ORDERS_HEADER + "\n\n"
+    header = t.MSG_ORDERS_HEADER + "\n\n"
     result_parts: list[str] = []
     current_len = len(header)
 
     for i, row in enumerate(orders):
-        block = _format_cached_order(row, is_latest=(i == 0)) + "\n"
+        block = _format_cached_order(row, t, is_latest=(i == 0)) + "\n"
         if current_len + len(block) + 2 > max_len:
             result_parts.append("\n...та інші замовлення")
             break
@@ -103,10 +104,10 @@ def _format_orders_from_cache(orders: list[dict]) -> str:
     return header + "\n".join(result_parts)
 
 
-def _menu_reply_kb() -> ReplyKeyboardMarkup:
+def _menu_reply_kb(t: Texts) -> ReplyKeyboardMarkup:
     """Reply keyboard with a single Menu button."""
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=texts.BTN_MENU)]],
+        keyboard=[[KeyboardButton(text=t.BTN_MENU)]],
         resize_keyboard=True,
     )
 
@@ -208,13 +209,13 @@ async def _do_refresh_orders(
 # Handlers
 # ---------------------------------------------------------------------------
 
-async def _send_orders(message: Message, chat_id: int) -> None:
+async def _send_orders(message: Message, chat_id: int, t: Texts) -> None:
     """Read cached orders and send as a message with menu reply keyboard."""
     cached = await get_cached_orders(chat_id)
-    formatted_text = _format_orders_from_cache(cached)
+    formatted_text = _format_orders_from_cache(cached, t)
     await message.answer(
         formatted_text,
-        reply_markup=_menu_reply_kb(),
+        reply_markup=_menu_reply_kb(t),
         parse_mode="HTML",
     )
 
@@ -226,6 +227,7 @@ async def show_orders(
     keycrm: KeyCRMClient,
     shopify: ShopifyClient | None,
     config: AppConfig,
+    t: Texts,
 ) -> None:
     """Display orders from local cache, refresh from APIs in background."""
     await callback.answer()
@@ -234,8 +236,8 @@ async def show_orders(
     phone = await get_user_phone(chat_id)
     if not phone:
         await callback.message.answer(
-            texts.ERR_PHONE_NOT_FOUND,
-            reply_markup=_menu_reply_kb(),
+            t.ERR_PHONE_NOT_FOUND,
+            reply_markup=_menu_reply_kb(t),
         )
         return
 
@@ -243,10 +245,10 @@ async def show_orders(
     cached = await get_cached_orders(chat_id)
 
     if cached:
-        formatted_text = _format_orders_from_cache(cached)
+        formatted_text = _format_orders_from_cache(cached, t)
         await callback.message.answer(
             formatted_text,
-            reply_markup=_menu_reply_kb(),
+            reply_markup=_menu_reply_kb(t),
             parse_mode="HTML",
         )
         # Fire-and-forget background refresh — but only if the cache is stale,
@@ -255,18 +257,19 @@ async def show_orders(
             spawn(_refresh_orders(chat_id, phone, keycrm, shopify), name="refresh_orders")
     else:
         # No cache — show loading, fetch synchronously, then display
-        await callback.message.answer(texts.MSG_ORDERS_LOADING)
+        await callback.message.answer(t.MSG_ORDERS_LOADING)
         await _refresh_orders(chat_id, phone, keycrm, shopify)
-        await _send_orders(callback.message, chat_id)
+        await _send_orders(callback.message, chat_id, t)
 
 
-@router.message(F.text == texts.BTN_MENU)
+@router.message(F.text.in_(variants("BTN_MENU")))
 async def menu_button_handler(
     message: Message,
     config: AppConfig,
+    t: Texts,
 ) -> None:
     """Handle the reply-keyboard Menu button — show main menu."""
     await message.answer(
-        texts.MSG_MAIN_MENU,
-        reply_markup=main_menu_kb(config.website_url),
+        t.MSG_MAIN_MENU,
+        reply_markup=main_menu_kb(t, config.website_url),
     )

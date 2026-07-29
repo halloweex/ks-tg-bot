@@ -17,9 +17,15 @@ class InfoAction(CallbackData, prefix="info"):
 
 
 class SettingsAction(CallbackData, prefix="sett"):
-    """Settings submenu actions: phone, language, back."""
+    """Settings submenu actions: phone, language, lang (with a code), back.
+
+    `value` carries the payload for actions that need one — the language code
+    for action="lang". It cannot be packed into `action` itself: aiogram uses
+    ':' as the field separator and rejects it inside a value.
+    """
 
     action: str
+    value: str = ""
 
 
 class DeliveryAction(CallbackData, prefix="dlvr"):
