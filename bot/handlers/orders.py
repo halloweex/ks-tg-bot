@@ -35,15 +35,7 @@ _refresh_semaphore = asyncio.Semaphore(10)
 
 def _format_cached_order(row: dict, *, is_latest: bool = False) -> str:
     """Format a single cached order (from DB dict) as a text block."""
-    # A store order number means the order came from the website — whether the
-    # row was fetched from Shopify directly or from KeyCRM, which mirrors the
-    # number for orders its Shopify integration pulled in.
-    order_name = row.get("order_name", "")
-
-    if order_name:
-        source_label = f"{texts.MSG_ORDER_SOURCE_WEB} {order_name}".strip()
-    else:
-        source_label = texts.MSG_ORDER_SOURCE_INSTAGRAM
+    source_label = texts.order_source_label(row)
 
     try:
         products = json.loads(row.get("products_json", "[]"))

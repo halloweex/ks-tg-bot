@@ -25,13 +25,7 @@ def _menu_reply_kb() -> ReplyKeyboardMarkup:
 
 def _format_order_label(row: dict) -> str:
     """Short label for an order: source + products summary."""
-    source = row.get("source", "")
-    order_name = row.get("order_name", "")
-
-    if source == "shopify":
-        label = f"{texts.MSG_ORDER_SOURCE_WEB} {order_name}".strip()
-    else:
-        label = texts.MSG_ORDER_SOURCE_INSTAGRAM
+    label = texts.order_source_label(row)
 
     try:
         products = json.loads(row.get("products_json", "[]"))

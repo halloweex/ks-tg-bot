@@ -56,6 +56,20 @@ MSG_ORDERS_LOADING = "Завантажую ваші замовлення..."
 MSG_ORDERS_HEADER = "📦 Ваші замовлення:"
 MSG_ORDER_SOURCE_WEB = "🌐 Сайт"
 MSG_ORDER_SOURCE_INSTAGRAM = "📸 Instagram"
+
+
+def order_source_label(row: dict) -> str:
+    """Label a cached order by where it was placed.
+
+    A store order number means it came from the website — whether the row was
+    fetched from Shopify directly or from KeyCRM, which mirrors the number for
+    orders its Shopify integration pulled in. Shared by the order list and the
+    delivery view so one order never carries two different labels.
+    """
+    order_name = row.get("order_name", "")
+    if order_name:
+        return f"{MSG_ORDER_SOURCE_WEB} {order_name}".strip()
+    return MSG_ORDER_SOURCE_INSTAGRAM
 MSG_ORDER_TRACKING = "🚚 ТТН: {code}"
 MSG_ORDER_LOCATION = "📍 {location}"
 
