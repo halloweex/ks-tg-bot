@@ -1,11 +1,30 @@
 """Inline keyboard builders for menu navigation."""
 from __future__ import annotations
 
+from urllib.parse import urlencode, urlparse
+
 from aiogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.callbacks import BroadcastAction, DeliveryAction, InfoAction, MenuAction, SettingsAction
 from bot.i18n import LANGUAGE_NAMES, SUPPORTED, Texts
+
+
+def tagged_website_url(url: str) -> str:
+    """Website URL with UTM tags.
+
+    Telegram sends no event when a `url=` button is tapped — there is no callback
+    to hook. Tagging the link is the only way these clicks can ever be counted,
+    and it happens in the shop's analytics, not here.
+    """
+    if not url:
+        return url
+    tags = urlencode({
+        "utm_source": "telegram",
+        "utm_medium": "bot",
+        "utm_campaign": "main_menu",
+    })
+    return f"{url}{'&' if urlparse(url).query else '?'}{tags}"
 
 
 def share_phone_kb(t: Texts) -> ReplyKeyboardMarkup:
@@ -31,7 +50,7 @@ def main_menu_kb(t: Texts, website_url: str) -> InlineKeyboardMarkup:
     builder.button(text=t.BTN_DELIVERY_STATUS, callback_data=DeliveryAction(action="view"))
     builder.button(text=t.BTN_INFO, callback_data=MenuAction(action="info"))
     builder.button(text=t.BTN_SUPPORT, callback_data=MenuAction(action="support"))
-    builder.button(text=t.BTN_WEBSITE, url=website_url)
+    builder.button(text=t.BTN_WEBSITE, url=tagged_website_url(website_url))
     builder.button(text=t.BTN_SETTINGS, callback_data=MenuAction(action="settings"))
     builder.adjust(1)
     return builder.as_markup()

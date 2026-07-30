@@ -10,6 +10,7 @@ from aiogram.types import Message, ReplyKeyboardRemove
 from loguru import logger
 
 from bot.i18n import Texts
+from bot.analytics import track
 from bot.config import AppConfig
 from bot.db import save_user, upsert_orders
 from bot.keyboards import main_menu_kb, share_phone_kb
@@ -122,6 +123,7 @@ async def _register_user(
         logger.debug("Order sync on registration failed for {}", phone)
 
     await state.clear()
+    track(message.chat.id, "registered")
     await message.answer(t.MSG_PHONE_VERIFIED, reply_markup=ReplyKeyboardRemove())
     await message.answer(t.MSG_MAIN_MENU, reply_markup=main_menu_kb(t, config.website_url))
 
@@ -138,15 +140,18 @@ async def process_contact(
     """Register the user from their OWN shared contact (ownership-verified)."""
     if message.contact and message.contact.user_id != (message.from_user.id if message.from_user else None):
         # Forwarded / someone else's contact card — refuse.
+        track(message.chat.id, "contact_rejected", reason="not_own")
         await message.answer(t.ERR_CONTACT_NOT_OWN, reply_markup=share_phone_kb(t))
         return
 
     phone = own_contact_phone(message)
     if not phone:
+        track(message.chat.id, "contact_rejected", reason="invalid")
         await message.answer(t.ERR_INVALID_PHONE, reply_markup=share_phone_kb(t))
         return
     logger.info("Verified own contact registered for chat {}", message.chat.id)
 
+    track(message.chat.id, "contact_shared")
     await message.answer(t.MSG_PHONE_ACCEPTED)
     await _register_user(message, state, phone, config, t, keycrm=keycrm, shopify=shopify)
 
@@ -155,4 +160,5 @@ async def process_contact(
 async def reject_typed_phone(message: Message, t: Texts) -> None:
     """Refuse manually typed numbers — ownership can't be proven, so allowing
     them would expose another person's orders. User must tap the button."""
+    track(message.chat.id, "contact_rejected", reason="typed")
     await message.answer(t.MSG_USE_SHARE_BUTTON, reply_markup=share_phone_kb(t))

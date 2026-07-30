@@ -12,9 +12,14 @@ from loguru import logger
 
 from bot.i18n import Texts
 from bot.callbacks import BroadcastAction
+from bot.analytics import track
 from bot.config import AppConfig
 from bot.db import (
     broadcast_job_stats,
+    event_counts,
+    funnel_counts,
+    lookup_miss_rate,
+    returning_users,
     create_broadcast_job,
     finish_broadcast_job,
     get_broadcast_recipients,
@@ -42,6 +47,7 @@ _send_lock = asyncio.Lock()
 async def cmd_stop(message: Message, t: Texts) -> None:
     """Opt the user out of broadcast messages."""
     await opt_out_user(message.chat.id)
+    track(message.chat.id, "opted_out")
     await message.answer(t.MSG_OPT_OUT_CONFIRM)
 
 
@@ -216,3 +222,60 @@ async def process_broadcast_confirm_text(
 
     await message.answer(t.MSG_BROADCAST_STARTED)
     await _start_broadcast(bot, broadcast_text, message.from_user.id)
+
+
+# --------------- Admin analytics ---------------
+
+
+@router.message(Command("stats"))
+async def cmd_stats(message: Message, config: AppConfig) -> None:
+    """Summarise the instrumentation so the numbers are readable from the bot.
+
+    Admin only, and deliberately plain text: the point is to make the funnel
+    checkable without an ssh session into SQLite.
+    """
+    if not _is_admin(message.from_user.id, config):
+        return
+
+    funnel = await funnel_counts(30)
+    misses, lookups = await lookup_miss_rate(30)
+    returning, active = await returning_users(30)
+    counts = await event_counts(7)
+
+    lines = ["📊 <b>Останні 30 днів</b>", "", "<b>Воронка (унікальні користувачі)</b>"]
+    labels = {
+        "start": "/start",
+        "contact_shared": "поділився контактом",
+        "registered": "зареєстрований",
+        "orders_viewed": "дивився замовлення",
+    }
+    top = funnel.get("start", 0)
+    for key, label in labels.items():
+        n = funnel.get(key, 0)
+        share = f"  {100 * n / top:.0f}%" if top else ""
+        lines.append(f"  {label}: {n}{share}")
+
+    lines += ["", "<b>Пошук замовлень</b>"]
+    if lookups:
+        lines.append(
+            f"  нічого не знайдено: {misses} з {lookups} "
+            f"({100 * misses / lookups:.0f}%)"
+        )
+        lines.append("  ^ телефон у Telegram не збігся з тим, що в CRM")
+    else:
+        lines.append("  ще не було жодного пошуку")
+
+    lines += ["", "<b>Повернення</b>",
+              f"  активних: {active}, з них заходили більше одного дня: {returning}"]
+
+    lines += ["", "<b>Події за 7 днів</b>"]
+    if counts:
+        for event, total, users in counts:
+            lines.append(f"  {event}: {total} ({users} користувачів)")
+    else:
+        lines.append("  подій ще немає")
+
+    lines += ["", "Кліки по кнопці «Веб-сайт» Telegram не віддає — "
+              "дивіться utm_source=telegram в аналітиці магазину."]
+
+    await message.answer("\n".join(lines), parse_mode="HTML")

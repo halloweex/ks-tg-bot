@@ -9,6 +9,7 @@ from loguru import logger
 
 from bot.i18n import Texts
 from bot.callbacks import InfoAction, MenuAction
+from bot.analytics import track
 from bot.config import AppConfig
 
 router = Router()
@@ -22,9 +23,10 @@ def _back_to_info_kb(t: Texts) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-async def _show_info_page(callback: CallbackQuery, text: str, t: Texts) -> None:
+async def _show_info_page(callback: CallbackQuery, text: str, t: Texts, page: str = "") -> None:
     """Edit current message to show an info page with Back button."""
     await callback.answer()
+    track(callback.from_user.id, "info_viewed", page=page)
     try:
         await callback.message.edit_text(text, reply_markup=_back_to_info_kb(t))
     except TelegramBadRequest as exc:
@@ -35,22 +37,22 @@ async def _show_info_page(callback: CallbackQuery, text: str, t: Texts) -> None:
 @router.callback_query(InfoAction.filter(F.page == "about"))
 async def show_about(callback: CallbackQuery, config: AppConfig, t: Texts) -> None:
     """Display the About Us page from config.yaml."""
-    await _show_info_page(callback, config.about_text, t)
+    await _show_info_page(callback, config.about_text, t, "about")
 
 
 @router.callback_query(InfoAction.filter(F.page == "contacts"))
 async def show_contacts(callback: CallbackQuery, config: AppConfig, t: Texts) -> None:
     """Display the Contacts page from config.yaml."""
-    await _show_info_page(callback, config.contacts_text, t)
+    await _show_info_page(callback, config.contacts_text, t, "contacts")
 
 
 @router.callback_query(InfoAction.filter(F.page == "payment"))
 async def show_payment(callback: CallbackQuery, config: AppConfig, t: Texts) -> None:
     """Display the Payment page from config.yaml."""
-    await _show_info_page(callback, config.payment_text, t)
+    await _show_info_page(callback, config.payment_text, t, "payment")
 
 
 @router.callback_query(InfoAction.filter(F.page == "delivery"))
 async def show_delivery(callback: CallbackQuery, config: AppConfig, t: Texts) -> None:
     """Display the Delivery page from config.yaml."""
-    await _show_info_page(callback, config.delivery_text, t)
+    await _show_info_page(callback, config.delivery_text, t, "delivery")

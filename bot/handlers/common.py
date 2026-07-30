@@ -7,6 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, ReplyKeyboardRemove
 
 from bot.i18n import LANGUAGE_NAMES, Texts
+from bot.analytics import track
 from bot.config import AppConfig
 from bot.db import get_user, get_user_language, get_user_phone, is_opted_out, opt_in_user
 from bot.keyboards import language_kb, main_menu_kb, share_phone_kb
@@ -48,10 +49,12 @@ async def cmd_start(
     # Re-subscribe if user was opted out of broadcasts
     if await is_opted_out(message.chat.id):
         await opt_in_user(message.chat.id)
+        track(message.chat.id, "opted_in")
         await message.answer(t.MSG_OPT_IN_CONFIRM)
 
     # Returning user — already verified, show main menu
     user = await get_user(message.chat.id)
+    track(message.chat.id, "start", returning=bool(user), lang=lang)
     if user:
         if user.get("full_name"):
             greeting = t.MSG_WELCOME_BACK_NAME.format(name=user["full_name"])

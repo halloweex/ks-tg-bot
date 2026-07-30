@@ -10,6 +10,7 @@ from loguru import logger
 
 from bot.i18n import Texts
 from bot.callbacks import MenuAction
+from bot.analytics import track
 from bot.config import AppConfig
 from bot.keyboards import main_menu_kb
 from bot.states import SupportStates
@@ -26,6 +27,7 @@ async def enter_support_mode(
 ) -> None:
     """Prompt user to type a message for the support team."""
     await callback.answer()
+    track(callback.from_user.id, "support_opened")
     await state.set_state(SupportStates.waiting_message)
     await callback.message.edit_text(t.MSG_SUPPORT_PROMPT)
 
@@ -61,9 +63,10 @@ async def forward_to_support(
 
     # Confirm to user and return to main menu
     await state.clear()
+    track(message.chat.id, "support_message_sent")
     await message.answer(
         t.MSG_SUPPORT_FORWARDED,
-        reply_markup=main_menu_kb(config.website_url),
+        reply_markup=main_menu_kb(t, config.website_url),
     )
 
 

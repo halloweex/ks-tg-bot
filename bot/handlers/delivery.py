@@ -11,6 +11,7 @@ from aiogram.types import CallbackQuery, KeyboardButton, ReplyKeyboardMarkup
 from bot import texts
 from bot.i18n import Texts
 from bot.callbacks import DeliveryAction
+from bot.analytics import track
 from bot.config import AppConfig
 from bot.db import get_orders_with_tracking, get_user_phone, get_cached_orders
 from bot.services.novaposhta import NovaPoshtaClient
@@ -105,6 +106,7 @@ async def show_delivery_status(
         return
 
     tracked_orders = await get_orders_with_tracking(chat_id)
+    track(chat_id, "delivery_viewed", found=len(tracked_orders))
 
     if not tracked_orders:
         # Check if user has orders at all but none with tracking

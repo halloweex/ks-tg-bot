@@ -16,6 +16,7 @@ from loguru import logger
 from bot import texts
 from bot.i18n import Texts, variants
 from bot.callbacks import MenuAction, OrderAction
+from bot.analytics import track
 from bot.config import AppConfig
 from bot.db import get_cached_orders, get_last_sync_time, get_user_phone, save_user, upsert_orders
 from bot.keyboards import main_menu_kb
@@ -354,6 +355,7 @@ async def show_orders(
     cached = await get_cached_orders(chat_id)
 
     if cached:
+        track(chat_id, "orders_viewed", found=len(cached), cached=True)
         await callback.message.answer(
             _format_orders_from_cache(cached, t),
             reply_markup=_orders_kb(cached, t),
@@ -367,6 +369,11 @@ async def show_orders(
         # No cache — show loading, fetch synchronously, then display
         await callback.message.answer(t.MSG_ORDERS_LOADING)
         await _refresh_orders(chat_id, phone, keycrm, shopify)
+        # Tracked after the fetch, not before: an empty cache says nothing about
+        # whether the phone matched, and `found=0` here is exactly the signal
+        # that a customer shared their contact and saw nothing.
+        fetched = await get_cached_orders(chat_id)
+        track(chat_id, "orders_viewed", found=len(fetched), cached=False)
         await _send_orders(callback.message, chat_id, t)
 
 
@@ -382,6 +389,8 @@ async def toggle_order_items(
     only ever pick one of their orders — a forged id simply expands nothing.
     """
     await callback.answer()
+    track(callback.from_user.id, "order_items_toggled",
+          expanded=bool(callback_data.order_id))
 
     cached = await get_cached_orders(callback.from_user.id)
     if not cached:

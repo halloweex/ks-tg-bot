@@ -7,6 +7,7 @@ from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
 from bot.i18n import Texts, normalize
 from bot.callbacks import SettingsAction
+from bot.analytics import track
 from bot.config import AppConfig
 from bot.db import save_user, set_user_language
 from bot.handlers.onboarding import own_contact_phone
@@ -85,6 +86,7 @@ async def set_language(
     """
     chosen = normalize(callback_data.value)
     await set_user_language(callback.from_user.id, chosen)
+    track(callback.from_user.id, "language_changed", to=chosen)
     await callback.answer()
 
     t = Texts(chosen)
