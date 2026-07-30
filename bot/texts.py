@@ -163,6 +163,17 @@ MSG_ORDER_LATEST = "⭐ Останнє замовлення:"
 MSG_ORDERS_SYNCING = "Оновлюю замовлення..."
 
 # Delivery status
+BTN_FAVOURITES = "⭐ Улюблені товари"
+MSG_FAVOURITES_HEADER = "⭐ Ваші улюблені товари:"
+# When nothing has been bought twice, calling it a favourite is a small lie:
+# a quarter of customers have only ever ordered one product.
+MSG_FAVOURITES_HEADER_ONCE = "🛍 Товари, які ви замовляли:"
+# Counts rather than "N разів" to sidestep Ukrainian plural agreement.
+MSG_FAVOURITE_LINE = "замовлень: {orders} · {qty} шт · востаннє {date}"
+MSG_NO_FAVOURITES = (
+    "Поки що нема з чого скласти улюблене — тут з'являться товари, "
+    "які ви замовляєте найчастіше."
+)
 BTN_DELIVERY_STATUS = "🚚 Статус доставки"
 MSG_DELIVERY_HEADER = "🚚 Статус доставки:"
 MSG_DELIVERY_LOADING = "Перевіряю статус доставки..."

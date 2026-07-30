@@ -117,6 +117,14 @@ EN: dict[str, str] = {
     "MSG_BROADCAST_NO_RECIPIENTS": "There are no active subscribers to send to.",
     "MSG_ORDER_LATEST": "⭐ Latest order:",
     "MSG_ORDERS_SYNCING": "Refreshing orders...",
+    "BTN_FAVOURITES": "⭐ Favourite products",
+    "MSG_FAVOURITES_HEADER": "⭐ Your favourite products:",
+    "MSG_FAVOURITES_HEADER_ONCE": "🛍 Products you have ordered:",
+    "MSG_FAVOURITE_LINE": "orders: {orders} · {qty} pcs · last {date}",
+    "MSG_NO_FAVOURITES": (
+        "Nothing to base favourites on yet — the products you order most often "
+        "will show up here."
+    ),
     "BTN_DELIVERY_STATUS": "🚚 Delivery status",
     "MSG_DELIVERY_HEADER": "🚚 Delivery status:",
     "MSG_DELIVERY_LOADING": "Checking delivery status...",

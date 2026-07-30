@@ -48,6 +48,7 @@ def main_menu_kb(t: Texts, website_url: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text=t.BTN_ORDERS, callback_data=MenuAction(action="orders"))
     builder.button(text=t.BTN_DELIVERY_STATUS, callback_data=DeliveryAction(action="view"))
+    builder.button(text=t.BTN_FAVOURITES, callback_data=MenuAction(action="favourites"))
     builder.button(text=t.BTN_INFO, callback_data=MenuAction(action="info"))
     builder.button(text=t.BTN_SUPPORT, callback_data=MenuAction(action="support"))
     builder.button(text=t.BTN_WEBSITE, url=tagged_website_url(website_url))

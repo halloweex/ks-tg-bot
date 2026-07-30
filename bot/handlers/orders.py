@@ -18,7 +18,8 @@ from bot.i18n import Texts, variants
 from bot.callbacks import MenuAction, OrderAction
 from bot.analytics import track
 from bot.config import AppConfig
-from bot.db import get_cached_orders, get_last_sync_time, get_user_phone, save_user, upsert_orders
+from bot.db import (CANCELLED_STATUS_GROUP, get_cached_orders, get_last_sync_time,
+                    get_user_phone, save_user, upsert_orders)
 from bot.keyboards import main_menu_kb
 from bot.services.keycrm import KeyCRMClient, keycrm_order_to_dict
 from bot.services.shopify import ShopifyClient, shopify_order_to_dict
@@ -158,12 +159,17 @@ def _format_orders_from_cache(
     return header + "\n".join(result_parts)
 
 
+def _short_date(raw: str) -> str:
+    """dd.mm.yyyy from a stored timestamp, or the raw value if unparseable."""
+    try:
+        return datetime.fromisoformat(raw).strftime("%d.%m.%Y")
+    except (ValueError, TypeError):
+        return raw or ""
+
+
 def _order_date(row: dict) -> str:
     """dd.mm.yyyy for an order, or '' if the stored timestamp is unparseable."""
-    try:
-        return datetime.fromisoformat(row.get("ordered_at", "")).strftime("%d.%m.%Y")
-    except (ValueError, TypeError):
-        return ""
+    return _short_date(row.get("ordered_at", ""))
 
 
 def _button_label(row: dict, t: Texts) -> str:
@@ -221,6 +227,47 @@ def _menu_reply_kb(t: Texts) -> ReplyKeyboardMarkup:
         keyboard=[[KeyboardButton(text=t.BTN_MENU)]],
         resize_keyboard=True,
     )
+
+
+def favourite_products(orders: list[dict], limit: int = 5) -> list[dict]:
+    """The customer's most-ordered products, best first.
+
+    Ranked by how many separate orders contain the product, then by total
+    quantity, then by recency. Frequency alone ties heavily: a quarter of
+    customers have only ever bought one product, and among those with several,
+    most items were bought exactly once — the tiebreaks keep the list stable and
+    meaningful instead of arbitrary.
+
+    Grouped by sku where the cache has one (older rows predate it) so a product
+    renamed in the CRM does not split into two entries.
+    """
+    agg: dict[str, dict] = {}
+    for row in orders:
+        # An order that never happened says nothing about what they like.
+        if row.get("status_group_id") == CANCELLED_STATUS_GROUP:
+            continue
+        ordered_at = row.get("ordered_at", "")
+        for product in _order_products(row):
+            name = str(product.get("name", "")).strip()
+            if not name:
+                continue
+            key = str(product.get("sku") or "").strip() or name.lower()
+            entry = agg.setdefault(
+                key, {"name": name, "orders": 0, "qty": 0, "last": ""}
+            )
+            entry["orders"] += 1
+            try:
+                entry["qty"] += int(product.get("qty") or 0)
+            except (TypeError, ValueError):
+                pass
+            if ordered_at > entry["last"]:
+                entry["last"] = ordered_at
+                entry["name"] = name          # prefer the most recent spelling
+
+    ranked = sorted(
+        agg.values(), key=lambda e: (e["orders"], e["qty"], e["last"]), reverse=True
+    )
+    return ranked[:limit]
 
 
 # ---------------------------------------------------------------------------
@@ -375,6 +422,58 @@ async def show_orders(
         fetched = await get_cached_orders(chat_id)
         track(chat_id, "orders_viewed", found=len(fetched), cached=False)
         await _send_orders(callback.message, chat_id, t)
+
+
+@router.callback_query(MenuAction.filter(F.action == "favourites"))
+async def show_favourites(
+    callback: CallbackQuery,
+    callback_data: MenuAction,
+    keycrm: KeyCRMClient,
+    shopify: ShopifyClient | None,
+    t: Texts,
+) -> None:
+    """Show the products this customer orders most often.
+
+    Computed from the cached orders, which already carry their product lines —
+    no extra API call. Falls back to a fetch when the cache is cold so the very
+    first visit is not empty.
+    """
+    chat_id = callback.from_user.id
+    await callback.answer()
+
+    phone = await get_user_phone(chat_id)
+    if not phone:
+        await callback.message.answer(t.ERR_PHONE_NOT_FOUND, reply_markup=_menu_reply_kb(t))
+        return
+
+    cached = await get_cached_orders(chat_id)
+    if not cached:
+        await callback.message.answer(t.MSG_ORDERS_LOADING)
+        await _refresh_orders(chat_id, phone, keycrm, shopify)
+        cached = await get_cached_orders(chat_id)
+
+    favourites = favourite_products(cached)
+    track(chat_id, "favourites_viewed", found=len(favourites))
+
+    if not favourites:
+        await callback.message.answer(
+            t.MSG_NO_FAVOURITES if cached else t.MSG_NO_ORDERS,
+            reply_markup=_no_orders_kb(t),
+        )
+        return
+
+    repeated = any(item["orders"] > 1 for item in favourites)
+    header = t.MSG_FAVOURITES_HEADER if repeated else t.MSG_FAVOURITES_HEADER_ONCE
+    lines = [header, ""]
+    for i, item in enumerate(favourites, 1):
+        lines.append(f"{i}. {escape(texts.shorten_name(item['name'], 52))}")
+        lines.append("   " + t.MSG_FAVOURITE_LINE.format(
+            orders=item["orders"], qty=item["qty"],
+            date=escape(_short_date(item["last"])),
+        ))
+    await callback.message.answer(
+        "\n".join(lines), reply_markup=_menu_reply_kb(t), parse_mode="HTML"
+    )
 
 
 @router.callback_query(OrderAction.filter(F.action == "items"))

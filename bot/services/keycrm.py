@@ -53,8 +53,10 @@ def normalize_phone_for_keycrm(phone: str) -> str:
 
 def _parse_order(raw: dict) -> KeyCRMOrder:
     """Parse a raw KeyCRM order dict into a typed KeyCRMOrder dataclass."""
+    # sku is kept so favourites group by the product itself: names get edited in
+    # the CRM, and grouping on them would split one product into several.
     products = [
-        {"name": p["name"], "qty": p["quantity"]}
+        {"name": p["name"], "qty": p["quantity"], "sku": p.get("sku") or ""}
         for p in raw.get("products", [])
     ]
     status_name = raw.get("status", {}).get("name", "unknown")
