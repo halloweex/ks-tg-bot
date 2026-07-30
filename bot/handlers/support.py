@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 
 from aiogram import F, Router
+from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from loguru import logger
@@ -76,7 +77,13 @@ async def forward_to_support(
     )
 
 
-@router.message(F.reply_to_message)
+# Narrow on purpose. support_chat_id is often an admin's own DM with the bot, and
+# this router sits ahead of onboarding — so a bare `F.reply_to_message` swallowed
+# anything the admin sent as a reply in that chat, including the contact shared
+# during /start, which then never reached registration.
+#   StateFilter(None) — never intercept a flow in progress (onboarding, settings)
+#   ~F.contact        — a shared contact is never a support reply
+@router.message(StateFilter(None), F.reply_to_message, ~F.contact)
 async def admin_reply(
     message: Message,
     config: AppConfig,
@@ -102,7 +109,11 @@ async def admin_reply(
             user_chat_id = int(match.group(1))
 
     if not user_chat_id:
-        await message.answer(operator_texts().MSG_SUPPORT_NO_REPLY_TARGET)
+        # Only complain about a reply that was plausibly aimed at a customer:
+        # replying to something else in this chat is not a support action, and
+        # answering it would be noise.
+        if replied and replied.from_user and replied.from_user.is_bot:
+            await message.answer(operator_texts().MSG_SUPPORT_NO_REPLY_TARGET)
         return
 
     # This one goes to the customer, so it must be in *their* language. `t` here
