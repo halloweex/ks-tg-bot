@@ -7,12 +7,18 @@
 #   4. push off-site to a Hetzner Storage Box
 #   5. prune all three locations to BACKUP_RETAIN archives
 #
-# Copies inside the botdata volume are not backups: `docker volume rm`, a wiped
-# server or a lost disk takes them with the database. Step 4 is the one that
-# matters, so the script FAILS (loudly, via cron mail) until it is configured.
+# Any failure — including step 4 not being configured — sends a Telegram message
+# to the main admin. That channel exists because this box has no MTA: cron's
+# stderr goes nowhere, so an `exit 1` on its own is silent. Worse, steps 1-3
+# succeed first, so fresh files in the host directory look like working backups
+# while the only copy that survives losing this server is never written.
 #
 # Config: deploy/backup.env (git-ignored, see backup.env.example).
-set -euo pipefail
+#
+# -E matters: without errtrace the ERR trap is not inherited by functions, so a
+# command failing inside run_backup would abort the shell without ever firing
+# the alert.
+set -Eeuo pipefail
 
 cd "$(dirname "$0")/.."   # repo root (where docker-compose.yml lives)
 
@@ -31,74 +37,146 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 NAME="bot_data-$STAMP.db.gz"
 SSH_OPTS=(-p "$SSH_PORT" -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
 
-# --- 1-2. snapshot, verify, compress, prune (inside the container) -----------
-docker compose exec -T bot sh -c "
-  set -e
-  mkdir -p /app/data/backups
-  SNAP=/app/data/backups/bot_data-$STAMP.db
-  sqlite3 /app/data/bot_data.db \".backup '\$SNAP'\"
+LOG="$(mktemp)"
+STEP_FILE="$(mktemp)"
+trap 'rm -f "$LOG" "$STEP_FILE"' EXIT
 
-  # A snapshot that fails its own integrity check is worse than no snapshot,
-  # because it looks like protection. Refuse to keep it.
-  CHECK=\$(sqlite3 \"\$SNAP\" 'PRAGMA integrity_check;')
-  if [ \"\$CHECK\" != 'ok' ]; then
-    echo \"integrity check FAILED: \$CHECK\" >&2
-    rm -f \"\$SNAP\"
-    exit 1
-  fi
+# run_backup's output is captured into $LOG, and the ERR trap fires while that
+# redirection is still in effect — so the handler must write to the real stdout
+# and stderr, kept here as fds 3 and 4, or its output disappears into the log it
+# is trying to report.
+exec 3>&1 4>&2
 
-  # Sanity-check contents too: a technically valid but empty snapshot of a
-  # non-empty database means the backup is not backing anything up.
-  USERS=\$(sqlite3 \"\$SNAP\" 'SELECT count(*) FROM users;')
-  LIVE=\$(sqlite3 /app/data/bot_data.db 'SELECT count(*) FROM users;')
-  echo \"users in snapshot: \$USERS (live: \$LIVE)\"
-  if [ \"\$LIVE\" -gt 0 ] && [ \"\$USERS\" -eq 0 ]; then
-    echo 'snapshot has no users but the live DB does — refusing to keep it' >&2
-    rm -f \"\$SNAP\"
-    exit 1
-  fi
+step() { printf '%s' "$1" >"$STEP_FILE"; }
 
-  gzip -f \"\$SNAP\"
-  ls -1t /app/data/backups/bot_data-*.db.gz | tail -n +$((RETAIN + 1)) | xargs -r rm -f
-"
+# --- failure alerting -------------------------------------------------------
+# Credentials are read straight from .env rather than duplicated into
+# backup.env, and the notification runs outside the logged section so the token
+# never reaches the log file.
 
-# --- 3. out of the volume, onto the host ------------------------------------
-mkdir -p "$HOST_DIR"
-docker compose cp "bot:/app/data/backups/$NAME" "$HOST_DIR/$NAME"
-ls -1t "$HOST_DIR"/bot_data-*.db.gz | tail -n +$((RETAIN + 1)) | xargs -r rm -f
-echo "local copy: $HOST_DIR/$NAME"
+_env_value() { grep -m1 "^$1=" .env 2>/dev/null | cut -d= -f2- | tr -d '\r'; }
 
-# --- 4. off-site ------------------------------------------------------------
-if [ -z "$REMOTE" ]; then
-  cat >&2 <<'EOF'
+alert_chat_id() {
+    # The main admin: an explicit override, else the first id in ADMIN_USER_IDS.
+    if [ -n "${BACKUP_ALERT_CHAT_ID:-}" ]; then
+        printf '%s' "$BACKUP_ALERT_CHAT_ID"
+        return
+    fi
+    _env_value ADMIN_USER_IDS | cut -d, -f1 | tr -d '[:space:]'
+}
 
-BACKUP_REMOTE is not set — this backup exists only on this server.
-A lost volume, a wrong `docker volume rm`, or a dead disk destroys the database
-and every copy of it at the same moment. Configure deploy/backup.env
-(see deploy/backup.env.example) and re-run.
-EOF
-  exit 1
-fi
+notify() {
+    local text="$1" token chat
+    token="$(_env_value BOT_TOKEN)"
+    chat="$(alert_chat_id)"
+    if [ -z "$token" ] || [ -z "$chat" ]; then
+        echo "cannot alert: BOT_TOKEN or ADMIN_USER_IDS missing from .env" >&2
+        return 0
+    fi
+    # Never let a failed notification change the script's own outcome.
+    curl -sS -m 15 -o /dev/null \
+        --data-urlencode "chat_id=$chat" \
+        --data-urlencode "text=$text" \
+        "https://api.telegram.org/bot${token}/sendMessage" || \
+        echo "alert delivery failed" >&2
+}
 
-rsync --archive --quiet \
-  -e "ssh ${SSH_OPTS[*]}" \
-  "$HOST_DIR/$NAME" "$REMOTE:$REMOTE_DIR/"
+notify_failure() {
+    notify "$(printf '❌ Бекап не виконано\nСервер: %s\nЕтап: %s\nЧас: %s\n\n%s' \
+        "$(hostname)" "$(cat "$STEP_FILE" 2>/dev/null || echo '?')" \
+        "$(date '+%F %T')" "$(tail -n 12 "$LOG" 2>/dev/null)")"
+}
 
-# Prune the remote by count. Storage Box offers no usable remote shell, so this
-# goes through sftp; deliberately NOT `rsync --delete`, which would mirror a
-# wiped local directory onto the off-site copy and erase the whole history.
-REMOTE_FILES="$(printf 'cd %s\nls -1\n' "$REMOTE_DIR" \
-  | sftp -b - "${SSH_OPTS[@]}" "$REMOTE" 2>/dev/null \
-  | grep -o 'bot_data-[0-9]\{8\}-[0-9]\{6\}\.db\.gz' | sort -r)"
+# --- the actual work --------------------------------------------------------
+# Runs with output captured so a failure alert can carry the real error text.
 
-OLD="$(printf '%s\n' "$REMOTE_FILES" | tail -n +$((RETAIN + 1)))"
-if [ -n "$OLD" ]; then
-  { printf 'cd %s\n' "$REMOTE_DIR"; printf 'rm %s\n' $OLD; } \
-    | sftp -b - "${SSH_OPTS[@]}" "$REMOTE" >/dev/null
-fi
+run_backup() {
+    step "snapshot + integrity check"
+    docker compose exec -T bot sh -c "
+      set -e
+      mkdir -p /app/data/backups
+      SNAP=/app/data/backups/bot_data-$STAMP.db
+      sqlite3 /app/data/bot_data.db \".backup '\$SNAP'\"
 
-SEEN="$(printf '%s\n' "$REMOTE_FILES" | grep -c . || true)"
-KEPT=$(( SEEN < RETAIN ? SEEN : RETAIN ))
-echo "off-site: $REMOTE:$REMOTE_DIR/$NAME ($KEPT archives held, keeping $RETAIN)"
+      # A snapshot that fails its own integrity check is worse than no snapshot,
+      # because it looks like protection. Refuse to keep it.
+      CHECK=\$(sqlite3 \"\$SNAP\" 'PRAGMA integrity_check;')
+      if [ \"\$CHECK\" != 'ok' ]; then
+        echo \"integrity check FAILED: \$CHECK\" >&2
+        rm -f \"\$SNAP\"
+        exit 1
+      fi
+
+      # Sanity-check contents too: a technically valid but empty snapshot of a
+      # non-empty database means the backup is not backing anything up.
+      USERS=\$(sqlite3 \"\$SNAP\" 'SELECT count(*) FROM users;')
+      LIVE=\$(sqlite3 /app/data/bot_data.db 'SELECT count(*) FROM users;')
+      echo \"users in snapshot: \$USERS (live: \$LIVE)\"
+      if [ \"\$LIVE\" -gt 0 ] && [ \"\$USERS\" -eq 0 ]; then
+        echo 'snapshot has no users but the live DB does — refusing to keep it' >&2
+        rm -f \"\$SNAP\"
+        exit 1
+      fi
+
+      gzip -f \"\$SNAP\"
+      ls -1t /app/data/backups/bot_data-*.db.gz | tail -n +$((RETAIN + 1)) | xargs -r rm -f
+    "
+
+    step "copy out of the volume"
+    mkdir -p "$HOST_DIR"
+    docker compose cp "bot:/app/data/backups/$NAME" "$HOST_DIR/$NAME"
+    ls -1t "$HOST_DIR"/bot_data-*.db.gz | tail -n +$((RETAIN + 1)) | xargs -r rm -f
+    echo "local copy: $HOST_DIR/$NAME"
+
+    step "off-site push"
+    if [ -z "$REMOTE" ]; then
+        echo "BACKUP_REMOTE is not set — this backup exists only on this server." >&2
+        echo "/opt and the Docker volume share one filesystem, so a lost disk" >&2
+        echo "takes the database and every copy of it at the same moment." >&2
+        echo "Configure deploy/backup.env (see deploy/backup.env.example)." >&2
+        return 1
+    fi
+
+    rsync --archive --quiet \
+        -e "ssh ${SSH_OPTS[*]}" \
+        "$HOST_DIR/$NAME" "$REMOTE:$REMOTE_DIR/"
+
+    step "prune off-site"
+    # Storage Box offers no usable remote shell, so this goes through sftp;
+    # deliberately NOT `rsync --delete`, which would mirror a wiped local
+    # directory onto the off-site copy and erase the whole history.
+    REMOTE_FILES="$(printf 'cd %s\nls -1\n' "$REMOTE_DIR" \
+        | sftp -b - "${SSH_OPTS[@]}" "$REMOTE" 2>/dev/null \
+        | grep -o 'bot_data-[0-9]\{8\}-[0-9]\{6\}\.db\.gz' | sort -r)"
+
+    OLD="$(printf '%s\n' "$REMOTE_FILES" | tail -n +$((RETAIN + 1)))"
+    if [ -n "$OLD" ]; then
+        { printf 'cd %s\n' "$REMOTE_DIR"; printf 'rm %s\n' $OLD; } \
+            | sftp -b - "${SSH_OPTS[@]}" "$REMOTE" >/dev/null
+    fi
+
+    SEEN="$(printf '%s\n' "$REMOTE_FILES" | grep -c . || true)"
+    KEPT=$(( SEEN < RETAIN ? SEEN : RETAIN ))
+    echo "off-site: $REMOTE:$REMOTE_DIR/$NAME ($KEPT archives held, keeping $RETAIN)"
+}
+
+# Deliberately NOT `if run_backup; then`: bash disables errexit for the whole
+# body of a function invoked in a condition, so a failed snapshot would carry on
+# to the next step and the alert would name the wrong one — or none at all.
+# An ERR trap keeps fail-fast semantics inside run_backup.
+on_error() {
+    local rc=$?
+    # Disarm first: with errtrace inherited, any non-zero command inside this
+    # handler would re-enter it and spin forever.
+    trap - ERR
+    set +e
+    { cat "$LOG"; notify_failure; } >&4 2>&4
+    exit "$rc"
+}
+trap on_error ERR
+
+run_backup >"$LOG" 2>&1
+
+cat "$LOG"
 echo "Backup done: $NAME"
 echo "Verify it can actually be restored:  deploy/restore-test.sh"

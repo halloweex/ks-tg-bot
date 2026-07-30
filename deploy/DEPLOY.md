@@ -120,8 +120,13 @@ deploy/backup.sh                # run it now — must end with "Backup done"
 ) | crontab -
 ```
 
-Cron mails failures to root — make sure that mail is somewhere you read, or the
-first sign of a broken backup will be the day you need one.
+**Failures are reported over Telegram, not mail.** This box has no MTA, so cron's
+stderr goes nowhere — an `exit 1` on its own is completely silent, and because
+the local steps succeed first, fresh files in `backups/` look like working
+backups. On any failure the script messages the main admin (the first id in
+`ADMIN_USER_IDS`, override with `BACKUP_ALERT_CHAT_ID`) using `BOT_TOKEN` from
+`.env`. Until the off-site target is configured that message arrives every night
+— which is the point.
 
 ### 6.3 Prove it restores
 
@@ -134,6 +139,10 @@ exercise what survives losing this server), restores it to a throwaway file,
 and checks integrity, table presence, and that the data is actually populated.
 Nothing the bot uses is touched. Run it after setup and monthly thereafter;
 it also warns if the newest archive is over 48h old.
+
+To confirm the alerting path itself works, run the backup with a deliberately
+wrong target — `BACKUP_REMOTE=nobody@invalid deploy/backup.sh` — and check the
+Telegram message arrives.
 
 Retention is 14 archives in each location. Pruning the Storage Box goes through
 sftp rather than `rsync --delete`, so an emptied local directory can never
