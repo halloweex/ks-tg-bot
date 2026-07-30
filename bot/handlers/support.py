@@ -8,10 +8,11 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from loguru import logger
 
-from bot.i18n import Texts
+from bot.i18n import Texts, customer_texts, operator_texts
 from bot.callbacks import MenuAction
 from bot.analytics import track
 from bot.config import AppConfig
+from bot.db import get_user_language
 from bot.keyboards import main_menu_kb
 from bot.states import SupportStates
 
@@ -42,10 +43,15 @@ async def forward_to_support(
     """Forward user's message to admin chat with metadata."""
     bot = message.bot
 
+    # These two go to the support chat, not to the customer. `t` is the
+    # customer's language — using it here made the managers' own note and
+    # instructions change language depending on who happened to write in.
+    op = operator_texts()
+
     # Send metadata line with chat_id (privacy-safe identifier)
     await bot.send_message(
         chat_id=config.support_chat_id,
-        text=t.MSG_SUPPORT_ADMIN_NOTE.format(chat_id=message.chat.id),
+        text=op.MSG_SUPPORT_ADMIN_NOTE.format(chat_id=message.chat.id),
     )
 
     # Forward the actual message
@@ -58,7 +64,7 @@ async def forward_to_support(
     # Send instruction for replying
     await bot.send_message(
         chat_id=config.support_chat_id,
-        text=t.MSG_SUPPORT_REPLY_INSTRUCTION,
+        text=op.MSG_SUPPORT_REPLY_INSTRUCTION,
     )
 
     # Confirm to user and return to main menu
@@ -96,12 +102,15 @@ async def admin_reply(
             user_chat_id = int(match.group(1))
 
     if not user_chat_id:
-        await message.answer(t.MSG_SUPPORT_NO_REPLY_TARGET)
+        await message.answer(operator_texts().MSG_SUPPORT_NO_REPLY_TARGET)
         return
 
-    # Send admin's reply to the user
+    # This one goes to the customer, so it must be in *their* language. `t` here
+    # belongs to the manager who typed the reply — using it sent a Ukrainian
+    # customer an English prefix whenever the manager's Telegram was English.
+    ct = customer_texts(await get_user_language(user_chat_id))
     await bot.send_message(
         chat_id=user_chat_id,
-        text=f"{t.MSG_SUPPORT_REPLY_PREFIX}\n\n{message.text}",
+        text=f"{ct.MSG_SUPPORT_REPLY_PREFIX}\n\n{message.text}",
     )
     logger.info("Support reply sent to chat_id={}", user_chat_id)

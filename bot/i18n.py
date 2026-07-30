@@ -15,6 +15,17 @@ from bot import texts
 
 DEFAULT_LANG = "uk"
 
+# Who reads what decides the language:
+#   * customers  -> their Telegram language, Ukrainian when it is not clear;
+#   * the support chat -> Ukrainian, because support answers in Ukrainian and a
+#     group chat has no single language of its own;
+#   * admins -> English by default, since their surface sits next to the logs,
+#     the runbook and the backup alerts.
+# Logs, alerts and anything else purely operational are English regardless and
+# do not go through these tables at all.
+ADMIN_DEFAULT_LANG = "en"
+OPERATOR_LANG = "uk"
+
 # Adding a language is one entry here plus one table below — nothing else in the
 # codebase enumerates languages.
 LANGUAGE_NAMES = {
@@ -235,6 +246,30 @@ class Texts:
         if order_name:
             return f"{self.MSG_ORDER_SOURCE_WEB} {order_name}".strip()
         return self.MSG_ORDER_SOURCE_INSTAGRAM
+
+
+def admin_texts(stored: str | None) -> Texts:
+    """Strings for an admin-only surface.
+
+    English unless the admin has explicitly chosen a language — their Telegram
+    language is deliberately not consulted, so switching the bot to Ukrainian to
+    preview the customer view does not also switch their own tooling.
+    """
+    return Texts(stored or ADMIN_DEFAULT_LANG)
+
+
+def operator_texts() -> Texts:
+    """Strings addressed to the support chat."""
+    return Texts(OPERATOR_LANG)
+
+
+def customer_texts(stored: str | None) -> Texts:
+    """Strings addressed to a customer we are messaging out of the blue.
+
+    Used where there is no incoming update from them to resolve a language from,
+    so only a stored choice is available; Ukrainian when there is none.
+    """
+    return Texts(stored or DEFAULT_LANG)
 
 
 def variants(key: str) -> set[str]:

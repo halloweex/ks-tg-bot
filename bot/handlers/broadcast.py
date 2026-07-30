@@ -10,7 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from loguru import logger
 
-from bot.i18n import Texts
+from bot.i18n import Texts, admin_texts
 from bot.callbacks import BroadcastAction
 from bot.analytics import track
 from bot.config import AppConfig
@@ -25,6 +25,7 @@ from bot.db import (
     get_broadcast_recipients,
     get_pending_targets,
     get_unfinished_broadcasts,
+    get_user_language,
     mark_target,
     opt_out_user,
 )
@@ -113,7 +114,7 @@ async def run_broadcast_job(
         if notify_chat_id:
             await bot.send_message(
                 notify_chat_id,
-                (t or Texts()).MSG_BROADCAST_COMPLETE.format(
+                (t or admin_texts(None)).MSG_BROADCAST_COMPLETE.format(
                     sent=stats["sent"], failed=stats["failed"], blocked=stats["blocked"]
                 ),
             )
@@ -144,8 +145,9 @@ async def cmd_broadcast(
     """Start the broadcast flow (admin only)."""
     if not _is_admin(message.from_user.id, config):
         return
+    at = admin_texts(await get_user_language(message.from_user.id))
     await state.set_state(BroadcastStates.waiting_message)
-    await message.answer(t.MSG_BROADCAST_PROMPT)
+    await message.answer(at.MSG_BROADCAST_PROMPT)
 
 
 @router.message(BroadcastStates.waiting_message, F.text)
@@ -157,17 +159,18 @@ async def process_broadcast_message(
     if not _is_admin(message.from_user.id, config):
         return
 
+    at = admin_texts(await get_user_language(message.from_user.id))
     recipients = await get_broadcast_recipients()
     if not recipients:
-        await message.answer(t.MSG_BROADCAST_NO_RECIPIENTS)
+        await message.answer(at.MSG_BROADCAST_NO_RECIPIENTS)
         await state.clear()
         return
 
     await state.update_data(broadcast_text=message.text)
     await state.set_state(BroadcastStates.waiting_confirm)
     await message.answer(
-        t.MSG_BROADCAST_CONFIRM.format(count=len(recipients)),
-        reply_markup=broadcast_confirm_kb(t),
+        at.MSG_BROADCAST_CONFIRM.format(count=len(recipients)),
+        reply_markup=broadcast_confirm_kb(at),
     )
 
 
@@ -185,21 +188,22 @@ async def process_broadcast_confirm(
         await callback.answer()
         return
     await callback.answer()
+    at = admin_texts(await get_user_language(callback.from_user.id))
 
     if callback_data.action != "send":
         await state.clear()
-        await callback.message.edit_text(t.MSG_BROADCAST_CANCELLED)
+        await callback.message.edit_text(at.MSG_BROADCAST_CANCELLED)
         return
 
     data = await state.get_data()
     broadcast_text = data.get("broadcast_text")
     await state.clear()
     if not broadcast_text:
-        await callback.message.edit_text(t.MSG_BROADCAST_CANCELLED)
+        await callback.message.edit_text(at.MSG_BROADCAST_CANCELLED)
         return
 
-    await callback.message.edit_text(t.MSG_BROADCAST_STARTED)
-    await _start_broadcast(bot, broadcast_text, callback.from_user.id)
+    await callback.message.edit_text(at.MSG_BROADCAST_STARTED)
+    await _start_broadcast(bot, broadcast_text, callback.from_user.id, at)
 
 
 @router.message(BroadcastStates.waiting_confirm, F.text)
@@ -211,8 +215,9 @@ async def process_broadcast_confirm_text(
     if not _is_admin(message.from_user.id, config):
         return
 
+    at = admin_texts(await get_user_language(message.from_user.id))
     if message.text.lower().strip() not in ("так", "yes", "да"):
-        await message.answer(t.MSG_BROADCAST_CANCELLED)
+        await message.answer(at.MSG_BROADCAST_CANCELLED)
         await state.clear()
         return
 
@@ -220,8 +225,8 @@ async def process_broadcast_confirm_text(
     broadcast_text = data["broadcast_text"]
     await state.clear()
 
-    await message.answer(t.MSG_BROADCAST_STARTED)
-    await _start_broadcast(bot, broadcast_text, message.from_user.id)
+    await message.answer(at.MSG_BROADCAST_STARTED)
+    await _start_broadcast(bot, broadcast_text, message.from_user.id, at)
 
 
 # --------------- Admin analytics ---------------
