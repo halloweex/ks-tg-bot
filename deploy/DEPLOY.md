@@ -79,8 +79,9 @@ docker compose logs -f          # expect "Bot started successfully"; Ctrl-C to d
 
 `deploy/backup.sh` snapshots the DB (WAL-safe), **verifies the snapshot**,
 copies it out of the volume onto the host, and pushes it to a Hetzner Storage
-Box. It exits non-zero until the off-site target is configured, so a
-half-finished setup shows up in cron mail instead of going unnoticed.
+Box. It exits non-zero until the off-site target is configured, and messages the
+main admin on Telegram on any failure — see 6.2 — so a half-finished setup
+cannot sit there unnoticed.
 
 ### 6.1 Create the Storage Box target
 
