@@ -15,11 +15,12 @@ from loguru import logger
 
 from bot import texts
 from bot.i18n import Texts, variants
-from bot.callbacks import MenuAction, OrderAction
+from bot.callbacks import MenuAction, OrderAction, StockAction
 from bot.analytics import track
 from bot.config import AppConfig
-from bot.db import (CANCELLED_STATUS_GROUP, get_cached_orders, get_last_sync_time,
-                    get_user_phone, save_user, upsert_orders)
+from bot.db import (CANCELLED_STATUS_GROUP, add_stock_subscription, get_cached_orders,
+                    get_last_sync_time, get_stock_levels, get_subscribed_skus,
+                    get_user_phone, remove_stock_subscription, save_user, upsert_orders)
 from bot.keyboards import main_menu_kb
 from bot.services.keycrm import KeyCRMClient, keycrm_order_to_dict
 from bot.services.shopify import ShopifyClient, shopify_order_to_dict
@@ -253,7 +254,11 @@ def favourite_products(orders: list[dict], limit: int = 5) -> list[dict]:
                 continue
             key = str(product.get("sku") or "").strip() or name.lower()
             entry = agg.setdefault(
-                key, {"name": name, "orders": 0, "qty": 0, "last": ""}
+                key,
+                # sku carried through so the stock lookup and the back-in-stock
+                # subscription have something to key on.
+                {"name": name, "sku": str(product.get("sku") or ""),
+                 "orders": 0, "qty": 0, "last": ""},
             )
             entry["orders"] += 1
             try:
@@ -462,18 +467,92 @@ async def show_favourites(
         )
         return
 
+    levels = await get_stock_levels()
+    subscribed = await get_subscribed_skus(chat_id)
+
     repeated = any(item["orders"] > 1 for item in favourites)
     header = t.MSG_FAVOURITES_HEADER if repeated else t.MSG_FAVOURITES_HEADER_ONCE
     lines = [header, ""]
     for i, item in enumerate(favourites, 1):
-        lines.append(f"{i}. {escape(texts.shorten_name(item['name'], 52))}")
-        lines.append("   " + t.MSG_FAVOURITE_LINE.format(
+        line = "   " + t.MSG_FAVOURITE_LINE.format(
             orders=item["orders"], qty=item["qty"],
             date=escape(_short_date(item["last"])),
-        ))
+        )
+        if _is_out_of_stock(item, levels):
+            line += f" · {escape(t.MSG_FAVOURITE_OUT_OF_STOCK)}"
+        lines.append(f"{i}. {escape(texts.shorten_name(item['name'], 52))}")
+        lines.append(line)
+
     await callback.message.answer(
-        "\n".join(lines), reply_markup=_menu_reply_kb(t), parse_mode="HTML"
+        "\n".join(lines),
+        reply_markup=_favourites_kb(favourites, levels, subscribed, t),
+        parse_mode="HTML",
     )
+
+
+def _is_out_of_stock(item: dict, levels: dict[str, int]) -> bool:
+    """True only when stock is known and says there is none free to sell.
+
+    An unknown sku is never reported as missing: rows cached before skus were
+    stored have none, and claiming "out of stock" for something we simply cannot
+    look up would be worse than staying quiet.
+    """
+    sku = str(item.get("sku") or "")
+    return bool(sku) and sku in levels and levels[sku] <= 0
+
+
+def _favourites_kb(favourites, levels, subscribed, t: Texts) -> InlineKeyboardMarkup:
+    """A notify-me button for each favourite that is currently unavailable."""
+    builder = InlineKeyboardBuilder()
+    for item in favourites:
+        sku = str(item.get("sku") or "")
+        if not _is_out_of_stock(item, levels):
+            continue
+        short = texts.shorten_name(item["name"], 24)
+        if sku in subscribed:
+            builder.button(text=t.BTN_NOTIFY_CANCEL.format(product=short),
+                           callback_data=StockAction(action="unsub", sku=sku))
+        else:
+            builder.button(text=t.BTN_NOTIFY_ME.format(product=short),
+                           callback_data=StockAction(action="sub", sku=sku))
+    builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="back"))
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+@router.callback_query(StockAction.filter())
+async def toggle_stock_subscription(
+    callback: CallbackQuery,
+    callback_data: StockAction,
+    t: Texts,
+) -> None:
+    """Subscribe to, or unsubscribe from, a product coming back in stock."""
+    chat_id = callback.from_user.id
+    sku = callback_data.sku
+
+    if callback_data.action == "unsub":
+        await remove_stock_subscription(chat_id, sku)
+        track(chat_id, "stock_unsubscribed")
+        await callback.answer(t.MSG_UNSUBSCRIBED, show_alert=True)
+        return
+
+    # The product name comes from this customer's own cached orders, so a
+    # forged sku subscribes to nothing rather than to somebody else's product.
+    name = ""
+    for row in await get_cached_orders(chat_id):
+        for product in _order_products(row):
+            if str(product.get("sku") or "") == sku:
+                name = str(product.get("name", ""))
+                break
+        if name:
+            break
+    if not name:
+        await callback.answer()
+        return
+
+    await add_stock_subscription(chat_id, sku, name)
+    track(chat_id, "stock_subscribed")
+    await callback.answer(t.MSG_SUBSCRIBED, show_alert=True)
 
 
 @router.callback_query(OrderAction.filter(F.action == "items"))

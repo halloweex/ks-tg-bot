@@ -1,6 +1,7 @@
 """KeyCRM REST API client for order lookup by phone number."""
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass, field
 
@@ -8,6 +9,9 @@ import httpx
 from loguru import logger
 
 BASE_URL = "https://openapi.keycrm.app/v1"
+
+# KeyCRM allows 120 requests/minute; this keeps a full stock sweep under it.
+_STOCK_PAGE_PAUSE = 0.55
 
 
 @dataclass
@@ -163,6 +167,44 @@ class KeyCRMClient:
         except httpx.HTTPError as exc:
             logger.error("KeyCRM HTTP error for phone {}: {}", normalized, exc)
             return []
+
+    async def get_stock(self) -> dict[str, int]:
+        """Whole-catalogue availability: sku -> units free to sell.
+
+        Availability is quantity minus reserve — stock already promised to open
+        orders is not something a waiting customer can buy.
+
+        ~860 skus over 18 pages, paced under the 120 req/min limit, so a full
+        snapshot takes roughly 15 seconds. Returns {} on error rather than a
+        partial picture: a half-read catalogue would look like a restock for
+        every sku it failed to fetch.
+        """
+        levels: dict[str, int] = {}
+        try:
+            async with httpx.AsyncClient(headers=self._headers, timeout=30.0) as client:
+                page = 1
+                while True:
+                    response = await client.get(
+                        f"{BASE_URL}/offers/stocks",
+                        params={"limit": 50, "page": page},
+                    )
+                    response.raise_for_status()
+                    body = response.json()
+                    for offer in body.get("data", []):
+                        sku = str(offer.get("sku") or "").strip()
+                        if not sku:
+                            continue
+                        quantity = int(offer.get("quantity") or 0)
+                        reserve = int(offer.get("reserve") or 0)
+                        levels[sku] = quantity - reserve
+                    if page >= int(body.get("last_page") or 1):
+                        break
+                    page += 1
+                    await asyncio.sleep(_STOCK_PAGE_PAUSE)
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.error("KeyCRM stock fetch failed on page {}: {}", page, exc)
+            return {}
+        return levels
 
     async def get_buyer_by_phone(self, phone: str) -> dict | None:
         """Fetch buyer profile (full_name, email) by phone from the first order.

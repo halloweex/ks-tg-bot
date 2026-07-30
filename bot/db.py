@@ -117,6 +117,29 @@ CREATE TABLE IF NOT EXISTS events (
 """
 
 
+# Last known availability per sku, so a poll can tell a restock from a no-change.
+# Only what the transition test needs — the catalogue itself lives in KeyCRM.
+_CREATE_STOCK_LEVELS = """
+CREATE TABLE IF NOT EXISTS stock_levels (
+    sku        TEXT PRIMARY KEY,
+    available  INTEGER NOT NULL,
+    checked_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
+# One row per person waiting for one product. Removed once notified: the promise
+# is "tell me when it is back", not "watch this forever".
+_CREATE_STOCK_SUBSCRIPTIONS = """
+CREATE TABLE IF NOT EXISTS stock_subscriptions (
+    chat_id    INTEGER NOT NULL,
+    sku        TEXT NOT NULL,
+    name       TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (chat_id, sku)
+);
+"""
+
+
 _MIGRATIONS = [
     "ALTER TABLE users ADD COLUMN full_name TEXT",
     "ALTER TABLE users ADD COLUMN email TEXT",
@@ -158,6 +181,8 @@ async def init_db() -> None:
         await db.execute(_CREATE_BROADCAST_JOBS)
         await db.execute(_CREATE_BROADCAST_TARGETS)
         await db.execute(_CREATE_EVENTS)
+        await db.execute(_CREATE_STOCK_LEVELS)
+        await db.execute(_CREATE_STOCK_SUBSCRIPTIONS)
         for migration in _MIGRATIONS:
             try:
                 await db.execute(migration)
@@ -180,6 +205,10 @@ async def init_db() -> None:
         )
         await db.execute(
             "CREATE INDEX IF NOT EXISTS ix_events_chat ON events(chat_id, created_at)"
+        )
+        # A restock fans out to everyone waiting on that sku.
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS ix_stock_subs_sku ON stock_subscriptions(sku)"
         )
         # Resuming a job scans its still-pending targets.
         await db.execute(
@@ -606,3 +635,84 @@ async def count_demo_orders(chat_id: int) -> int:
         )
         row = await cursor.fetchone()
         return row[0] if row else 0
+
+
+# ---------------------------------------------------------------------------
+# Back-in-stock subscriptions
+# ---------------------------------------------------------------------------
+
+
+async def get_stock_levels() -> dict[str, int]:
+    """The last recorded availability per sku."""
+    async with _connect() as db:
+        cursor = await db.execute("SELECT sku, available FROM stock_levels")
+        return {row[0]: row[1] for row in await cursor.fetchall()}
+
+
+async def save_stock_levels(levels: dict[str, int]) -> None:
+    """Replace the recorded availability with a fresh snapshot."""
+    if not levels:
+        return
+    async with _connect() as db:
+        await db.executemany(
+            "INSERT INTO stock_levels (sku, available, checked_at) "
+            "VALUES (?, ?, datetime('now')) "
+            "ON CONFLICT(sku) DO UPDATE SET available = excluded.available, "
+            "                               checked_at = excluded.checked_at",
+            list(levels.items()),
+        )
+        await db.commit()
+
+
+async def add_stock_subscription(chat_id: int, sku: str, name: str) -> None:
+    """Register interest in a sku coming back. Idempotent."""
+    async with _connect() as db:
+        await db.execute(
+            "INSERT INTO stock_subscriptions (chat_id, sku, name) VALUES (?, ?, ?) "
+            "ON CONFLICT(chat_id, sku) DO UPDATE SET name = excluded.name",
+            (chat_id, sku, name),
+        )
+        await db.commit()
+
+
+async def remove_stock_subscription(chat_id: int, sku: str) -> None:
+    async with _connect() as db:
+        await db.execute(
+            "DELETE FROM stock_subscriptions WHERE chat_id = ? AND sku = ?",
+            (chat_id, sku),
+        )
+        await db.commit()
+
+
+async def get_subscribed_skus(chat_id: int) -> set[str]:
+    """Which skus this person is already waiting on."""
+    async with _connect() as db:
+        cursor = await db.execute(
+            "SELECT sku FROM stock_subscriptions WHERE chat_id = ?", (chat_id,)
+        )
+        return {row[0] for row in await cursor.fetchall()}
+
+
+async def subscribers_for(skus: list[str]) -> list[tuple[int, str, str]]:
+    """(chat_id, sku, name) for everyone waiting on any of these skus."""
+    if not skus:
+        return []
+    placeholders = ", ".join("?" for _ in skus)
+    async with _connect() as db:
+        cursor = await db.execute(
+            f"SELECT chat_id, sku, name FROM stock_subscriptions "
+            f"WHERE sku IN ({placeholders})",
+            skus,
+        )
+        return [tuple(row) for row in await cursor.fetchall()]
+
+
+async def clear_subscriptions(pairs: list[tuple[int, str]]) -> None:
+    """Drop subscriptions that have been fulfilled."""
+    if not pairs:
+        return
+    async with _connect() as db:
+        await db.executemany(
+            "DELETE FROM stock_subscriptions WHERE chat_id = ? AND sku = ?", pairs
+        )
+        await db.commit()

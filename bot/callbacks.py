@@ -40,6 +40,13 @@ class OrderAction(CallbackData, prefix="ord"):
     order_id: int = 0
 
 
+class StockAction(CallbackData, prefix="stk"):
+    """Back-in-stock subscription: sub / unsub, for one sku."""
+
+    action: str
+    sku: str
+
+
 class DeliveryAction(CallbackData, prefix="dlvr"):
     """Delivery tracking actions: view, refresh."""
 

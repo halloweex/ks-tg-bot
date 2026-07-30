@@ -125,6 +125,12 @@ EN: dict[str, str] = {
         "Nothing to base favourites on yet — the products you order most often "
         "will show up here."
     ),
+    "MSG_BACK_IN_STOCK_HEADER": "🔔 Back in stock:",
+    "BTN_NOTIFY_ME": "🔔 Notify me: {product}",
+    "BTN_NOTIFY_CANCEL": "🔕 Stop notifying: {product}",
+    "MSG_SUBSCRIBED": "We'll message you as soon as it is back.",
+    "MSG_UNSUBSCRIBED": "We will not notify you about this product.",
+    "MSG_FAVOURITE_OUT_OF_STOCK": "out of stock",
     "BTN_DELIVERY_STATUS": "🚚 Delivery status",
     "MSG_DELIVERY_HEADER": "🚚 Delivery status:",
     "MSG_DELIVERY_LOADING": "Checking delivery status...",

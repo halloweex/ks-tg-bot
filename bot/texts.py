@@ -174,6 +174,12 @@ MSG_NO_FAVOURITES = (
     "Поки що нема з чого скласти улюблене — тут з'являться товари, "
     "які ви замовляєте найчастіше."
 )
+MSG_BACK_IN_STOCK_HEADER = "🔔 Знову в наявності:"
+BTN_NOTIFY_ME = "🔔 Сповістити: {product}"
+BTN_NOTIFY_CANCEL = "🔕 Не сповіщати: {product}"
+MSG_SUBSCRIBED = "Повідомимо, щойно товар знову з'явиться."
+MSG_UNSUBSCRIBED = "Більше не сповіщатимемо про цей товар."
+MSG_FAVOURITE_OUT_OF_STOCK = "зараз немає"
 BTN_DELIVERY_STATUS = "🚚 Статус доставки"
 MSG_DELIVERY_HEADER = "🚚 Статус доставки:"
 MSG_DELIVERY_LOADING = "Перевіряю статус доставки..."

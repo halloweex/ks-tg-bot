@@ -24,7 +24,8 @@ from bot.services.keycrm import KeyCRMClient
 from bot.services.novaposhta import NovaPoshtaClient
 from bot.services.shopify import ShopifyClient
 from bot.middlewares import LanguageMiddleware
-from bot.tasks import drain
+from bot.stock import watch as watch_stock
+from bot.tasks import drain, spawn
 
 
 async def main() -> None:
@@ -68,16 +69,25 @@ async def main() -> None:
         )
 
     # Startup hook: initialize the SQLite database
+    stock_watcher: asyncio.Task | None = None
+
     @dp.startup()
     async def on_startup() -> None:
+        nonlocal stock_watcher
         await init_db()
         # Continue any broadcast that a previous restart/redeploy interrupted.
         await resume_broadcasts(bot)
+        # Poll KeyCRM for restocks and notify whoever subscribed.
+        stock_watcher = spawn(watch_stock(bot, dp["keycrm"]), name="stock_watcher")
         logger.info("Bot started successfully")
 
     # Shutdown hook: let outstanding background tasks finish before exit.
     @dp.shutdown()
     async def on_shutdown() -> None:
+        # The watcher loops forever; cancel it or drain() just waits out its
+        # timeout on every shutdown.
+        if stock_watcher is not None:
+            stock_watcher.cancel()
         await drain()
 
     # Resolve each user's language before any handler runs, so every handler
