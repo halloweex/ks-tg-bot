@@ -103,7 +103,7 @@ def _format_cached_order(
 
     status = escape(t.status(row.get("status_name", "")) or "-")
     total = _money(row.get("grand_total", 0))
-    currency = escape(row.get("currency", "грн"))
+    currency = escape(t.currency(row.get("currency", "грн")))
 
     prefix = f"{t.MSG_ORDER_LATEST}\n" if is_latest else ""
 

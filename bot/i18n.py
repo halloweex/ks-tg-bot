@@ -171,6 +171,14 @@ STATUS_NAMES: dict[str, dict[str, str]] = {
     },
 }
 
+# Currency as each language writes it. KeyCRM rows store "грн" and Shopify rows
+# store "UAH" for the same money, so mapping both directions also stops a
+# Shopify-only order from showing "UAH" to a Ukrainian reader.
+CURRENCY_NAMES: dict[str, dict[str, str]] = {
+    "uk": {"uah": "грн", "грн": "грн"},
+    "en": {"uah": "UAH", "грн": "UAH"},
+}
+
 _TABLES: dict[str, dict[str, str]] = {"uk": UK_EXTRA, "en": EN}
 
 
@@ -214,6 +222,12 @@ class Texts:
         if not raw:
             return ""
         return STATUS_NAMES.get(self.lang, {}).get(raw.strip().lower(), raw)
+
+    def currency(self, raw: str) -> str:
+        """Currency label for this language, or the raw code if unmapped."""
+        if not raw:
+            return ""
+        return CURRENCY_NAMES.get(self.lang, {}).get(raw.strip().lower(), raw)
 
     def order_source_label(self, row: dict) -> str:
         """Language-aware version of the shared order label."""
