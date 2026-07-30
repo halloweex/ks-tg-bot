@@ -82,7 +82,10 @@ notify() {
 }
 
 notify_failure() {
-    notify "$(printf '❌ Бекап не виконано\nСервер: %s\nЕтап: %s\nЧас: %s\n\n%s' \
+    # English, like every other operational surface here: the message embeds the
+    # tail of the script's own log, and a translated header over English log
+    # output reads worse than one language throughout.
+    notify "$(printf '❌ Backup FAILED\nServer: %s\nStep: %s\nTime: %s\n\n%s' \
         "$(hostname)" "$(cat "$STEP_FILE" 2>/dev/null || echo '?')" \
         "$(date '+%F %T')" "$(tail -n 12 "$LOG" 2>/dev/null)")"
 }

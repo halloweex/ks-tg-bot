@@ -231,8 +231,8 @@ async def process_broadcast_confirm_text(
 async def cmd_stats(message: Message, config: AppConfig) -> None:
     """Summarise the instrumentation so the numbers are readable from the bot.
 
-    Admin only, and deliberately plain text: the point is to make the funnel
-    checkable without an ssh session into SQLite.
+    Admin only, and in English: this is an operational readout, not customer
+    copy, and it sits alongside logs and the runbook, which are English too.
     """
     if not _is_admin(message.from_user.id, config):
         return
@@ -242,12 +242,12 @@ async def cmd_stats(message: Message, config: AppConfig) -> None:
     returning, active = await returning_users(30)
     counts = await event_counts(7)
 
-    lines = ["📊 <b>Останні 30 днів</b>", "", "<b>Воронка (унікальні користувачі)</b>"]
+    lines = ["\U0001f4ca <b>Last 30 days</b>", "", "<b>Funnel (unique users)</b>"]
     labels = {
         "start": "/start",
-        "contact_shared": "поділився контактом",
-        "registered": "зареєстрований",
-        "orders_viewed": "дивився замовлення",
+        "contact_shared": "shared contact",
+        "registered": "registered",
+        "orders_viewed": "viewed orders",
     }
     top = funnel.get("start", 0)
     for key, label in labels.items():
@@ -255,27 +255,27 @@ async def cmd_stats(message: Message, config: AppConfig) -> None:
         share = f"  {100 * n / top:.0f}%" if top else ""
         lines.append(f"  {label}: {n}{share}")
 
-    lines += ["", "<b>Пошук замовлень</b>"]
+    lines += ["", "<b>Order lookups</b>"]
     if lookups:
         lines.append(
-            f"  нічого не знайдено: {misses} з {lookups} "
+            f"  found nothing: {misses} of {lookups} "
             f"({100 * misses / lookups:.0f}%)"
         )
-        lines.append("  ^ телефон у Telegram не збігся з тим, що в CRM")
+        lines.append("  ^ Telegram phone did not match the one in the CRM")
     else:
-        lines.append("  ще не було жодного пошуку")
+        lines.append("  no lookups yet")
 
-    lines += ["", "<b>Повернення</b>",
-              f"  активних: {active}, з них заходили більше одного дня: {returning}"]
+    lines += ["", "<b>Retention</b>",
+              f"  active: {active}, of them on more than one day: {returning}"]
 
-    lines += ["", "<b>Події за 7 днів</b>"]
+    lines += ["", "<b>Events, last 7 days</b>"]
     if counts:
         for event, total, users in counts:
-            lines.append(f"  {event}: {total} ({users} користувачів)")
+            lines.append(f"  {event}: {total} ({users} users)")
     else:
-        lines.append("  подій ще немає")
+        lines.append("  no events yet")
 
-    lines += ["", "Кліки по кнопці «Веб-сайт» Telegram не віддає — "
-              "дивіться utm_source=telegram в аналітиці магазину."]
+    lines += ["", "Taps on the Website button are not reported by Telegram — "
+              "look for utm_source=telegram in the shop's analytics."]
 
     await message.answer("\n".join(lines), parse_mode="HTML")
