@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS orders (
     external_id     TEXT DEFAULT '',
     order_name      TEXT DEFAULT '',
     status_name     TEXT DEFAULT '',
+    status_group_id INTEGER DEFAULT 0,
     grand_total     REAL DEFAULT 0,
     currency        TEXT DEFAULT 'грн',
     ordered_at      TEXT DEFAULT '',
@@ -109,6 +110,7 @@ _MIGRATIONS = [
     # NULL means "never chosen": the user's Telegram language still decides.
     # Once they pick one explicitly it is stored and wins from then on.
     "ALTER TABLE users ADD COLUMN language TEXT",
+    "ALTER TABLE orders ADD COLUMN status_group_id INTEGER DEFAULT 0",
 ]
 
 # Rows cached before external_id existed can't be deduped by it, so they'd keep
@@ -291,10 +293,16 @@ async def get_broadcast_recipients() -> list[int]:
 
 _ORDER_COLUMNS = (
     "chat_id", "source", "source_order_id", "external_id", "order_name",
-    "status_name", "grand_total", "currency", "ordered_at", "products_json",
+    "status_name", "status_group_id", "grand_total", "currency", "ordered_at",
+    "products_json",
     "buyer_name", "payment_status", "tracking_code", "shipping_status",
     "delivery_city", "receive_point", "recipient_name",
 )
+
+# KeyCRM's cancelled / returned / out-of-stock status family. An order in this
+# group is not in transit, so it must not appear under delivery tracking as if
+# it were on its way.
+CANCELLED_STATUS_GROUP = 6
 
 # A Shopify row is redundant once KeyCRM reports the same order: KeyCRM is the
 # operational system of record (fulfilment status, tracking code, delivery
@@ -350,13 +358,18 @@ async def get_cached_orders(chat_id: int) -> list[dict]:
 
 
 async def get_orders_with_tracking(chat_id: int) -> list[dict]:
-    """Return cached orders that have a non-empty tracking_code, newest first."""
+    """Cached orders with a tracking code that are still worth tracking.
+
+    Cancelled and returned orders keep their tracking code, so without the
+    status-group filter they showed up under delivery as active shipments.
+    """
     async with _connect() as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             "SELECT * FROM orders WHERE chat_id = ? AND tracking_code != '' "
+            "AND COALESCE(status_group_id, 0) != ? "
             "ORDER BY ordered_at DESC",
-            (chat_id,),
+            (chat_id, CANCELLED_STATUS_GROUP),
         )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]

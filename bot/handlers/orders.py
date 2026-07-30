@@ -38,13 +38,20 @@ _refresh_semaphore = asyncio.Semaphore(10)
 _MAX_INLINE_ITEMS = 4
 # What a shortened order still shows before "…and N more".
 _COLLAPSED_ITEMS = 2
-# KeyCRM product names average 85 chars and reach 147.
-_NAME_MAX_LEN = 40
 
 
 # ---------------------------------------------------------------------------
 # Formatting helpers
 # ---------------------------------------------------------------------------
+
+def _money(value) -> str:
+    """Format an amount without a pointless '.0' — CRM totals are whole hryvnia."""
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return escape(str(value))
+    return str(int(num)) if num == int(num) else f"{num:.2f}"
+
 
 def _order_products(row: dict) -> list[dict]:
     """Cached product lines for an order, or [] if the JSON is unusable."""
@@ -57,14 +64,10 @@ def _order_products(row: dict) -> list[dict]:
 def _item_line(product: dict, t: Texts) -> str:
     """One product as its own line, name shortened to stay readable on a phone.
 
-    KeyCRM names average 85 characters and run to 147 — brand, description and
-    volume are all packed into one string, so the full name is unreadable in a
-    list. Sent with parse_mode="HTML", hence the escaping: product names really
-    do contain '&'.
+    Sent with parse_mode="HTML", hence the escaping: product names really do
+    contain '&'.
     """
-    name = str(product.get("name", ""))
-    if len(name) > _NAME_MAX_LEN:
-        name = name[:_NAME_MAX_LEN].rstrip() + "…"
+    name = texts.shorten_name(product.get("name", ""))
     return f"   • {escape(name)} ×{escape(str(product.get('qty', '')))}"
 
 
@@ -97,8 +100,8 @@ def _format_cached_order(
     except (ValueError, TypeError):
         date_str = ordered_at or "-"
 
-    status = escape(row.get("status_name", "") or "-")
-    total = row.get("grand_total", 0)
+    status = escape(t.status(row.get("status_name", "")) or "-")
+    total = _money(row.get("grand_total", 0))
     currency = escape(row.get("currency", "грн"))
 
     prefix = f"{t.MSG_ORDER_LATEST}\n" if is_latest else ""
@@ -192,6 +195,20 @@ def _orders_kb(orders: list[dict], t: Texts, expanded_id: int = 0) -> InlineKeyb
                 text=t.BTN_SHOW_ITEMS.format(order=label),
                 callback_data=OrderAction(action="items", order_id=row_id),
             )
+    builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="back"))
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def _no_orders_kb(t: Texts) -> InlineKeyboardMarkup:
+    """Offer support when the lookup found nothing.
+
+    A customer who just shared their contact and got "no orders" has nowhere to
+    go otherwise, and the most likely cause — the order sits under a different
+    phone than their Telegram — is something only a manager can resolve.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text=t.BTN_SUPPORT, callback_data=MenuAction(action="support"))
     builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="back"))
     builder.adjust(1)
     return builder.as_markup()
@@ -307,7 +324,7 @@ async def _send_orders(message: Message, chat_id: int, t: Texts) -> None:
     cached = await get_cached_orders(chat_id)
     await message.answer(
         _format_orders_from_cache(cached, t),
-        reply_markup=_orders_kb(cached, t) if cached else _menu_reply_kb(t),
+        reply_markup=_orders_kb(cached, t) if cached else _no_orders_kb(t),
         parse_mode="HTML",
     )
 

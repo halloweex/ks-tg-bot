@@ -75,6 +75,18 @@ def tracking_link(ttn: str) -> str:
     return f'<a href="{NOVAPOSHTA_TRACKING_URL.format(ttn=quote(ttn, safe=""))}">{safe}</a>'
 
 
+# KeyCRM product names average 85 characters and reach 147 — brand, description
+# and volume are all packed into one string, so the full name is unreadable in a
+# list on a phone.
+NAME_MAX_LEN = 40
+
+
+def shorten_name(name: str, limit: int = NAME_MAX_LEN) -> str:
+    """Trim a product name to `limit` characters, adding an ellipsis if cut."""
+    name = str(name)
+    return name if len(name) <= limit else name[:limit].rstrip() + "…"
+
+
 def order_source_label(row: dict) -> str:
     """Label a cached order by where it was placed.
 
@@ -101,7 +113,12 @@ MSG_ORDER_TRACKING = "🚚 ТТН: {code}"
 MSG_ORDER_LOCATION = "📍 {location}"
 
 # Status messages
-MSG_NO_ORDERS = "У вас поки немає замовлень."
+MSG_NO_ORDERS = (
+    "У вас поки немає замовлень за номером, яким ви поділилися.\n\n"
+    "Якщо ви робили замовлення, можливо, воно оформлене на інший номер — "
+    "той, що ви вказали під час покупки, а не той, до якого прив'язаний Telegram. "
+    "Напишіть нам, і ми знайдемо його вручну."
+)
 MSG_PHONE_ACCEPTED = "Номер прийнято! Реєструю вас..."
 MSG_SUPPORT_FORWARDED = "Ваше повідомлення надіслано менеджеру. Очікуйте відповідь."
 
@@ -150,7 +167,7 @@ BTN_DELIVERY_STATUS = "🚚 Статус доставки"
 MSG_DELIVERY_HEADER = "🚚 Статус доставки:"
 MSG_DELIVERY_LOADING = "Перевіряю статус доставки..."
 MSG_NO_DELIVERIES = "Наразі немає відправлень для відстеження."
-MSG_DELIVERY_STATUS = "📍 {status}"
+MSG_DELIVERY_STATUS = "Статус: {status}"
 MSG_DELIVERY_SCHEDULED = "📅 Очікувана дата: {date}"
 MSG_DELIVERY_ACTUAL = "✅ Отримано: {date}"
 MSG_DELIVERY_WAREHOUSE = "🏤 {warehouse}"

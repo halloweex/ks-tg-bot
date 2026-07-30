@@ -98,6 +98,7 @@ def shopify_order_to_dict(order: ShopifyOrder, chat_id: int) -> dict:
         "external_id": shopify_external_id(order.id),
         "order_name": order.name,
         "status_name": order.fulfillment_status or order.financial_status or "",
+        "status_group_id": 0,   # not a KeyCRM order, so it has no status group
         "grand_total": float(order.total_price),
         "currency": order.currency,
         "ordered_at": order.created_at,

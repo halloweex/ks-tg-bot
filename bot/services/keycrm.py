@@ -16,6 +16,10 @@ class KeyCRMOrder:
 
     id: int
     status_name: str
+    # KeyCRM groups statuses; group 6 is the cancelled/returned/unavailable
+    # family. Filtering on that is stable, while status names can be renamed in
+    # the CRM at any time.
+    status_group_id: int
     grand_total: float
     ordered_at: str
     # Identity of the same order in the upstream store, for orders KeyCRM pulled
@@ -54,6 +58,7 @@ def _parse_order(raw: dict) -> KeyCRMOrder:
         for p in raw.get("products", [])
     ]
     status_name = raw.get("status", {}).get("name", "unknown")
+    status_group_id = int(raw.get("status_group_id") or 0)
     buyer = raw.get("buyer") or {}
     buyer_name = buyer.get("full_name", "")
     buyer_email = buyer.get("email", "")
@@ -68,6 +73,7 @@ def _parse_order(raw: dict) -> KeyCRMOrder:
     return KeyCRMOrder(
         id=raw["id"],
         status_name=status_name,
+        status_group_id=status_group_id,
         grand_total=float(raw.get("grand_total", 0)),
         ordered_at=raw.get("created_at", ""),
         external_id=str(raw.get("global_source_uuid") or ""),
@@ -99,6 +105,7 @@ def keycrm_order_to_dict(order: KeyCRMOrder, chat_id: int) -> dict:
         "external_id": order.external_id,
         "order_name": f"#{order.external_number}" if order.external_number else "",
         "status_name": order.status_name,
+        "status_group_id": order.status_group_id,
         "grand_total": order.grand_total,
         "currency": "грн",
         "ordered_at": order.ordered_at,

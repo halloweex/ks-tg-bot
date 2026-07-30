@@ -72,7 +72,12 @@ EN: dict[str, str] = {
     "BTN_HIDE_ITEMS": "🔼 Collapse: {order}",
     "MSG_ORDER_TRACKING": "🚚 Tracking: {code}",
     "MSG_ORDER_LOCATION": "📍 {location}",
-    "MSG_NO_ORDERS": "You don't have any orders yet.",
+    "MSG_NO_ORDERS": (
+        "We couldn't find any orders for the number you shared.\n\n"
+        "If you have ordered from us, it may be under a different number — the "
+        "one you gave at checkout rather than the one your Telegram uses. "
+        "Message us and we'll find it manually."
+    ),
     "MSG_PHONE_ACCEPTED": "Number accepted! Registering you...",
     "MSG_SUPPORT_FORWARDED": "Your message has been sent to a manager. Please wait for a reply.",
     "MSG_MAIN_MENU": "Choose an action:",
@@ -105,7 +110,7 @@ EN: dict[str, str] = {
     "MSG_DELIVERY_HEADER": "🚚 Delivery status:",
     "MSG_DELIVERY_LOADING": "Checking delivery status...",
     "MSG_NO_DELIVERIES": "There are no shipments to track right now.",
-    "MSG_DELIVERY_STATUS": "📍 {status}",
+    "MSG_DELIVERY_STATUS": "Status: {status}",
     "MSG_DELIVERY_SCHEDULED": "📅 Estimated date: {date}",
     "MSG_DELIVERY_ACTUAL": "✅ Received: {date}",
     "MSG_DELIVERY_WAREHOUSE": "🏤 {warehouse}",
@@ -127,6 +132,43 @@ UK_EXTRA: dict[str, str] = {
     ),
     "MSG_LANGUAGE_SET": "Мову змінено на українську ✅",
     "MSG_LANGUAGE_CHOOSE": "Оберіть мову:",
+}
+
+# CRM status values as the customer should read them. Keys are the raw KeyCRM
+# values (order status_name and shipping_status), lowercased. Anything not listed
+# is shown as-is rather than hidden — an unknown status is still information.
+STATUS_NAMES: dict[str, dict[str, str]] = {
+    "uk": {
+        "new": "Прийнято",
+        "completed": "Виконано",
+        "canceled": "Скасовано",
+        "not_available": "Немає в наявності",
+        "delivered": "Доставлено",
+        "delivered_to_delivery": "Передано перевізнику",
+        "in_transit": "В дорозі",
+        "departing": "Відправлено",
+        "pickup": "Очікує у відділенні",
+        "return": "Повертається",
+    },
+    "en": {
+        "new": "Received",
+        "completed": "Completed",
+        "canceled": "Cancelled",
+        "not_available": "Out of stock",
+        "delivered": "Delivered",
+        "delivered_to_delivery": "Handed to carrier",
+        "in_transit": "In transit",
+        "departing": "Shipped",
+        "pickup": "Ready for pickup",
+        "return": "Being returned",
+        # Statuses named in Ukrainian in the CRM. They occur in real orders, so
+        # without these the English UI would show Ukrainian status text.
+        "прибув у відділення": "Arrived at branch",
+        "повертається": "Being returned",
+        "повернено": "Returned",
+        "помилка доставки": "Delivery failed",
+        "зібрано для самовивозу": "Ready for self-pickup",
+    },
 }
 
 _TABLES: dict[str, dict[str, str]] = {"uk": UK_EXTRA, "en": EN}
@@ -161,6 +203,17 @@ class Texts:
         if name in table:
             return table[name]
         return getattr(texts, name)
+
+    def status(self, raw: str) -> str:
+        """A CRM status value as the customer should read it.
+
+        Falls through to the raw value for anything untranslated: showing
+        'presence_confirmed' is worse than a proper label but better than hiding
+        the state of someone's order.
+        """
+        if not raw:
+            return ""
+        return STATUS_NAMES.get(self.lang, {}).get(raw.strip().lower(), raw)
 
     def order_source_label(self, row: dict) -> str:
         """Language-aware version of the shared order label."""

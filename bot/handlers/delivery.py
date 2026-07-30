@@ -35,7 +35,7 @@ def _format_order_label(row: dict, t: Texts) -> str:
         products = []
 
     if products:
-        items = ", ".join(escape(str(p["name"])) for p in products[:2])
+        items = ", ".join(escape(texts.shorten_name(p["name"])) for p in products[:2])
         if len(products) > 2:
             items += f" +{len(products) - 2}"
         label += f" ({items})"
@@ -65,7 +65,7 @@ def _format_delivery_block(row: dict, tracking_info: dict | None, t: Texts) -> s
     if tracking_info:
         ts = tracking_info
         if ts.status:
-            lines.append(f"  {t.MSG_DELIVERY_STATUS.format(status=escape(ts.status))}")
+            lines.append(f"  {t.MSG_DELIVERY_STATUS.format(status=escape(t.status(ts.status)))}")
         if ts.warehouse_recipient:
             lines.append(f"  {t.MSG_DELIVERY_WAREHOUSE.format(warehouse=escape(ts.warehouse_recipient))}")
         if ts.actual_delivery:
@@ -76,7 +76,7 @@ def _format_delivery_block(row: dict, tracking_info: dict | None, t: Texts) -> s
         # Fallback: use data from CRM
         shipping_status = row.get("shipping_status", "")
         if shipping_status:
-            lines.append(f"  {t.MSG_DELIVERY_STATUS.format(status=escape(shipping_status))}")
+            lines.append(f"  {t.MSG_DELIVERY_STATUS.format(status=escape(t.status(shipping_status)))}")
         location_parts = [p for p in (row.get("delivery_city", ""), row.get("receive_point", "")) if p]
         if location_parts:
             lines.append(f"  📍 {escape(', '.join(location_parts))}")
