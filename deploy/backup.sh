@@ -37,6 +37,10 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 NAME="bot_data-$STAMP.db.gz"
 SSH_OPTS=(-p "$SSH_PORT" -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
 
+# Off-site not configured: a real failure, but a different one from "the backup
+# did not happen", and the alert wording depends on telling them apart.
+EX_UNCONFIGURED=78
+
 LOG="$(mktemp)"
 STEP_FILE="$(mktemp)"
 trap 'rm -f "$LOG" "$STEP_FILE"' EXIT
@@ -81,13 +85,40 @@ notify() {
         echo "alert delivery failed" >&2
 }
 
+# An alert is read on a phone. It has to answer three things immediately: what
+# state the data is in, why, and what to do — not carry a log tail the reader has
+# to parse. English, like the rest of the operational surface.
+
+_where() { printf '%s · %s' "$(hostname)" "$(date '+%F %H:%M')"; }
+
+# Meaningful lines only: transport chatter ("Copying …/Copied …") and the
+# snapshot's own success line say nothing about why a later step failed.
+_error_lines() {
+    grep -vE '(Copying|Copied|users in snapshot)' "$LOG" 2>/dev/null \
+        | grep -v '^[[:space:]]*$' | tail -n 4
+}
+
+notify_offsite_unconfigured() {
+    notify "$(printf '%s\n\n%s\n%s\n\n%s\n\n%s\n%s\n\n%s' \
+        "⚠️ Backup: off-site copy is not set up" \
+        "Snapshot taken and verified — it is on this server only:" \
+        "  $HOST_DIR/$NAME" \
+        "/opt and the Docker volume are one disk, so losing that disk loses the database and every copy of it." \
+        "To fix, on the server:" \
+        "  cp deploy/backup.env.example deploy/backup.env, fill in BACKUP_REMOTE and BACKUP_SSH_KEY, then run deploy/backup.sh" \
+        "$(_where)")"
+}
+
 notify_failure() {
-    # English, like every other operational surface here: the message embeds the
-    # tail of the script's own log, and a translated header over English log
-    # output reads worse than one language throughout.
-    notify "$(printf '❌ Backup FAILED\nServer: %s\nStep: %s\nTime: %s\n\n%s' \
-        "$(hostname)" "$(cat "$STEP_FILE" 2>/dev/null || echo '?')" \
-        "$(date '+%F %T')" "$(tail -n 12 "$LOG" 2>/dev/null)")"
+    local step errors
+    step="$(cat "$STEP_FILE" 2>/dev/null || echo '?')"
+    errors="$(_error_lines)"
+    notify "$(printf '%s\n\n%s\n%s\n\n%s\n\n%s' \
+        "❌ Backup FAILED — no usable copy was made" \
+        "Failed at: $step" \
+        "${errors:-(no error output captured)}" \
+        "The database was NOT backed up. Check: docker compose logs bot" \
+        "$(_where)")"
 }
 
 # --- the actual work --------------------------------------------------------
@@ -127,17 +158,17 @@ run_backup() {
 
     step "copy out of the volume"
     mkdir -p "$HOST_DIR"
-    docker compose cp "bot:/app/data/backups/$NAME" "$HOST_DIR/$NAME"
+    docker compose --progress quiet cp "bot:/app/data/backups/$NAME" "$HOST_DIR/$NAME"
     ls -1t "$HOST_DIR"/bot_data-*.db.gz | tail -n +$((RETAIN + 1)) | xargs -r rm -f
     echo "local copy: $HOST_DIR/$NAME"
 
     step "off-site push"
     if [ -z "$REMOTE" ]; then
         echo "BACKUP_REMOTE is not set — this backup exists only on this server." >&2
-        echo "/opt and the Docker volume share one filesystem, so a lost disk" >&2
-        echo "takes the database and every copy of it at the same moment." >&2
-        echo "Configure deploy/backup.env (see deploy/backup.env.example)." >&2
-        return 1
+        # Distinct code so the alert can say "snapshot fine, shipping not set up"
+        # instead of "backup failed", which would be false and teach the reader
+        # to ignore these messages.
+        return "$EX_UNCONFIGURED"
     fi
 
     rsync --archive --quiet \
@@ -173,7 +204,14 @@ on_error() {
     # handler would re-enter it and spin forever.
     trap - ERR
     set +e
-    { cat "$LOG"; notify_failure; } >&4 2>&4
+    {
+        cat "$LOG"
+        if [ "$rc" -eq "$EX_UNCONFIGURED" ]; then
+            notify_offsite_unconfigured
+        else
+            notify_failure
+        fi
+    } >&4 2>&4
     exit "$rc"
 }
 trap on_error ERR
