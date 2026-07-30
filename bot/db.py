@@ -323,6 +323,11 @@ _ORDER_COLUMNS = (
     "delivery_city", "receive_point", "recipient_name",
 )
 
+# Seeded by the /demo admin command, never by a sync. Kept out of the real
+# sources so it can be deleted precisely and can never collide with a genuine
+# order id.
+DEMO_SOURCE = "demo"
+
 # KeyCRM's cancelled / returned / out-of-stock status family. An order in this
 # group is not in transit, so it must not appear under delivery tracking as if
 # it were on its way.
@@ -579,3 +584,25 @@ async def returning_users(days: int = 30) -> tuple[int, int]:
         )
         row = await cursor.fetchone()
         return ((row[1] or 0), (row[0] or 0))
+
+
+async def delete_demo_orders(chat_id: int) -> int:
+    """Remove the demo orders seeded for one chat. Returns how many went."""
+    async with _connect() as db:
+        cursor = await db.execute(
+            "DELETE FROM orders WHERE chat_id = ? AND source = ?",
+            (chat_id, DEMO_SOURCE),
+        )
+        await db.commit()
+        return cursor.rowcount or 0
+
+
+async def count_demo_orders(chat_id: int) -> int:
+    """How many demo orders are currently seeded for this chat."""
+    async with _connect() as db:
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM orders WHERE chat_id = ? AND source = ?",
+            (chat_id, DEMO_SOURCE),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else 0
