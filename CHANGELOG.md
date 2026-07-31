@@ -1,5 +1,59 @@
 # Changelog
 
+## 2026-07-29 … 07-31 — Customer-facing features, and a lot of measuring
+
+### Shipped to production
+
+- **Cross-system order dedup.** KeyCRM and Shopify both hold website orders;
+  `orders.external_id` (Shopify's numeric id, mirrored by KeyCRM as
+  `global_source_uuid`) merges them, KeyCRM wins. Latent until SHOPIFY_API_TOKEN
+  is set, which it still is not.
+- **Backups that leave the machine.** Integrity-checked snapshot, copy out of the
+  volume, rsync to a Hetzner Storage Box, prune all three. Fails loudly to
+  Telegram — the box has no MTA, so cron mail went nowhere. **Off-site is still
+  not configured**; the nightly alert is the reminder.
+- **Delivery**: TTN as a link to novaposhta.ua; six Nova Poshta keys configured;
+  live status, branch and actual delivery date.
+- **i18n**: Ukrainian/English per the user's Telegram language, explicit choice
+  in settings, resolved per *recipient* (see memory: language-per-audience).
+- **Orders screen**: paging (5/page), collapse/expand for long item lists,
+  shortened product names, translated statuses, whole-hryvnia totals, cancelled
+  orders excluded from Delivery, a way out of the "no orders" dead end.
+- **Favourites** (top 5 by orders containing the product) with **back-in-stock
+  subscriptions** polling KeyCRM `offers/stocks` every 15 min, and a
+  **"I'd like a discount"** button that files a request to a manager.
+- **Analytics**: `events` table with chat_id, `track()`, `/stats` for admins,
+  UTM on the website link.
+- **Bot front door**: localised commands with admin scoping, menu button,
+  profile description, link previews off, typing indicator, warmer copy.
+- `/demo` seeds fixtures into the admin's own cache; `/chatid` reports a chat id.
+
+### Verified end to end
+
+Back-in-stock fired on production for real: a subscription, a detected
+transition, a delivered Telegram message, the subscription cleared and the
+snapshot corrected by the same sweep.
+
+### Corrections worth remembering
+
+Three confident statements turned out wrong, each after measuring:
+
+1. **"The CRM has no delivery city."** It does. The code read `delivery_city` and
+   `receive_point`, fields the API does not have; the real names are
+   `shipping_address_city` (93.4% filled) and `shipping_receive_point` (97.2%).
+2. **"The stock export has stalled."** It had not. Those parquet files are a
+   by-product of a weekly DuckDB compaction, deleted and rebuilt each Sunday —
+   which is also why they are the wrong source for restock detection.
+3. **"Six legal entities mean six keys are needed."** Any one key tracks any
+   parcel when the recipient phone is supplied; measured across 2024-2026.
+
+### Known follow-ups
+
+- `orders` is keyed `UNIQUE(source, source_order_id)` without chat_id — two
+  Telegram accounts sharing a phone would move rows between each other.
+- `events` has no retention policy.
+- The restore drill validates an archive, not a full bring-up.
+
 ## 2026-07-29 — Cross-system order dedup + off-site backups
 
 ### Duplicate orders (KeyCRM ↔ Shopify)
