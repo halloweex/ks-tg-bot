@@ -5,3 +5,4 @@ pyyaml==6.0.3
 httpx==0.28.1
 loguru==0.7.3
 pydantic-settings>=2.0.0
+tzdata==2025.2

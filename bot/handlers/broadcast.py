@@ -30,6 +30,7 @@ from bot.db import (
     opt_out_user,
 )
 from bot.keyboards import broadcast_confirm_kb
+from bot.quiet import is_quiet_now
 from bot.states import BroadcastStates
 from bot.tasks import spawn
 
@@ -66,8 +67,12 @@ async def _send_one(bot: Bot, job_id: int, chat_id: int, text: str) -> None:
     user out, so future broadcasts skip them and the dead-chat_id set can't grow.
     429 Too Many Requests → honour retry_after, then retry once.
     """
+    # Silent at night. A broadcast is the bot's idea, not the customer's, and a
+    # job that starts in the evening can still be running at one in the morning:
+    # the decision is made per recipient, at the moment they are sent to.
+    silent = is_quiet_now()
     try:
-        await bot.send_message(chat_id, text)
+        await bot.send_message(chat_id, text, disable_notification=silent)
         await mark_target(job_id, chat_id, "sent")
     except TelegramForbiddenError:
         await mark_target(job_id, chat_id, "blocked")
@@ -75,7 +80,7 @@ async def _send_one(bot: Bot, job_id: int, chat_id: int, text: str) -> None:
     except TelegramRetryAfter as e:
         await asyncio.sleep(e.retry_after)
         try:
-            await bot.send_message(chat_id, text)
+            await bot.send_message(chat_id, text, disable_notification=silent)
             await mark_target(job_id, chat_id, "sent")
         except TelegramForbiddenError:
             await mark_target(job_id, chat_id, "blocked")

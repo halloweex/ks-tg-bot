@@ -2,66 +2,35 @@
 from __future__ import annotations
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery
-from loguru import logger
 
 from bot.i18n import Texts
 from bot.callbacks import InfoAction, MenuAction, SettingsAction
 from bot.config import AppConfig
 from bot.keyboards import info_menu_kb, main_menu_kb, settings_menu_kb
+from bot.screen import render
 
 router = Router()
 
 
 async def _show_main_menu(callback: CallbackQuery, config: AppConfig, t: Texts) -> None:
-    """Edit current message to show the main menu, or send new if edit fails."""
+    """Turn the current screen back into the main menu."""
     await callback.answer()
-    try:
-        await callback.message.edit_text(
-            t.MSG_MAIN_MENU,
-            reply_markup=main_menu_kb(t, config.website_url),
-        )
-    except TelegramBadRequest as exc:
-        logger.debug("edit_text failed ({}), sending new message", exc.message)
-        await callback.message.answer(
-            t.MSG_MAIN_MENU,
-            reply_markup=main_menu_kb(t, config.website_url),
-        )
+    await render(callback, t.MSG_MAIN_MENU, main_menu_kb(t, config.website_url))
 
 
 @router.callback_query(MenuAction.filter(F.action == "info"))
 async def show_info_menu(callback: CallbackQuery, t: Texts) -> None:
     """Replace main menu with info submenu."""
     await callback.answer()
-    try:
-        await callback.message.edit_text(
-            t.MSG_INFO_MENU,
-            reply_markup=info_menu_kb(t),
-        )
-    except TelegramBadRequest as exc:
-        logger.debug("edit_text failed ({}), sending new message", exc.message)
-        await callback.message.answer(
-            t.MSG_INFO_MENU,
-            reply_markup=info_menu_kb(t),
-        )
+    await render(callback, t.MSG_INFO_MENU, info_menu_kb(t))
 
 
 @router.callback_query(MenuAction.filter(F.action == "settings"))
 async def show_settings_menu(callback: CallbackQuery, t: Texts) -> None:
     """Replace main menu with settings submenu."""
     await callback.answer()
-    try:
-        await callback.message.edit_text(
-            t.MSG_SETTINGS_MENU,
-            reply_markup=settings_menu_kb(t),
-        )
-    except TelegramBadRequest as exc:
-        logger.debug("edit_text failed ({}), sending new message", exc.message)
-        await callback.message.answer(
-            t.MSG_SETTINGS_MENU,
-            reply_markup=settings_menu_kb(t),
-        )
+    await render(callback, t.MSG_SETTINGS_MENU, settings_menu_kb(t))
 
 
 @router.callback_query(MenuAction.filter(F.action == "back"))

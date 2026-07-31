@@ -1,5 +1,67 @@
 # Changelog
 
+## 2026-07-31 — One screen instead of a scroll
+
+The rest of the UX plan from the previous session, items 1–4. Nothing here
+changes what the bot knows; it changes how much of it a person has to read.
+
+### The menu is a grid, and the labels are short
+
+Seven buttons, one per row, filled a phone screen and gave equal weight to
+"📦 Мої замовлення" and "⚙️ Налаштування". Now 2+2+3: the two questions people
+arrive with on top (orders, delivery), what they might do next below
+(favourites, manager), and the rest on the last row. Labels lost the words that
+were doing nothing — «📦 Мої замовлення» → «📦 Замовлення».
+
+### Orders and favourites are numbered, and the buttons say the number
+
+`🔎 Товари: 📸 Instagram, 15.06.2026` was one button per row and still ambiguous:
+most orders come from Instagram with no order number, so two of them in the
+same week read identically. The list is numbered across pages now, the heading
+of each order is bold, the newest carries ⭐ — and the button is `🔎 3`, five of
+them to a row, with one line above the list saying what the number means. The
+same for the back-in-stock buttons on favourites.
+
+### One live message
+
+Navigation edits the screen instead of sending a new message. Menu → orders →
+expand → back → favourites used to leave five messages in the chat; it is now
+one message that changes. `bot/screen.py` holds `render()`, which edits and
+falls back to sending when Telegram will not let it edit (message too old, not
+a text message, already identical). Across the customer-facing handlers the
+call sites went from 43 sends / 10 edits to 23 sends / 21 edits — what is left
+sending is what genuinely must: replies to a message the customer just typed,
+and the share-phone prompts.
+
+Also folded in: the discount and subscribe confirmations are pop-ups rather
+than messages; toggling a back-in-stock subscription redraws the screen, so the
+button reflects what it just did; "Номер прийнято!" and "Завантажую…" are gone,
+replaced by "typing…"; /start greets and shows the menu in one message.
+
+### The reply keyboard is gone
+
+The «📋 Меню» keyboard under the input field duplicated the menu button Telegram
+puts next to it — two navigations for one bot, one of them covering a third of
+the screen. The bot no longer sends it; `clear_reply_keyboard()` takes away any
+that a returning customer still has, on /start or on the first tap of the old
+button. The only reply keyboard left is share-phone, which is how Telegram
+proves the number is theirs.
+
+### Quiet at night, confetti when it is good news
+
+`bot/quiet.py`: 22:00–09:00 Kyiv, `disable_notification=True` for anything the
+bot sends on its own initiative — restock notifications and broadcasts, decided
+per recipient at the moment of sending, so a long job does not wake people at
+one in the morning. The restock message carries Telegram's 🎉 effect, sent
+best-effort: if the effect id is ever rejected the message goes again without
+it. `tzdata` added to requirements so the timezone resolves inside the slim
+image.
+
+### Not verified live
+
+The effect id and the grid were checked offline against fakes, not against
+Telegram. Worth one pass through the bot on the phone after deploy.
+
 ## 2026-07-29 … 07-31 — Customer-facing features, and a lot of measuring
 
 ### Shipped to production

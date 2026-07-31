@@ -2,15 +2,14 @@
 from __future__ import annotations
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from loguru import logger
 
 from bot.i18n import Texts
 from bot.callbacks import InfoAction, MenuAction
 from bot.analytics import track
 from bot.config import AppConfig
+from bot.screen import render
 
 router = Router()
 
@@ -24,14 +23,10 @@ def _back_to_info_kb(t: Texts) -> InlineKeyboardMarkup:
 
 
 async def _show_info_page(callback: CallbackQuery, text: str, t: Texts, page: str = "") -> None:
-    """Edit current message to show an info page with Back button."""
+    """Turn the screen into an info page with a Back button."""
     await callback.answer()
     track(callback.from_user.id, "info_viewed", page=page)
-    try:
-        await callback.message.edit_text(text, reply_markup=_back_to_info_kb(t))
-    except TelegramBadRequest as exc:
-        logger.debug("edit_text failed ({}), sending new message", exc.message)
-        await callback.message.answer(text, reply_markup=_back_to_info_kb(t))
+    await render(callback, text, _back_to_info_kb(t))
 
 
 @router.callback_query(InfoAction.filter(F.page == "about"))

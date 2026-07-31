@@ -7,9 +7,7 @@ from datetime import datetime
 from html import escape
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import (CallbackQuery, InlineKeyboardMarkup, KeyboardButton, Message,
-                           ReplyKeyboardMarkup, ReplyKeyboardRemove)
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from loguru import logger
 
@@ -23,7 +21,8 @@ from bot.db import (CANCELLED_STATUS_GROUP, add_discount_request, add_stock_subs
                     get_last_sync_time, get_stock_levels, get_subscribed_skus,
                     get_user_phone, recent_discount_request,
                     remove_stock_subscription, save_user, upsert_orders)
-from bot.keyboards import main_menu_kb
+from bot.keyboards import main_menu_kb, menu_only_kb
+from bot.screen import clear_reply_keyboard, render, typing
 from bot.services.keycrm import KeyCRMClient, keycrm_order_to_dict
 from bot.services.shopify import ShopifyClient, shopify_order_to_dict
 from bot.tasks import spawn
@@ -82,9 +81,12 @@ def _item_line(product: dict, t: Texts) -> str:
 
 
 def _format_cached_order(
-    row: dict, t: Texts, *, is_latest: bool = False, expanded: bool = False
+    row: dict, t: Texts, *, number: int, is_latest: bool = False, expanded: bool = False
 ) -> str:
     """Format a single cached order (from DB dict) as a text block.
+
+    `number` is the order's position in the whole list, counted across pages. It
+    is what the expand button carries, so the two can be matched by eye.
 
     Orders with more than _MAX_INLINE_ITEMS lines are shortened — 22% of orders
     have that many — and the caller offers a button to expand this one.
@@ -114,10 +116,10 @@ def _format_cached_order(
     total = _money(row.get("grand_total", 0))
     currency = escape(t.currency(row.get("currency", "грн")))
 
-    prefix = f"{t.MSG_ORDER_LATEST}\n" if is_latest else ""
+    mark = t.MSG_ORDER_LATEST_MARK if is_latest else ""
 
     lines = [
-        f"{prefix}{escape(source_label)}",
+        f"{mark}<b>{number}. {escape(source_label)}</b>",
         f"  {t.LBL_STATUS}: {status}",
         f"  {t.LBL_PRODUCTS}:",
         *item_lines,
@@ -167,6 +169,10 @@ def _format_orders_from_cache(
         header += "\n" + t.MSG_ORDERS_PAGE.format(
             first=start + 1, last=start + len(visible), total=len(orders)
         )
+    # A row of "🔎 3" buttons is unreadable without saying once what the number
+    # refers to; the line only appears when such a button exists.
+    if any(len(_order_products(row)) > _MAX_INLINE_ITEMS for row in visible):
+        header += "\n" + t.MSG_ORDERS_EXPAND_HINT
     header += "\n\n"
 
     # A page of five collapsed orders is far inside Telegram's 4096, but an
@@ -177,7 +183,10 @@ def _format_orders_from_cache(
 
     for i, row in enumerate(visible):
         block = _format_cached_order(
-            row, t, is_latest=(start + i == 0), expanded=(row.get("id") == expanded_id)
+            row, t,
+            number=start + i + 1,
+            is_latest=(start + i == 0),
+            expanded=(row.get("id") == expanded_id),
         ) + "\n"
         if current_len + len(block) + 2 > max_len:
             result_parts.append("\n" + t.MSG_ORDERS_TRUNCATED)
@@ -196,44 +205,34 @@ def _short_date(raw: str) -> str:
         return raw or ""
 
 
-def _order_date(row: dict) -> str:
-    """dd.mm.yyyy for an order, or '' if the stored timestamp is unparseable."""
-    return _short_date(row.get("ordered_at", ""))
-
-
-def _button_label(row: dict, t: Texts) -> str:
-    """Identify an order in a button: source label plus its date.
-
-    The source label alone is not enough — most orders are Instagram ones with
-    no order number, so several buttons in the same message would read
-    identically and there would be no way to tell which is which.
-    """
-    label = t.order_source_label(row)
-    date = _order_date(row)
-    return f"{label}, {date}" if date else label
-
-
 def _orders_kb(
     orders: list[dict], t: Texts, expanded_id: int = 0, page: int = 0
 ) -> InlineKeyboardMarkup:
-    """Paging, plus expand/collapse for the shortened orders on this page."""
+    """Paging, plus expand/collapse for the shortened orders on this page.
+
+    Expand buttons are labelled with the order's number in the list, so they fit
+    several to a row. They used to carry the source and the date — "🔎 Товари:
+    📸 Instagram, 15.06.2026" — which is one button per row and still ambiguous
+    when two Instagram orders share a day.
+    """
     builder = InlineKeyboardBuilder()
     visible, page = _page_slice(orders, page)
+    start = page * _ORDERS_PER_PAGE
 
     expand_buttons = 0
-    for row in visible:
+    for i, row in enumerate(visible):
         if len(_order_products(row)) <= _MAX_INLINE_ITEMS:
             continue
         row_id = row.get("id", 0)
-        label = _button_label(row, t)
+        number = start + i + 1
         if row_id == expanded_id:
             builder.button(
-                text=t.BTN_HIDE_ITEMS.format(order=label),
+                text=t.BTN_HIDE_ITEMS.format(order=number),
                 callback_data=OrderAction(action="items", order_id=0, page=page),
             )
         else:
             builder.button(
-                text=t.BTN_SHOW_ITEMS.format(order=label),
+                text=t.BTN_SHOW_ITEMS.format(order=number),
                 callback_data=OrderAction(action="items", order_id=row_id, page=page),
             )
         expand_buttons += 1
@@ -253,8 +252,9 @@ def _orders_kb(
 
     builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="back"))
 
-    # One expand button per row, both paging buttons side by side, Menu alone.
-    layout = [1] * expand_buttons
+    # All expand buttons on one row — there are at most _ORDERS_PER_PAGE of
+    # them and each is a glyph and a number — then paging, then Menu.
+    layout = [expand_buttons] if expand_buttons else []
     if nav:
         layout.append(len(nav))
     layout.append(1)
@@ -272,16 +272,8 @@ def _no_orders_kb(t: Texts) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text=t.BTN_SUPPORT, callback_data=MenuAction(action="support"))
     builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="back"))
-    builder.adjust(1)
+    builder.adjust(2)
     return builder.as_markup()
-
-
-def _menu_reply_kb(t: Texts) -> ReplyKeyboardMarkup:
-    """Reply keyboard with a single Menu button."""
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=t.BTN_MENU)]],
-        resize_keyboard=True,
-    )
 
 
 def favourite_products(orders: list[dict], limit: int = 5) -> list[dict]:
@@ -363,14 +355,6 @@ async def _refresh_orders(
         await _do_refresh_orders(chat_id, phone, keycrm, shopify)
 
 
-async def _typing(message: Message) -> None:
-    """Show "typing…" so a KeyCRM round-trip does not look like a hang."""
-    try:
-        await message.bot.send_chat_action(message.chat.id, "typing")
-    except Exception:  # noqa: BLE001 — never let a cosmetic call break a flow
-        pass
-
-
 async def _do_refresh_orders(
     chat_id: int,
     phone: str,
@@ -434,13 +418,13 @@ async def _do_refresh_orders(
 # Handlers
 # ---------------------------------------------------------------------------
 
-async def _send_orders(message: Message, chat_id: int, t: Texts) -> None:
-    """Read cached orders and send them with expand/collapse buttons."""
+async def _render_orders(callback: CallbackQuery, chat_id: int, t: Texts) -> None:
+    """Draw the cached orders, with expand/collapse buttons, on the screen."""
     cached = await get_cached_orders(chat_id)
-    await message.answer(
+    await render(
+        callback,
         _format_orders_from_cache(cached, t),
-        reply_markup=_orders_kb(cached, t) if cached else _no_orders_kb(t),
-        parse_mode="HTML",
+        _orders_kb(cached, t) if cached else _no_orders_kb(t),
     )
 
 
@@ -459,10 +443,7 @@ async def show_orders(
     chat_id = callback.from_user.id
     phone = await get_user_phone(chat_id)
     if not phone:
-        await callback.message.answer(
-            t.ERR_PHONE_NOT_FOUND,
-            reply_markup=_menu_reply_kb(t),
-        )
+        await render(callback, t.ERR_PHONE_NOT_FOUND, menu_only_kb(t))
         return
 
     # Try to show cached orders instantly
@@ -470,10 +451,10 @@ async def show_orders(
 
     if cached:
         track(chat_id, "orders_viewed", found=len(cached), cached=True)
-        await callback.message.answer(
+        await render(
+            callback,
             _format_orders_from_cache(cached, t),
-            reply_markup=_orders_kb(cached, t),
-            parse_mode="HTML",
+            _orders_kb(cached, t),
         )
         # Fire-and-forget background refresh — but only if the cache is stale,
         # so repeated taps and post-broadcast bursts don't re-hit the APIs.
@@ -481,14 +462,14 @@ async def show_orders(
             spawn(_refresh_orders(chat_id, phone, keycrm, shopify), name="refresh_orders")
     else:
         # No cache — show loading, fetch synchronously, then display
-        await _typing(callback.message)
+        await typing(callback.message)
         await _refresh_orders(chat_id, phone, keycrm, shopify)
         # Tracked after the fetch, not before: an empty cache says nothing about
         # whether the phone matched, and `found=0` here is exactly the signal
         # that a customer shared their contact and saw nothing.
         fetched = await get_cached_orders(chat_id)
         track(chat_id, "orders_viewed", found=len(fetched), cached=False)
-        await _send_orders(callback.message, chat_id, t)
+        await _render_orders(callback, chat_id, t)
 
 
 @router.callback_query(MenuAction.filter(F.action == "favourites"))
@@ -510,24 +491,32 @@ async def show_favourites(
 
     phone = await get_user_phone(chat_id)
     if not phone:
-        await callback.message.answer(t.ERR_PHONE_NOT_FOUND, reply_markup=_menu_reply_kb(t))
+        await render(callback, t.ERR_PHONE_NOT_FOUND, menu_only_kb(t))
         return
 
     cached = await get_cached_orders(chat_id)
     if not cached:
-        await _typing(callback.message)
+        await typing(callback.message)
         await _refresh_orders(chat_id, phone, keycrm, shopify)
         cached = await get_cached_orders(chat_id)
 
-    favourites = favourite_products(cached)
-    track(chat_id, "favourites_viewed", found=len(favourites))
+    text, markup, found = await _favourites_view(chat_id, t, cached)
+    track(chat_id, "favourites_viewed", found=found)
+    await render(callback, text, markup)
 
+
+async def _favourites_view(
+    chat_id: int, t: Texts, cached: list[dict]
+) -> tuple[str, InlineKeyboardMarkup, int]:
+    """The favourites screen — its text, its buttons, and how many it lists.
+
+    Built in one place because two handlers draw it: opening the screen, and
+    toggling a back-in-stock subscription, which has to redraw so the button
+    the customer just pressed changes to reflect what it did.
+    """
+    favourites = favourite_products(cached)
     if not favourites:
-        await callback.message.answer(
-            t.MSG_NO_FAVOURITES if cached else t.MSG_NO_ORDERS,
-            reply_markup=_no_orders_kb(t),
-        )
-        return
+        return (t.MSG_NO_FAVOURITES if cached else t.MSG_NO_ORDERS), _no_orders_kb(t), 0
 
     levels = await get_stock_levels()
     subscribed = await get_subscribed_skus(chat_id)
@@ -535,6 +524,7 @@ async def show_favourites(
     repeated = any(item["orders"] > 1 for item in favourites)
     header = t.MSG_FAVOURITES_HEADER if repeated else t.MSG_FAVOURITES_HEADER_ONCE
     lines = [header, ""]
+    any_out_of_stock = False
     for i, item in enumerate(favourites, 1):
         line = "   " + t.MSG_FAVOURITE_LINE.format(
             orders=item["orders"], qty=item["qty"],
@@ -542,13 +532,18 @@ async def show_favourites(
         )
         if _is_out_of_stock(item, levels):
             line += f" · {escape(t.MSG_FAVOURITE_OUT_OF_STOCK)}"
-        lines.append(f"{i}. {escape(texts.shorten_name(item['name'], 52))}")
+            any_out_of_stock = True
+        lines.append(f"<b>{i}.</b> {escape(texts.shorten_name(item['name'], 52))}")
         lines.append(line)
+    # Same reason as the order list: the buttons below are numbers, and the
+    # numbers only mean something once they have been explained.
+    if any_out_of_stock:
+        lines += ["", t.MSG_STOCK_HINT]
 
-    await callback.message.answer(
+    return (
         "\n".join(lines),
-        reply_markup=_favourites_kb(favourites, levels, subscribed, t),
-        parse_mode="HTML",
+        _favourites_kb(favourites, levels, subscribed, t),
+        len(favourites),
     )
 
 
@@ -564,23 +559,30 @@ def _is_out_of_stock(item: dict, levels: dict[str, int]) -> bool:
 
 
 def _favourites_kb(favourites, levels, subscribed, t: Texts) -> InlineKeyboardMarkup:
-    """A notify-me button for each favourite that is currently unavailable."""
+    """A notify-me button for each favourite that is currently unavailable.
+
+    Labelled with the product's number in the list above, so up to five of them
+    fit on one row instead of five rows of truncated product names.
+    """
     builder = InlineKeyboardBuilder()
-    for item in favourites:
+    notify_buttons = 0
+    for i, item in enumerate(favourites, 1):
         sku = str(item.get("sku") or "")
         if not _is_out_of_stock(item, levels):
             continue
-        short = texts.shorten_name(item["name"], 24)
         if sku in subscribed:
-            builder.button(text=t.BTN_NOTIFY_CANCEL.format(product=short),
+            builder.button(text=t.BTN_NOTIFY_CANCEL.format(product=i),
                            callback_data=StockAction(action="unsub", sku=sku))
         else:
-            builder.button(text=t.BTN_NOTIFY_ME.format(product=short),
+            builder.button(text=t.BTN_NOTIFY_ME.format(product=i),
                            callback_data=StockAction(action="sub", sku=sku))
+        notify_buttons += 1
     builder.button(text=t.BTN_WANT_DISCOUNT,
                    callback_data=DiscountAction(action="ask"))
     builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="back"))
-    builder.adjust(1)
+    layout = [notify_buttons] if notify_buttons else []
+    layout += [1, 1]
+    builder.adjust(*layout)
     return builder.as_markup()
 
 
@@ -599,14 +601,17 @@ async def request_discount(
     formatted the same way — replying to it routes back to this customer.
     """
     chat_id = callback.from_user.id
-    await callback.answer()
 
+    # Answered as a pop-up rather than a message: the confirmation belongs to
+    # the tap, and the favourites list the customer is looking at should stay
+    # where it is.
     if await recent_discount_request(chat_id):
-        await callback.message.answer(t.MSG_DISCOUNT_ALREADY)
+        await callback.answer(t.MSG_DISCOUNT_ALREADY, show_alert=True)
         return
 
     favourites = favourite_products(await get_cached_orders(chat_id))
     if not favourites:
+        await callback.answer()
         return
 
     await add_discount_request(chat_id, json.dumps(
@@ -630,7 +635,7 @@ async def request_discount(
     except Exception as exc:  # noqa: BLE001 — the customer must still get an answer
         logger.warning("Discount request not delivered to support: {}", exc)
 
-    await callback.message.answer(t.MSG_DISCOUNT_SENT)
+    await callback.answer(t.MSG_DISCOUNT_SENT, show_alert=True)
 
 
 @router.callback_query(StockAction.filter())
@@ -647,6 +652,7 @@ async def toggle_stock_subscription(
         await remove_stock_subscription(chat_id, sku)
         track(chat_id, "stock_unsubscribed")
         await callback.answer(t.MSG_UNSUBSCRIBED, show_alert=True)
+        await _redraw_favourites(callback, chat_id, t)
         return
 
     # The product name comes from this customer's own cached orders, so a
@@ -666,6 +672,21 @@ async def toggle_stock_subscription(
     await add_stock_subscription(chat_id, sku, name)
     track(chat_id, "stock_subscribed")
     await callback.answer(t.MSG_SUBSCRIBED, show_alert=True)
+    await _redraw_favourites(callback, chat_id, t)
+
+
+async def _redraw_favourites(callback: CallbackQuery, chat_id: int, t: Texts) -> None:
+    """Redraw the favourites screen after a subscription changed.
+
+    Without this the button keeps offering what the customer just did: they tap
+    "🔔 2", the pop-up says we will write when it is back, and the button still
+    reads 🔔. These buttons exist nowhere else, so the screen the callback came
+    from is always the favourites list.
+    """
+    text, markup, _found = await _favourites_view(
+        chat_id, t, await get_cached_orders(chat_id)
+    )
+    await render(callback, text, markup)
 
 
 @router.callback_query(OrderAction.filter(F.action == "items"))
@@ -689,15 +710,11 @@ async def toggle_order_items(
 
     expanded_id = callback_data.order_id
     page = callback_data.page
-    try:
-        await callback.message.edit_text(
-            _format_orders_from_cache(cached, t, expanded_id, page),
-            reply_markup=_orders_kb(cached, t, expanded_id, page),
-            parse_mode="HTML",
-        )
-    except TelegramBadRequest:
-        # Same content (double tap) or the message is too old to edit.
-        logger.debug("Order list edit skipped for chat {}", callback.from_user.id)
+    await render(
+        callback,
+        _format_orders_from_cache(cached, t, expanded_id, page),
+        _orders_kb(cached, t, expanded_id, page),
+    )
 
 
 @router.message(F.text.in_(variants("BTN_MENU")))
@@ -706,7 +723,15 @@ async def menu_button_handler(
     config: AppConfig,
     t: Texts,
 ) -> None:
-    """Handle the reply-keyboard Menu button — show main menu."""
+    """Serve — and retire — the old reply-keyboard Menu button.
+
+    The bot no longer sends that keyboard: the menu button beside the input
+    field does the same job without covering half the screen. But Telegram
+    keeps a reply keyboard on the client until something removes it, so anyone
+    who still has one gets it cleared here, on the tap, rather than being left
+    with a button that answers nothing.
+    """
+    await clear_reply_keyboard(message)
     await message.answer(
         t.MSG_MAIN_MENU,
         reply_markup=main_menu_kb(t, config.website_url),

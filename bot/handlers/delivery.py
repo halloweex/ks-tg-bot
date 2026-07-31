@@ -6,7 +6,7 @@ from datetime import datetime
 from html import escape
 
 from aiogram import F, Router
-from aiogram.types import CallbackQuery, KeyboardButton, ReplyKeyboardMarkup
+from aiogram.types import CallbackQuery
 
 from bot import texts
 from bot.i18n import Texts
@@ -14,16 +14,11 @@ from bot.callbacks import DeliveryAction
 from bot.analytics import track
 from bot.config import AppConfig
 from bot.db import get_orders_with_tracking, get_user_phone, get_cached_orders
+from bot.keyboards import menu_only_kb
+from bot.screen import render
 from bot.services.novaposhta import NovaPoshtaClient
 
 router = Router()
-
-
-def _menu_reply_kb(t: Texts) -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=t.BTN_MENU)]],
-        resize_keyboard=True,
-    )
 
 
 def _format_order_label(row: dict, t: Texts) -> str:
@@ -99,10 +94,7 @@ async def show_delivery_status(
     chat_id = callback.from_user.id
     phone = await get_user_phone(chat_id)
     if not phone:
-        await callback.message.answer(
-            t.ERR_PHONE_NOT_FOUND,
-            reply_markup=_menu_reply_kb(t),
-        )
+        await render(callback, t.ERR_PHONE_NOT_FOUND, menu_only_kb(t))
         return
 
     tracked_orders = await get_orders_with_tracking(chat_id)
@@ -115,7 +107,7 @@ async def show_delivery_status(
             msg = t.MSG_DELIVERY_NO_TRACKING
         else:
             msg = t.MSG_NO_DELIVERIES
-        await callback.message.answer(msg, reply_markup=_menu_reply_kb(t))
+        await render(callback, msg, menu_only_kb(t))
         return
 
     # Nova Poshta can take a few seconds per parcel; show life instead of silence.
@@ -140,15 +132,11 @@ async def show_delivery_status(
         info = tracking_map.get(ttn)
         block = _format_delivery_block(row, info, t)
         if current_len + len(block) + 4 > max_len:
-            blocks.append("\n...та інші відправлення")
+            blocks.append("\n" + t.MSG_DELIVERIES_TRUNCATED)
             break
         blocks.append(block)
         current_len += len(block) + 4
 
     result = t.MSG_DELIVERY_HEADER + "\n\n" + "\n\n".join(blocks)
 
-    await callback.message.answer(
-        result,
-        reply_markup=_menu_reply_kb(t),
-        parse_mode="HTML",
-    )
+    await render(callback, result, menu_only_kb(t))

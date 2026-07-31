@@ -12,6 +12,7 @@ from bot.config import AppConfig
 from bot.db import save_user, set_user_language
 from bot.handlers.onboarding import own_contact_phone
 from bot.keyboards import language_kb, main_menu_kb, share_phone_kb
+from bot.screen import render
 from bot.states import SettingsStates
 
 router = Router()
@@ -70,7 +71,7 @@ async def show_language(
 ) -> None:
     """Offer the supported languages, ticking the active one."""
     await callback.answer()
-    await callback.message.answer(t.MSG_LANGUAGE_CHOOSE, reply_markup=language_kb(lang))
+    await render(callback, t.MSG_LANGUAGE_CHOOSE, language_kb(lang))
 
 
 @router.callback_query(SettingsAction.filter(F.action == "lang"))
@@ -89,6 +90,11 @@ async def set_language(
     track(callback.from_user.id, "language_changed", to=chosen)
     await callback.answer()
 
+    # Confirmation and menu in one screen: two messages for "done, here is the
+    # menu again" is exactly the noise the single-screen navigation removes.
     t = Texts(chosen)
-    await callback.message.answer(t.MSG_LANGUAGE_SET)
-    await callback.message.answer(t.MSG_MAIN_MENU, reply_markup=main_menu_kb(t, config.website_url))
+    await render(
+        callback,
+        f"{t.MSG_LANGUAGE_SET}\n\n{t.MSG_MAIN_MENU}",
+        main_menu_kb(t, config.website_url),
+    )

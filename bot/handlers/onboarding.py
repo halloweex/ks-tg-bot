@@ -14,6 +14,7 @@ from bot.analytics import track
 from bot.config import AppConfig
 from bot.db import save_user, upsert_orders
 from bot.keyboards import main_menu_kb, share_phone_kb
+from bot.screen import typing
 from bot.services.keycrm import KeyCRMClient, keycrm_order_to_dict
 from bot.services.shopify import ShopifyClient, shopify_order_to_dict
 from bot.states import OnboardingStates
@@ -152,7 +153,10 @@ async def process_contact(
     logger.info("Verified own contact registered for chat {}", message.chat.id)
 
     track(message.chat.id, "contact_shared")
-    await message.answer(t.MSG_PHONE_ACCEPTED)
+    # Registration fetches the buyer and their orders, which takes a moment;
+    # "typing…" covers it without leaving a "Номер прийнято!" message behind to
+    # be read minutes later as if it were news.
+    await typing(message)
     await _register_user(message, state, phone, config, t, keycrm=keycrm, shopify=shopify)
 
 

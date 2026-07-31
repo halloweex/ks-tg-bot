@@ -38,11 +38,12 @@ ERR_PHONE_NOT_FOUND = (
 )
 ERR_INVALID_PHONE = "Невірний формат номера. Введіть у міжнародному форматі, наприклад +380XXXXXXXXX."
 
-# Main menu buttons
-BTN_ORDERS = "📦 Мої замовлення"
-BTN_INFO = "ℹ️ Дізнатися більше"
-BTN_SUPPORT = "💬 Зв'язатися з менеджером"
-BTN_WEBSITE = "🌐 Веб-сайт"
+# Main menu buttons. Short by design: the menu is laid out two and three to a
+# row, and a long label there wraps to two lines and makes the grid ragged.
+BTN_ORDERS = "📦 Замовлення"
+BTN_INFO = "ℹ️ Довідка"
+BTN_SUPPORT = "💬 Менеджер"
+BTN_WEBSITE = "🌐 Сайт"
 BTN_SETTINGS = "⚙️ Налаштування"
 
 # Submenu buttons
@@ -56,7 +57,6 @@ BTN_CHANGE_PHONE = "📱 Змінити номер"
 BTN_LANGUAGE = "🌍 Мова"
 
 # Order display
-MSG_ORDERS_LOADING = "Завантажую ваші замовлення..."
 MSG_ORDERS_HEADER = "<b>📦 Ваші замовлення</b>"
 MSG_ORDER_SOURCE_WEB = "🌐 Сайт"
 MSG_ORDER_SOURCE_INSTAGRAM = "📸 Instagram"
@@ -114,8 +114,13 @@ BTN_ORDERS_NEWER = "◀️ Новіші"
 BTN_ORDERS_OLDER = "Старіші ▶️"
 MSG_ORDERS_TRUNCATED = "...та інші замовлення"
 MSG_ORDER_MORE_ITEMS = "…та інші ({count})"
-BTN_SHOW_ITEMS = "🔎 Товари: {order}"
-BTN_HIDE_ITEMS = "🔼 Згорнути: {order}"
+# The button carries the order's number in the list above it, not its name:
+# most orders come from Instagram and have no number of their own, so labels
+# built from the source and the date read almost identically and are too long
+# to sit side by side.
+BTN_SHOW_ITEMS = "🔎 {order}"
+BTN_HIDE_ITEMS = "🔼 {order}"
+MSG_ORDERS_EXPAND_HINT = "🔎 номер — усі товари цього замовлення"
 MSG_ORDER_TRACKING = "🚚 ТТН: {code}"
 MSG_ORDER_LOCATION = "📍 {location}"
 
@@ -126,7 +131,6 @@ MSG_NO_ORDERS = (
     "той, що ви вказали під час покупки, а не той, до якого прив'язаний Telegram. "
     "Напишіть нам, і ми знайдемо його вручну."
 )
-MSG_PHONE_ACCEPTED = "Номер прийнято! Реєструю вас..."
 MSG_SUPPORT_FORWARDED = "Ваше повідомлення надіслано менеджеру. Очікуйте відповідь."
 
 # Menu headers
@@ -165,12 +169,13 @@ MSG_BROADCAST_STARTED = "Розсилка розпочата..."
 MSG_BROADCAST_COMPLETE = "Розсилку завершено!\n\nНадіслано: {sent}\nПомилок: {failed}\nЗаблоковано: {blocked}"
 MSG_BROADCAST_NO_RECIPIENTS = "Немає активних підписників для розсилки."
 
-# Order cache
-MSG_ORDER_LATEST = "⭐ Останнє замовлення:"
-MSG_ORDERS_SYNCING = "Оновлюю замовлення..."
+# The newest order is marked with a star on its own heading line rather than
+# announced above it — the list is numbered, so one glyph says what a whole
+# line used to.
+MSG_ORDER_LATEST_MARK = "⭐ "
 
-# Delivery status
-BTN_FAVOURITES = "⭐ Улюблені товари"
+# Favourites
+BTN_FAVOURITES = "⭐ Улюблені"
 MSG_FAVOURITES_HEADER = "<b>⭐ Те, що ви любите найбільше</b>"
 # When nothing has been bought twice, calling it a favourite is a small lie:
 # a quarter of customers have only ever ordered one product.
@@ -189,17 +194,20 @@ MSG_DISCOUNT_ALREADY = "Ваш запит уже в роботі — менед�
 # Goes to the support chat, so Ukrainian regardless of the customer's language.
 MSG_DISCOUNT_ADMIN = "💰 Запит на знижку (chat_id: {chat_id}):"
 MSG_BACK_IN_STOCK_HEADER = "🔔 Знову в наявності:"
-BTN_NOTIFY_ME = "🔔 Сповістити: {product}"
-BTN_NOTIFY_CANCEL = "🔕 Не сповіщати: {product}"
+# Numbered like the order buttons, for the same reason: a 40-character product
+# name does not fit on a button next to another one.
+BTN_NOTIFY_ME = "🔔 {product}"
+BTN_NOTIFY_CANCEL = "🔕 {product}"
+MSG_STOCK_HINT = "🔔 номер — повідомимо, щойно зʼявиться"
 MSG_SUBSCRIBED = "Повідомимо, щойно товар знову з'явиться."
 MSG_UNSUBSCRIBED = "Більше не сповіщатимемо про цей товар."
 MSG_FAVOURITE_OUT_OF_STOCK = "зараз немає"
-BTN_DELIVERY_STATUS = "🚚 Статус доставки"
+BTN_DELIVERY_STATUS = "🚚 Доставка"
 MSG_DELIVERY_HEADER = "<b>🚚 Ваші відправлення</b>"
-MSG_DELIVERY_LOADING = "Перевіряю статус доставки..."
 MSG_NO_DELIVERIES = "Наразі немає відправлень для відстеження."
 MSG_DELIVERY_STATUS = "Статус: {status}"
 MSG_DELIVERY_SCHEDULED = "📅 Очікувана дата: {date}"
 MSG_DELIVERY_ACTUAL = "✅ Отримано: {date}"
 MSG_DELIVERY_WAREHOUSE = "🏤 {warehouse}"
 MSG_DELIVERY_NO_TRACKING = "⏳ ТТН ще не присвоєно"
+MSG_DELIVERIES_TRUNCATED = "...та інші відправлення"

@@ -14,13 +14,15 @@ from __future__ import annotations
 import asyncio
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
+from aiogram.exceptions import (TelegramBadRequest, TelegramForbiddenError,
+                                TelegramRetryAfter)
 from loguru import logger
 
 from bot.analytics import track
 from bot.db import (clear_subscriptions, get_stock_levels, get_user_language,
                     save_stock_levels, subscribers_for)
 from bot.i18n import customer_texts
+from bot.quiet import is_quiet_now
 from bot.services.keycrm import KeyCRMClient
 from bot.texts import shorten_name
 
@@ -41,13 +43,34 @@ def restocked(previous: dict[str, int], current: dict[str, int]) -> list[str]:
     ]
 
 
+# Telegram's 🎉 message effect. The one moment in this bot that is unambiguously
+# good news for the person reading it — their product is back — and the only
+# place an effect is not noise. Sent best-effort: an id Telegram stops
+# recognising must not cost anybody their notification (see _send).
+CONFETTI_EFFECT_ID = "5046509860389126442"
+
+
+async def _send(bot: Bot, chat_id: int, text: str) -> None:
+    """Send the news: confetti, and silent if it is the middle of the night."""
+    silent = is_quiet_now()
+    try:
+        await bot.send_message(
+            chat_id, text,
+            message_effect_id=CONFETTI_EFFECT_ID,
+            disable_notification=silent,
+        )
+    except TelegramBadRequest as exc:
+        logger.debug("Message effect rejected ({}), sending plain", exc.message)
+        await bot.send_message(chat_id, text, disable_notification=silent)
+
+
 async def _notify(bot: Bot, chat_id: int, names: list[str]) -> bool:
     """Tell one person their products are back. False if the chat is gone."""
     t = customer_texts(await get_user_language(chat_id))
     lines = [t.MSG_BACK_IN_STOCK_HEADER, ""]
     lines += [f"• {shorten_name(name, 60)}" for name in names]
     try:
-        await bot.send_message(chat_id, "\n".join(lines))
+        await _send(bot, chat_id, "\n".join(lines))
         return True
     except TelegramForbiddenError:
         logger.info("Back-in-stock: chat {} blocked the bot", chat_id)
@@ -55,7 +78,7 @@ async def _notify(bot: Bot, chat_id: int, names: list[str]) -> bool:
     except TelegramRetryAfter as exc:
         await asyncio.sleep(exc.retry_after)
         try:
-            await bot.send_message(chat_id, "\n".join(lines))
+            await _send(bot, chat_id, "\n".join(lines))
             return True
         except Exception as retry_exc:  # noqa: BLE001
             logger.warning("Back-in-stock retry failed for {}: {}", chat_id, retry_exc)

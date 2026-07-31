@@ -4,13 +4,14 @@ from __future__ import annotations
 from aiogram import Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, ReplyKeyboardRemove
+from aiogram.types import Message
 
 from bot.i18n import LANGUAGE_NAMES, Texts
 from bot.analytics import track
 from bot.config import AppConfig
-from bot.db import get_user, get_user_language, get_user_phone, is_opted_out, opt_in_user
+from bot.db import get_user, get_user_language, is_opted_out, opt_in_user
 from bot.keyboards import language_kb, main_menu_kb, share_phone_kb
+from bot.screen import clear_reply_keyboard
 from bot.states import OnboardingStates
 
 router = Router()
@@ -56,12 +57,21 @@ async def cmd_start(
     user = await get_user(message.chat.id)
     track(message.chat.id, "start", returning=bool(user), lang=lang)
     if user:
+        # Older versions kept a «📋 Меню» reply keyboard on screen; the bot no
+        # longer sends one, and /start is where anybody still carrying it gets
+        # it taken away.
+        await clear_reply_keyboard(message)
         if user.get("full_name"):
             greeting = t.MSG_WELCOME_BACK_NAME.format(name=user["full_name"])
         else:
             greeting = t.MSG_WELCOME_BACK
-        await message.answer(greeting, reply_markup=ReplyKeyboardRemove())
-        await message.answer(t.MSG_MAIN_MENU, reply_markup=main_menu_kb(t, config.website_url))
+        # Greeting and menu in one message: this is the screen everything else
+        # is edited into, and splitting it in two made the menu arrive as a
+        # second notification saying nothing new.
+        await message.answer(
+            f"{greeting}\n\n{t.MSG_MAIN_MENU}",
+            reply_markup=main_menu_kb(t, config.website_url),
+        )
         await _maybe_offer_language(message, t, lang, tg_lang)
         return
 

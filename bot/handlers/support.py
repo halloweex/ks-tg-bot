@@ -15,6 +15,7 @@ from bot.analytics import track
 from bot.config import AppConfig
 from bot.db import get_user_language
 from bot.keyboards import main_menu_kb
+from bot.screen import render
 from bot.states import SupportStates
 
 router = Router()
@@ -31,7 +32,7 @@ async def enter_support_mode(
     await callback.answer()
     track(callback.from_user.id, "support_opened")
     await state.set_state(SupportStates.waiting_message)
-    await callback.message.edit_text(t.MSG_SUPPORT_PROMPT)
+    await render(callback, t.MSG_SUPPORT_PROMPT)
 
 
 @router.message(SupportStates.waiting_message)
