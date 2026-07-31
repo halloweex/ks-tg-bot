@@ -14,13 +14,15 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from loguru import logger
 
 from bot import texts
-from bot.i18n import Texts, variants
-from bot.callbacks import MenuAction, OrderAction, StockAction
+from bot.i18n import Texts, operator_texts, variants
+from bot.callbacks import DiscountAction, MenuAction, OrderAction, StockAction
 from bot.analytics import track
 from bot.config import AppConfig
-from bot.db import (CANCELLED_STATUS_GROUP, add_stock_subscription, get_cached_orders,
+from bot.db import (CANCELLED_STATUS_GROUP, add_discount_request, add_stock_subscription,
+                    get_cached_orders,
                     get_last_sync_time, get_stock_levels, get_subscribed_skus,
-                    get_user_phone, remove_stock_subscription, save_user, upsert_orders)
+                    get_user_phone, recent_discount_request,
+                    remove_stock_subscription, save_user, upsert_orders)
 from bot.keyboards import main_menu_kb
 from bot.services.keycrm import KeyCRMClient, keycrm_order_to_dict
 from bot.services.shopify import ShopifyClient, shopify_order_to_dict
@@ -567,9 +569,60 @@ def _favourites_kb(favourites, levels, subscribed, t: Texts) -> InlineKeyboardMa
         else:
             builder.button(text=t.BTN_NOTIFY_ME.format(product=short),
                            callback_data=StockAction(action="sub", sku=sku))
+    builder.button(text=t.BTN_WANT_DISCOUNT,
+                   callback_data=DiscountAction(action="ask"))
     builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="back"))
     builder.adjust(1)
     return builder.as_markup()
+
+
+@router.callback_query(DiscountAction.filter(F.action == "ask"))
+async def request_discount(
+    callback: CallbackQuery,
+    callback_data: DiscountAction,
+    config: AppConfig,
+    t: Texts,
+) -> None:
+    """Pass a discount request, with the customer's favourites, to a manager.
+
+    Deliberately not an automatically issued code: there is no discount policy
+    yet, and the bot inventing one would commit the business to it. The manager
+    answers through the existing support relay, which is why the chat_id line is
+    formatted the same way — replying to it routes back to this customer.
+    """
+    chat_id = callback.from_user.id
+    await callback.answer()
+
+    if await recent_discount_request(chat_id):
+        await callback.message.answer(t.MSG_DISCOUNT_ALREADY)
+        return
+
+    favourites = favourite_products(await get_cached_orders(chat_id))
+    if not favourites:
+        return
+
+    await add_discount_request(chat_id, json.dumps(
+        [{"sku": f["sku"], "name": f["name"], "orders": f["orders"]} for f in favourites],
+        ensure_ascii=False,
+    ))
+    track(chat_id, "discount_requested", products=len(favourites))
+
+    op = operator_texts()
+    lines = [op.MSG_DISCOUNT_ADMIN.format(chat_id=chat_id), ""]
+    lines += [
+        f"• {escape(texts.shorten_name(f['name'], 60))} — "
+        f"{op.MSG_FAVOURITE_LINE.format(orders=f['orders'], qty=f['qty'], date=_short_date(f['last']))}"
+        for f in favourites
+    ]
+    lines += ["", escape(op.MSG_SUPPORT_REPLY_INSTRUCTION)]
+    try:
+        await callback.bot.send_message(
+            config.support_chat_id, "\n".join(lines), parse_mode="HTML"
+        )
+    except Exception as exc:  # noqa: BLE001 — the customer must still get an answer
+        logger.warning("Discount request not delivered to support: {}", exc)
+
+    await callback.message.answer(t.MSG_DISCOUNT_SENT)
 
 
 @router.callback_query(StockAction.filter())

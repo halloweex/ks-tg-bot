@@ -140,6 +140,19 @@ CREATE TABLE IF NOT EXISTS stock_subscriptions (
 """
 
 
+# A customer asking for a discount on what they buy most. Deliberately a request
+# a manager answers, not an automatically issued code: there is no discount
+# policy yet, and inventing one in the bot would commit the business to it.
+_CREATE_DISCOUNT_REQUESTS = """
+CREATE TABLE IF NOT EXISTS discount_requests (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id       INTEGER NOT NULL,
+    products_json TEXT NOT NULL DEFAULT '[]',
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
+
 _MIGRATIONS = [
     "ALTER TABLE users ADD COLUMN full_name TEXT",
     "ALTER TABLE users ADD COLUMN email TEXT",
@@ -183,6 +196,7 @@ async def init_db() -> None:
         await db.execute(_CREATE_EVENTS)
         await db.execute(_CREATE_STOCK_LEVELS)
         await db.execute(_CREATE_STOCK_SUBSCRIPTIONS)
+        await db.execute(_CREATE_DISCOUNT_REQUESTS)
         for migration in _MIGRATIONS:
             try:
                 await db.execute(migration)
@@ -714,5 +728,29 @@ async def clear_subscriptions(pairs: list[tuple[int, str]]) -> None:
     async with _connect() as db:
         await db.executemany(
             "DELETE FROM stock_subscriptions WHERE chat_id = ? AND sku = ?", pairs
+        )
+        await db.commit()
+
+
+async def recent_discount_request(chat_id: int, days: int = 7) -> bool:
+    """True if this customer already asked within the window.
+
+    Stops a second tap, or a bored customer, from filling the support chat with
+    the same request.
+    """
+    async with _connect() as db:
+        cursor = await db.execute(
+            "SELECT 1 FROM discount_requests WHERE chat_id = ? "
+            "AND created_at >= datetime('now', ?) LIMIT 1",
+            (chat_id, f"-{days} days"),
+        )
+        return await cursor.fetchone() is not None
+
+
+async def add_discount_request(chat_id: int, products_json: str) -> None:
+    async with _connect() as db:
+        await db.execute(
+            "INSERT INTO discount_requests (chat_id, products_json) VALUES (?, ?)",
+            (chat_id, products_json),
         )
         await db.commit()

@@ -48,6 +48,12 @@ class StockAction(CallbackData, prefix="stk"):
     sku: str
 
 
+class DiscountAction(CallbackData, prefix="disc"):
+    """Customer asking for a discount on the products they buy most."""
+
+    action: str
+
+
 class DeliveryAction(CallbackData, prefix="dlvr"):
     """Delivery tracking actions: view, refresh."""
 

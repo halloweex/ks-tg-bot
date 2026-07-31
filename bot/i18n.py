@@ -128,6 +128,13 @@ EN: dict[str, str] = {
         "Nothing to base favourites on yet — the products you order most often "
         "will show up here."
     ),
+    "BTN_WANT_DISCOUNT": "💰 I'd like a discount on these",
+    "MSG_DISCOUNT_SENT": (
+        "We've passed your discount request to a manager. We'll get back to you "
+        "here in the bot."
+    ),
+    "MSG_DISCOUNT_ALREADY": "Your request is already with a manager — they will reply shortly.",
+    "MSG_DISCOUNT_ADMIN": "💰 Discount request (chat_id: {chat_id}):",
     "MSG_BACK_IN_STOCK_HEADER": "🔔 Back in stock:",
     "BTN_NOTIFY_ME": "🔔 Notify me: {product}",
     "BTN_NOTIFY_CANCEL": "🔕 Stop notifying: {product}",

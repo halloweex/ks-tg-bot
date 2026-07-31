@@ -179,6 +179,13 @@ MSG_NO_FAVOURITES = (
     "Поки що нема з чого скласти улюблене — тут з'являться товари, "
     "які ви замовляєте найчастіше."
 )
+BTN_WANT_DISCOUNT = "💰 Хочу знижку на ці товари"
+MSG_DISCOUNT_SENT = (
+    "Передали менеджеру ваш запит на знижку. Ми звʼяжемось із вами тут, у боті."
+)
+MSG_DISCOUNT_ALREADY = "Ваш запит уже в роботі — менеджер відповість найближчим часом."
+# Goes to the support chat, so Ukrainian regardless of the customer's language.
+MSG_DISCOUNT_ADMIN = "💰 Запит на знижку (chat_id: {chat_id}):"
 MSG_BACK_IN_STOCK_HEADER = "🔔 Знову в наявності:"
 BTN_NOTIFY_ME = "🔔 Сповістити: {product}"
 BTN_NOTIFY_CANCEL = "🔕 Не сповіщати: {product}"
