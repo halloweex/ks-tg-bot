@@ -105,6 +105,11 @@ LBL_STATUS = "Статус"
 LBL_PRODUCTS = "Товари"
 LBL_TOTAL = "Сума"
 LBL_DATE = "Дата"
+# Replaced the old "...та інші замовлення", which said there were more and gave
+# no way to reach them.
+MSG_ORDERS_PAGE = "Показано {first}–{last} з {total}"
+BTN_ORDERS_NEWER = "◀️ Новіші"
+BTN_ORDERS_OLDER = "Старіші ▶️"
 MSG_ORDERS_TRUNCATED = "...та інші замовлення"
 MSG_ORDER_MORE_ITEMS = "…та інші ({count})"
 BTN_SHOW_ITEMS = "🔎 Товари: {order}"

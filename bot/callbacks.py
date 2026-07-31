@@ -38,6 +38,7 @@ class OrderAction(CallbackData, prefix="ord"):
 
     action: str
     order_id: int = 0
+    page: int = 0
 
 
 class StockAction(CallbackData, prefix="stk"):

@@ -42,6 +42,11 @@ _MAX_INLINE_ITEMS = 4
 # What a shortened order still shows before "…and N more".
 _COLLAPSED_ITEMS = 2
 
+# Orders per page. 92% of customers have five or fewer in total, so for almost
+# everyone this is their whole history on one screen with no buttons at all;
+# the long tail gets paging instead of a truncation notice it cannot act on.
+_ORDERS_PER_PAGE = 5
+
 
 # ---------------------------------------------------------------------------
 # Formatting helpers
@@ -130,26 +135,47 @@ def _format_cached_order(
     return "\n".join(lines)
 
 
+def _page_slice(orders: list[dict], page: int) -> tuple[list[dict], int]:
+    """The orders on `page`, plus the clamped page number."""
+    if not orders:
+        return [], 0
+    last_page = max(0, (len(orders) - 1) // _ORDERS_PER_PAGE)
+    page = min(max(page, 0), last_page)
+    start = page * _ORDERS_PER_PAGE
+    return orders[start:start + _ORDERS_PER_PAGE], page
+
+
 def _format_orders_from_cache(
-    orders: list[dict], t: Texts, expanded_id: int = 0
+    orders: list[dict], t: Texts, expanded_id: int = 0, page: int = 0
 ) -> str:
-    """Format all cached orders into a single message text.
+    """Format one page of cached orders into a single message text.
 
     `expanded_id` is the cache row whose full item list should be shown; every
-    other long order stays shortened. Only one at a time, so the message can't
+    other long order stays shortened. Only one at a time, so the message cannot
     grow past Telegram's limit and the state fits in the callback data.
     """
     if not orders:
         return t.MSG_NO_ORDERS
 
+    visible, page = _page_slice(orders, page)
+    start = page * _ORDERS_PER_PAGE
+
+    header = t.MSG_ORDERS_HEADER
+    if len(orders) > _ORDERS_PER_PAGE:
+        header += "\n" + t.MSG_ORDERS_PAGE.format(
+            first=start + 1, last=start + len(visible), total=len(orders)
+        )
+    header += "\n\n"
+
+    # A page of five collapsed orders is far inside Telegram's 4096, but an
+    # expanded order with many items could still push it; keep the guard.
     max_len = 3800
-    header = t.MSG_ORDERS_HEADER + "\n\n"
     result_parts: list[str] = []
     current_len = len(header)
 
-    for i, row in enumerate(orders):
+    for i, row in enumerate(visible):
         block = _format_cached_order(
-            row, t, is_latest=(i == 0), expanded=(row.get("id") == expanded_id)
+            row, t, is_latest=(start + i == 0), expanded=(row.get("id") == expanded_id)
         ) + "\n"
         if current_len + len(block) + 2 > max_len:
             result_parts.append("\n" + t.MSG_ORDERS_TRUNCATED)
@@ -185,10 +211,15 @@ def _button_label(row: dict, t: Texts) -> str:
     return f"{label}, {date}" if date else label
 
 
-def _orders_kb(orders: list[dict], t: Texts, expanded_id: int = 0) -> InlineKeyboardMarkup:
-    """Expand/collapse buttons for the orders that had to be shortened."""
+def _orders_kb(
+    orders: list[dict], t: Texts, expanded_id: int = 0, page: int = 0
+) -> InlineKeyboardMarkup:
+    """Paging, plus expand/collapse for the shortened orders on this page."""
     builder = InlineKeyboardBuilder()
-    for row in orders:
+    visible, page = _page_slice(orders, page)
+
+    expand_buttons = 0
+    for row in visible:
         if len(_order_products(row)) <= _MAX_INLINE_ITEMS:
             continue
         row_id = row.get("id", 0)
@@ -196,15 +227,36 @@ def _orders_kb(orders: list[dict], t: Texts, expanded_id: int = 0) -> InlineKeyb
         if row_id == expanded_id:
             builder.button(
                 text=t.BTN_HIDE_ITEMS.format(order=label),
-                callback_data=OrderAction(action="items", order_id=0),
+                callback_data=OrderAction(action="items", order_id=0, page=page),
             )
         else:
             builder.button(
                 text=t.BTN_SHOW_ITEMS.format(order=label),
-                callback_data=OrderAction(action="items", order_id=row_id),
+                callback_data=OrderAction(action="items", order_id=row_id, page=page),
             )
+        expand_buttons += 1
+
+    # Paging keeps the expanded order id: moving pages collapses nothing, and
+    # the id simply does not match anything on the new page.
+    nav: list[tuple[str, int]] = []
+    if page > 0:
+        nav.append((t.BTN_ORDERS_NEWER, page - 1))
+    if (page + 1) * _ORDERS_PER_PAGE < len(orders):
+        nav.append((t.BTN_ORDERS_OLDER, page + 1))
+    for text, target in nav:
+        builder.button(
+            text=text,
+            callback_data=OrderAction(action="items", order_id=expanded_id, page=target),
+        )
+
     builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="back"))
-    builder.adjust(1)
+
+    # One expand button per row, both paging buttons side by side, Menu alone.
+    layout = [1] * expand_buttons
+    if nav:
+        layout.append(len(nav))
+    layout.append(1)
+    builder.adjust(*layout)
     return builder.as_markup()
 
 
@@ -575,10 +627,11 @@ async def toggle_order_items(
         return
 
     expanded_id = callback_data.order_id
+    page = callback_data.page
     try:
         await callback.message.edit_text(
-            _format_orders_from_cache(cached, t, expanded_id),
-            reply_markup=_orders_kb(cached, t, expanded_id),
+            _format_orders_from_cache(cached, t, expanded_id, page),
+            reply_markup=_orders_kb(cached, t, expanded_id, page),
             parse_mode="HTML",
         )
     except TelegramBadRequest:
