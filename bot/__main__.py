@@ -48,9 +48,10 @@ async def main() -> None:
     dp["keycrm"] = KeyCRMClient(api_key=config.env.keycrm_api_key)
 
     # Conditional Nova Poshta client
-    if config.env.novaposhta_api_key:
-        dp["novaposhta"] = NovaPoshtaClient(api_key=config.env.novaposhta_api_key)
-        logger.info("Nova Poshta client initialized")
+    np_keys = config.env.novaposhta_keys
+    if np_keys:
+        dp["novaposhta"] = NovaPoshtaClient(np_keys)
+        logger.info("Nova Poshta client initialized ({} key(s))", len(np_keys))
     else:
         dp["novaposhta"] = None
         logger.warning("Nova Poshta API key not configured — delivery tracking will use CRM data only")

@@ -17,7 +17,16 @@ class EnvSettings(BaseSettings):
     shopify_api_token: str | None = None
     shopify_store_url: str | None = None
     admin_user_ids: str = ""
+    # One key or several, comma-separated. There are six legal entities shipping
+    # orders, and it is not yet established whether a TTN created by one can be
+    # tracked with another's key — see NovaPoshtaClient.
     novaposhta_api_key: str | None = None
+
+    @property
+    def novaposhta_keys(self) -> list[str]:
+        """Every configured Nova Poshta key, in the order they were given."""
+        raw = (self.novaposhta_api_key or "").strip()
+        return [k.strip() for k in raw.split(",") if k.strip()]
 
     @property
     def admin_ids(self) -> list[int]:
