@@ -229,6 +229,33 @@ async def process_broadcast_confirm_text(
     await _start_broadcast(bot, broadcast_text, message.from_user.id, at)
 
 
+# --------------- Admin utilities ---------------
+
+
+@router.message(Command("chatid"))
+async def cmd_chatid(message: Message, config: AppConfig) -> None:
+    """Report this chat's id, for filling in support_chat_id.
+
+    Works in a group as well as a DM. In a group the bot only receives commands
+    addressed to it while privacy mode is on, so use /chatid@<botname> there.
+    """
+    if message.from_user.id not in config.env.admin_ids:
+        return
+
+    chat = message.chat
+    current = config.support_chat_id
+    lines = [
+        f"Chat id: <code>{chat.id}</code>",
+        f"Type: {chat.type}" + (f" · {chat.title}" if chat.title else ""),
+        "",
+        f"support_chat_id in config.yaml is currently {current}"
+        + (" — this chat." if chat.id == current else "."),
+    ]
+    if chat.id != current and chat.type != "private":
+        lines += ["", "To route support here, set support_chat_id to the id above."]
+    await message.answer("\n".join(lines), parse_mode="HTML")
+
+
 # --------------- Admin analytics ---------------
 
 
