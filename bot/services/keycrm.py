@@ -72,8 +72,14 @@ def _parse_order(raw: dict) -> KeyCRMOrder:
     shipping = raw.get("shipping") or {}
     tracking_code = shipping.get("tracking_code", "") or ""
     shipping_status = shipping.get("shipping_status", "") or ""
-    delivery_city = shipping.get("delivery_city", "") or ""
-    receive_point = shipping.get("receive_point", "") or ""
+    # KeyCRM names these shipping_address_city / shipping_receive_point. Reading
+    # "delivery_city" / "receive_point" — fields the API does not have — is why
+    # the delivery view looked empty for every order. The bare names are kept as
+    # a fallback in case older records ever carried them.
+    delivery_city = (shipping.get("shipping_address_city")
+                     or shipping.get("delivery_city") or "")
+    receive_point = (shipping.get("shipping_receive_point")
+                     or shipping.get("receive_point") or "")
     recipient_name = shipping.get("recipient_full_name", "") or ""
 
     return KeyCRMOrder(
