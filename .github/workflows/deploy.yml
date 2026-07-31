@@ -34,6 +34,7 @@ jobs:
             --exclude '.git' --exclude '.github' --exclude '.venv' \
             --exclude '__pycache__' --exclude '*.pyc' \
             --exclude '.env' --exclude 'data' --exclude 'backups' \
+            --exclude 'deploy/backup.env' \
             --exclude '*.db' --exclude '*.db-wal' --exclude '*.db-shm' \
             --exclude '.planning' \
             ./ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/opt/ks-tg-bot/"
