@@ -41,13 +41,17 @@ def share_phone_kb(t: Texts) -> ReplyKeyboardMarkup:
 
 
 def main_menu_kb(t: Texts, website_url: str) -> InlineKeyboardMarkup:
-    """Build the main menu inline keyboard (7 buttons in a 2+2+3 grid).
+    """Build the main menu inline keyboard (7 buttons in a 2+2+2+1 grid).
 
     Seven buttons stacked one per row filled a phone screen and made every
     option look equally important. The grid puts the two questions people
     actually arrive with — where is my order, when does it come — side by side
-    at the top, what they might do next below, and the rarely-tapped three on
-    the last row.
+    at the top, what they might do next below, and the rarely-tapped ones last.
+
+    Never three to a row. An inline keyboard is only as wide as the message
+    bubble it hangs under, and the menu's text is three words: at three columns
+    the labels are cut off, which is what a 2+2+3 layout looked like in
+    production. Two columns is the widest that a short message can carry.
     """
     builder = InlineKeyboardBuilder()
     builder.button(text=t.BTN_ORDERS, callback_data=MenuAction(action="orders"))
@@ -57,7 +61,7 @@ def main_menu_kb(t: Texts, website_url: str) -> InlineKeyboardMarkup:
     builder.button(text=t.BTN_WEBSITE, url=tagged_website_url(website_url))
     builder.button(text=t.BTN_INFO, callback_data=MenuAction(action="info"))
     builder.button(text=t.BTN_SETTINGS, callback_data=MenuAction(action="settings"))
-    builder.adjust(2, 2, 3)
+    builder.adjust(2, 2, 2, 1)
     return builder.as_markup()
 
 
@@ -96,12 +100,16 @@ def broadcast_confirm_kb(t: Texts) -> InlineKeyboardMarkup:
 
 
 def settings_menu_kb(t: Texts) -> InlineKeyboardMarkup:
-    """Build the settings submenu inline keyboard (2 items + back, 2+1 layout)."""
+    """Build the settings submenu inline keyboard (2 items + back, 1 per row).
+
+    "Налаштування:" is an even shorter bubble than the main menu's, and
+    «📱 Змінити номер» does not survive being squeezed into half of it.
+    """
     builder = InlineKeyboardBuilder()
     builder.button(text=t.BTN_CHANGE_PHONE, callback_data=SettingsAction(action="phone"))
     builder.button(text=t.BTN_LANGUAGE, callback_data=SettingsAction(action="language"))
     builder.button(text=t.BTN_BACK, callback_data=SettingsAction(action="back"))
-    builder.adjust(2, 1)
+    builder.adjust(1)
     return builder.as_markup()
 
 
