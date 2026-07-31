@@ -40,28 +40,6 @@ def share_phone_kb(t: Texts) -> ReplyKeyboardMarkup:
     )
 
 
-def menu_reply_kb(t: Texts) -> ReplyKeyboardMarkup:
-    """The permanent «📋 Меню» button under the input field.
-
-    One button, always on screen, and tapping it opens the main menu. It sends
-    its own text as an ordinary message, which `menu_button_handler` matches —
-    the only text-matched handler in the bot.
-
-    `is_persistent` keeps the client from folding it away behind the keyboard
-    toggle, and `one_time_keyboard=False` keeps it after a tap: the point of it
-    is to be there without being summoned.
-
-    It occupies the slot where Telegram would otherwise draw its own commands
-    button, which is the price of having the menu visible at all times.
-    """
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=t.BTN_MENU)]],
-        resize_keyboard=True,
-        one_time_keyboard=False,
-        is_persistent=True,
-    )
-
-
 def main_menu_kb(t: Texts, website_url: str) -> InlineKeyboardMarkup:
     """Build the main menu inline keyboard (7 buttons in a 2+2+2+1 grid).
 

@@ -22,7 +22,7 @@ from bot.db import (CANCELLED_STATUS_GROUP, add_discount_request, add_stock_subs
                     get_user_phone, recent_discount_request,
                     remove_stock_subscription, save_user, upsert_orders)
 from bot.keyboards import main_menu_kb, menu_only_kb
-from bot.screen import render, typing
+from bot.screen import clear_reply_keyboard, render, typing
 from bot.services.keycrm import KeyCRMClient, keycrm_order_to_dict
 from bot.services.shopify import ShopifyClient, shopify_order_to_dict
 from bot.tasks import spawn
@@ -723,13 +723,15 @@ async def menu_button_handler(
     config: AppConfig,
     t: Texts,
 ) -> None:
-    """The «📋 Меню» button under the input field — open the main menu.
+    """Serve — and retire — the old reply-keyboard Menu button.
 
-    Matched by text in every language the button can be rendered in, because a
-    reply keyboard sends its own label as an ordinary message. The menu arrives
-    as a new message rather than an edit: the tap is a message of the
-    customer's own, so there is nothing above it left to edit into.
+    The bot no longer sends that keyboard: the menu button beside the input
+    field does the same job without covering half the screen. But Telegram
+    keeps a reply keyboard on the client until something removes it, so anyone
+    who still has one gets it cleared here, on the tap, rather than being left
+    with a button that answers nothing.
     """
+    await clear_reply_keyboard(message)
     await message.answer(
         t.MSG_MAIN_MENU,
         reply_markup=main_menu_kb(t, config.website_url),

@@ -12,7 +12,8 @@ may be a photo, older than Telegram's edit window, or already gone.
 """
 from __future__ import annotations
 
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import (CallbackQuery, InlineKeyboardMarkup, Message,
+                           ReplyKeyboardRemove)
 from aiogram.exceptions import TelegramBadRequest
 from loguru import logger
 
@@ -52,3 +53,21 @@ async def typing(message: Message) -> None:
         await message.bot.send_chat_action(message.chat.id, "typing")
     except Exception:  # noqa: BLE001 — never let a cosmetic call break a flow
         pass
+
+
+async def clear_reply_keyboard(message: Message) -> None:
+    """Take away a reply keyboard left over from an older version of the bot.
+
+    Telegram only removes one when a message says so, and a message can carry
+    either that instruction or inline buttons, not both — hence the throwaway
+    message, deleted as soon as it has done its job.
+    """
+    try:
+        # Silent: it exists for a fraction of a second to carry the instruction,
+        # and nobody should get a notification for it.
+        stub = await message.answer(
+            "👌", reply_markup=ReplyKeyboardRemove(), disable_notification=True
+        )
+        await stub.delete()
+    except Exception:  # noqa: BLE001 — cosmetic; never block what follows
+        logger.debug("Could not clear the reply keyboard in chat {}", message.chat.id)

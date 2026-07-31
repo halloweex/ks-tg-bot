@@ -38,19 +38,25 @@ than messages; toggling a back-in-stock subscription redraws the screen, so the
 button reflects what it just did; "Номер прийнято!" and "Завантажую…" are gone,
 replaced by "typing…"; /start greets and shows the menu in one message.
 
-### The reply keyboard: removed, then brought back on request
+### The reply keyboard is gone, and the menu button is set per chat
 
-It was removed as duplicating the menu button Telegram draws beside the input
-field. Tried in production, the owner wanted the visible button back — the
-platform one is a small "/" on desktop, is easy to miss, and is not what people
-reach for. So `menu_reply_kb()`: one «📋 Меню» button, `is_persistent=True`, sent
-with the greeting and after registration, where it then stays. Registration and
-the phone-change flow now *replace* the share-phone keyboard with it instead of
-removing the keyboard, so nobody is left without one.
+The «📋 Меню» keyboard under the input field duplicated the menu button Telegram
+puts *in* the input row — two navigations for one bot, one of them covering a
+third of the screen. Worse, a reply keyboard occupies that slot, so as long as
+it was there the real menu button could not appear at all. The bot no longer
+sends it; `clear_reply_keyboard()` takes away any that a customer still has, on
+/start or on the first tap of the old button. The only reply keyboard left is
+share-phone, which is how Telegram proves the number is theirs, and it is
+removed as soon as the number is verified.
 
-The cost, accepted knowingly: a reply keyboard occupies the slot where Telegram
-would draw its own commands button, which is why that button appeared to be
-missing.
+`profile.ensure_menu_button()` then sets `MenuButtonCommands` **for that chat**
+on every /start. The global default was already set, but a per-chat setting
+overrides the default and outlives whatever set it, so the default alone is not
+a guarantee for any particular person.
+
+Detour worth recording: the keyboard was briefly brought back on request and
+removed again within the hour, once it was clear that what was wanted was the
+button in the input row — the thing the keyboard was hiding.
 
 ### Quiet at night, confetti when it is good news
 

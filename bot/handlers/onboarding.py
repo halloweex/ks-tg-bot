@@ -6,14 +6,14 @@ from typing import Optional
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import Message, ReplyKeyboardRemove
 from loguru import logger
 
 from bot.i18n import Texts
 from bot.analytics import track
 from bot.config import AppConfig
 from bot.db import save_user, upsert_orders
-from bot.keyboards import main_menu_kb, menu_reply_kb, share_phone_kb
+from bot.keyboards import main_menu_kb, share_phone_kb
 from bot.screen import typing
 from bot.services.keycrm import KeyCRMClient, keycrm_order_to_dict
 from bot.services.shopify import ShopifyClient, shopify_order_to_dict
@@ -125,10 +125,7 @@ async def _register_user(
 
     await state.clear()
     track(message.chat.id, "registered")
-    # The share-phone keyboard is not removed but replaced: sending another
-    # reply keyboard swaps it, and the customer ends registration with the
-    # «📋 Меню» button already under their thumb.
-    await message.answer(t.MSG_PHONE_VERIFIED, reply_markup=menu_reply_kb(t))
+    await message.answer(t.MSG_PHONE_VERIFIED, reply_markup=ReplyKeyboardRemove())
     await message.answer(t.MSG_MAIN_MENU, reply_markup=main_menu_kb(t, config.website_url))
 
 

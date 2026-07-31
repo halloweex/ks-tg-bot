@@ -60,6 +60,23 @@ DESCRIPTION = {
 }
 
 
+async def ensure_menu_button(bot: Bot, chat_id: int) -> None:
+    """Make sure *this* chat shows the commands button in the input row.
+
+    `apply()` sets the default for every chat, but a per-chat setting overrides
+    the default and outlives whatever set it, so a chat that ever had one keeps
+    it. Setting it explicitly on /start is the only way to be sure the button
+    is there for the person in front of us.
+
+    The button lives in the input row and opens the command list underneath it.
+    A reply keyboard takes that slot away, which is why the bot sends none.
+    """
+    try:
+        await bot.set_chat_menu_button(chat_id=chat_id, menu_button=MenuButtonCommands())
+    except Exception as exc:  # noqa: BLE001 — cosmetic, never block /start
+        logger.debug("Could not set the menu button for chat {}: {}", chat_id, exc)
+
+
 async def apply(bot: Bot, admin_ids: list[int]) -> None:
     """Publish commands, menu button and profile texts. Best-effort.
 
