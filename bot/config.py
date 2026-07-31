@@ -17,16 +17,35 @@ class EnvSettings(BaseSettings):
     shopify_api_token: str | None = None
     shopify_store_url: str | None = None
     admin_user_ids: str = ""
-    # One key or several, comma-separated. There are six legal entities shipping
-    # orders, and it is not yet established whether a TTN created by one can be
-    # tracked with another's key — see NovaPoshtaClient.
+    # One key or several, comma-separated. Six legal entities ship orders, but
+    # any one key tracks any parcel when the phone is supplied (measured), so one
+    # is enough; more are accepted purely as failover. See NovaPoshtaClient.
     novaposhta_api_key: str | None = None
+    # Accepted as well, because the plural is the natural thing to write once
+    # there is more than one key — and an unknown variable name is silently
+    # ignored, so the misspelling would have started the bot with no Nova Poshta
+    # at all and said nothing.
+    novaposhta_api_keys: str | None = None
 
     @property
     def novaposhta_keys(self) -> list[str]:
-        """Every configured Nova Poshta key, in the order they were given."""
-        raw = (self.novaposhta_api_key or "").strip()
-        return [k.strip() for k in raw.split(",") if k.strip()]
+        """Every configured Nova Poshta key, in the order they were given.
+
+        Reads either spelling of the variable; duplicates are dropped so setting
+        both does not make the client try the same key twice.
+        """
+        raw = ",".join(
+            part for part in (self.novaposhta_api_key, self.novaposhta_api_keys) if part
+        )
+        keys: list[str] = []
+        for key in (k.strip() for k in raw.split(",")):
+            # A list is naturally written as [a,b,c], and left as-is the brackets
+            # would silently corrupt the first and last key — which fail as
+            # "no access to this parcel" rather than as a configuration error.
+            key = key.strip("[]'\"").strip()
+            if key and key not in keys:
+                keys.append(key)
+        return keys
 
     @property
     def admin_ids(self) -> list[int]:

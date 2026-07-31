@@ -26,13 +26,17 @@ class TrackingStatus:
 class NovaPoshtaClient:
     """Async client for the Nova Poshta Tracking API.
 
-    Takes every configured key. Parcels are created by six different legal
-    entities, and a key may only see its own account's documents — so a TTN is
-    tried against each key until one returns data, and the key that worked is
-    remembered for that TTN so the scan happens once rather than on every view.
+    Accepts one key or several.
 
-    If it turns out the supplied phone is what authorises the lookup, the first
-    key answers everything and the loop simply never reaches the second.
+    Measured against real TTNs spanning 2024-2026, including parcels from
+    different sender prefixes: every one of the six accounts' keys resolved every
+    TTN. It is the supplied phone that authorises the lookup, not which account
+    created the parcel — so **one key is enough**, and the loop below exits on
+    the first one every time.
+
+    Several keys are still accepted, and the loop is kept as failover: a revoked
+    or rate-limited key falls through to the next instead of silently showing the
+    customer nothing.
     """
 
     def __init__(self, api_keys: list[str] | str) -> None:
