@@ -363,6 +363,14 @@ async def _refresh_orders(
         await _do_refresh_orders(chat_id, phone, keycrm, shopify)
 
 
+async def _typing(message: Message) -> None:
+    """Show "typing…" so a KeyCRM round-trip does not look like a hang."""
+    try:
+        await message.bot.send_chat_action(message.chat.id, "typing")
+    except Exception:  # noqa: BLE001 — never let a cosmetic call break a flow
+        pass
+
+
 async def _do_refresh_orders(
     chat_id: int,
     phone: str,
@@ -473,7 +481,7 @@ async def show_orders(
             spawn(_refresh_orders(chat_id, phone, keycrm, shopify), name="refresh_orders")
     else:
         # No cache — show loading, fetch synchronously, then display
-        await callback.message.answer(t.MSG_ORDERS_LOADING)
+        await _typing(callback.message)
         await _refresh_orders(chat_id, phone, keycrm, shopify)
         # Tracked after the fetch, not before: an empty cache says nothing about
         # whether the phone matched, and `found=0` here is exactly the signal
@@ -507,7 +515,7 @@ async def show_favourites(
 
     cached = await get_cached_orders(chat_id)
     if not cached:
-        await callback.message.answer(t.MSG_ORDERS_LOADING)
+        await _typing(callback.message)
         await _refresh_orders(chat_id, phone, keycrm, shopify)
         cached = await get_cached_orders(chat_id)
 

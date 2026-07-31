@@ -37,8 +37,10 @@ SUPPORTED = tuple(LANGUAGE_NAMES)
 EN: dict[str, str] = {
     "GREETING": (
         "Welcome to {brand_name}! 🌸\n\n"
-        "I'll help you out and guide you through the world of beauty.\n\n"
-        "Tap the button below to share your phone number."
+        "I'll show you where your order is, what you've bought before, and when "
+        "a favourite is back in stock.\n\n"
+        "To find your orders, please share your phone number — the same one you "
+        "used when ordering."
     ),
     "BTN_SHARE_PHONE": "📱 Share my number",
     "ERR_CONTACT_NOT_OWN": (
@@ -70,7 +72,7 @@ EN: dict[str, str] = {
     "BTN_CHANGE_PHONE": "📱 Change number",
     "BTN_LANGUAGE": "🌍 Language",
     "MSG_ORDERS_LOADING": "Loading your orders...",
-    "MSG_ORDERS_HEADER": "📦 Your orders:",
+    "MSG_ORDERS_HEADER": "<b>📦 Your orders</b>",
     "MSG_ORDER_SOURCE_WEB": "🌐 Website",
     "MSG_ORDER_SOURCE_INSTAGRAM": "📸 Instagram",
     "LBL_STATUS": "Status",
@@ -94,7 +96,7 @@ EN: dict[str, str] = {
     ),
     "MSG_PHONE_ACCEPTED": "Number accepted! Registering you...",
     "MSG_SUPPORT_FORWARDED": "Your message has been sent to a manager. Please wait for a reply.",
-    "MSG_MAIN_MENU": "Choose an action:",
+    "MSG_MAIN_MENU": "How can I help?",
     "MSG_INFO_MENU": "Choose a section:",
     "MSG_SETTINGS_MENU": "Settings:",
     "MSG_LANGUAGE_CURRENT": "Current language: English ✅",
@@ -102,8 +104,8 @@ EN: dict[str, str] = {
     "MSG_NEW_PHONE_PROMPT": "To update your number, share it using the button below 👇",
     "MSG_PHONE_CHANGED": "Phone number updated! ✅",
     "MSG_WELCOME_BACK": "Welcome back! 🌸",
-    "MSG_WELCOME_BACK_NAME": "Welcome back, {name}! 🌸",
-    "MSG_PHONE_VERIFIED": "Number verified! ✅",
+    "MSG_WELCOME_BACK_NAME": "{name}, lovely to see you again! 🌸",
+    "MSG_PHONE_VERIFIED": "Thank you! Number verified ✅",
     "MSG_SUPPORT_REPLY_PREFIX": "Reply from a manager:",
     "MSG_SUPPORT_ADMIN_NOTE": "📩 Message from a user (chat_id: {chat_id}):",
     "MSG_SUPPORT_REPLY_INSTRUCTION": "↩️ Reply to the forwarded message to answer the customer.",
@@ -121,7 +123,7 @@ EN: dict[str, str] = {
     "MSG_ORDER_LATEST": "⭐ Latest order:",
     "MSG_ORDERS_SYNCING": "Refreshing orders...",
     "BTN_FAVOURITES": "⭐ Favourite products",
-    "MSG_FAVOURITES_HEADER": "⭐ Your favourite products:",
+    "MSG_FAVOURITES_HEADER": "<b>⭐ The ones you love most</b>",
     "MSG_FAVOURITES_HEADER_ONCE": "🛍 Products you have ordered:",
     "MSG_FAVOURITE_LINE": "orders: {orders} · {qty} pcs · last {date}",
     "MSG_NO_FAVOURITES": (
@@ -142,7 +144,7 @@ EN: dict[str, str] = {
     "MSG_UNSUBSCRIBED": "We will not notify you about this product.",
     "MSG_FAVOURITE_OUT_OF_STOCK": "out of stock",
     "BTN_DELIVERY_STATUS": "🚚 Delivery status",
-    "MSG_DELIVERY_HEADER": "🚚 Delivery status:",
+    "MSG_DELIVERY_HEADER": "<b>🚚 Your parcels</b>",
     "MSG_DELIVERY_LOADING": "Checking delivery status...",
     "MSG_NO_DELIVERIES": "There are no shipments to track right now.",
     "MSG_DELIVERY_STATUS": "Status: {status}",

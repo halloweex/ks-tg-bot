@@ -24,6 +24,7 @@ from bot.services.keycrm import KeyCRMClient
 from bot.services.novaposhta import NovaPoshtaClient
 from bot.services.shopify import ShopifyClient
 from bot.middlewares import LanguageMiddleware
+from bot import profile
 from bot.stock import watch as watch_stock
 from bot.tasks import drain, spawn
 
@@ -37,7 +38,12 @@ async def main() -> None:
     # Create Bot instance with HTML parse mode
     bot = Bot(
         token=config.env.bot_token,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+        default=DefaultBotProperties(
+            parse_mode=ParseMode.HTML,
+            # The tracking link would otherwise pull a Nova Poshta preview card
+            # onto every order message, dwarfing the order itself.
+            link_preview_is_disabled=True,
+        ),
     )
 
     # Create Dispatcher
@@ -78,6 +84,8 @@ async def main() -> None:
         await init_db()
         # Continue any broadcast that a previous restart/redeploy interrupted.
         await resume_broadcasts(bot)
+        # Commands, menu button and the text shown before the first /start.
+        await profile.apply(bot, config.env.admin_ids)
         # Poll KeyCRM for restocks and notify whoever subscribed.
         stock_watcher = spawn(watch_stock(bot, dp["keycrm"]), name="stock_watcher")
         logger.info("Bot started successfully")

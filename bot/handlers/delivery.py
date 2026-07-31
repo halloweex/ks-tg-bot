@@ -118,7 +118,11 @@ async def show_delivery_status(
         await callback.message.answer(msg, reply_markup=_menu_reply_kb(t))
         return
 
-    await callback.message.answer(t.MSG_DELIVERY_LOADING)
+    # Nova Poshta can take a few seconds per parcel; show life instead of silence.
+    try:
+        await callback.bot.send_chat_action(callback.message.chat.id, "typing")
+    except Exception:  # noqa: BLE001
+        pass
 
     # Fetch real-time status from Nova Poshta if available
     tracking_map: dict = {}

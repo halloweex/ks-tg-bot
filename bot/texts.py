@@ -9,8 +9,10 @@ from urllib.parse import quote
 # Use .format(brand_name=config.brand_name) at runtime
 GREETING = (
     "Вітаємо у {brand_name}! 🌸\n\n"
-    "Я допоможу вам, покажу та проведу за руку у світ краси.\n\n"
-    "Натисніть кнопку нижче, щоб поділитися своїм номером телефону."
+    "Я покажу, де ваше замовлення, що ви вже купували і коли улюблений засіб "
+    "знову зʼявиться.\n\n"
+    "Щоб знайти ваші замовлення, поділіться, будь ласка, номером телефону — "
+    "тим самим, що ви вказували при покупці."
 )
 
 BTN_SHARE_PHONE = "📱 Поділитися номером"
@@ -55,7 +57,7 @@ BTN_LANGUAGE = "🌍 Мова"
 
 # Order display
 MSG_ORDERS_LOADING = "Завантажую ваші замовлення..."
-MSG_ORDERS_HEADER = "📦 Ваші замовлення:"
+MSG_ORDERS_HEADER = "<b>📦 Ваші замовлення</b>"
 MSG_ORDER_SOURCE_WEB = "🌐 Сайт"
 MSG_ORDER_SOURCE_INSTAGRAM = "📸 Instagram"
 
@@ -128,7 +130,7 @@ MSG_PHONE_ACCEPTED = "Номер прийнято! Реєструю вас..."
 MSG_SUPPORT_FORWARDED = "Ваше повідомлення надіслано менеджеру. Очікуйте відповідь."
 
 # Menu headers
-MSG_MAIN_MENU = "Оберіть дію:"
+MSG_MAIN_MENU = "Чим допомогти?"
 MSG_INFO_MENU = "Оберіть розділ:"
 MSG_SETTINGS_MENU = "Налаштування:"
 
@@ -140,8 +142,8 @@ MSG_PHONE_CHANGED = "Номер телефону змінено! \u2705"
 
 # Onboarding responses
 MSG_WELCOME_BACK = "З поверненням! \U0001f338"
-MSG_WELCOME_BACK_NAME = "З поверненням, {name}! \U0001f338"
-MSG_PHONE_VERIFIED = "Номер підтверджено! \u2705"
+MSG_WELCOME_BACK_NAME = "{name}, раді бачити вас знову! \U0001f338"
+MSG_PHONE_VERIFIED = "Дякуємо! Номер підтверджено \u2705"
 
 # Support relay (admin-side)
 MSG_SUPPORT_REPLY_PREFIX = "Відповідь від менеджера:"
@@ -169,7 +171,7 @@ MSG_ORDERS_SYNCING = "Оновлюю замовлення..."
 
 # Delivery status
 BTN_FAVOURITES = "⭐ Улюблені товари"
-MSG_FAVOURITES_HEADER = "⭐ Ваші улюблені товари:"
+MSG_FAVOURITES_HEADER = "<b>⭐ Те, що ви любите найбільше</b>"
 # When nothing has been bought twice, calling it a favourite is a small lie:
 # a quarter of customers have only ever ordered one product.
 MSG_FAVOURITES_HEADER_ONCE = "🛍 Товари, які ви замовляли:"
@@ -193,7 +195,7 @@ MSG_SUBSCRIBED = "Повідомимо, щойно товар знову з'яв
 MSG_UNSUBSCRIBED = "Більше не сповіщатимемо про цей товар."
 MSG_FAVOURITE_OUT_OF_STOCK = "зараз немає"
 BTN_DELIVERY_STATUS = "🚚 Статус доставки"
-MSG_DELIVERY_HEADER = "🚚 Статус доставки:"
+MSG_DELIVERY_HEADER = "<b>🚚 Ваші відправлення</b>"
 MSG_DELIVERY_LOADING = "Перевіряю статус доставки..."
 MSG_NO_DELIVERIES = "Наразі немає відправлень для відстеження."
 MSG_DELIVERY_STATUS = "Статус: {status}"
