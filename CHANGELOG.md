@@ -38,14 +38,19 @@ than messages; toggling a back-in-stock subscription redraws the screen, so the
 button reflects what it just did; "Номер прийнято!" and "Завантажую…" are gone,
 replaced by "typing…"; /start greets and shows the menu in one message.
 
-### The reply keyboard is gone
+### The reply keyboard: removed, then brought back on request
 
-The «📋 Меню» keyboard under the input field duplicated the menu button Telegram
-puts next to it — two navigations for one bot, one of them covering a third of
-the screen. The bot no longer sends it; `clear_reply_keyboard()` takes away any
-that a returning customer still has, on /start or on the first tap of the old
-button. The only reply keyboard left is share-phone, which is how Telegram
-proves the number is theirs.
+It was removed as duplicating the menu button Telegram draws beside the input
+field. Tried in production, the owner wanted the visible button back — the
+platform one is a small "/" on desktop, is easy to miss, and is not what people
+reach for. So `menu_reply_kb()`: one «📋 Меню» button, `is_persistent=True`, sent
+with the greeting and after registration, where it then stays. Registration and
+the phone-change flow now *replace* the share-phone keyboard with it instead of
+removing the keyboard, so nobody is left without one.
+
+The cost, accepted knowingly: a reply keyboard occupies the slot where Telegram
+would draw its own commands button, which is why that button appeared to be
+missing.
 
 ### Quiet at night, confetti when it is good news
 

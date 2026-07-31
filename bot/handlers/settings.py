@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
+from aiogram.types import CallbackQuery, Message
 
 from bot.i18n import Texts, normalize
 from bot.callbacks import SettingsAction
@@ -11,7 +11,7 @@ from bot.analytics import track
 from bot.config import AppConfig
 from bot.db import save_user, set_user_language
 from bot.handlers.onboarding import own_contact_phone
-from bot.keyboards import language_kb, main_menu_kb, share_phone_kb
+from bot.keyboards import language_kb, main_menu_kb, menu_reply_kb, share_phone_kb
 from bot.screen import render
 from bot.states import SettingsStates
 
@@ -52,7 +52,8 @@ async def process_new_contact(
 
     await save_user(message.chat.id, phone)
     await state.clear()
-    await message.answer(t.MSG_PHONE_CHANGED, reply_markup=ReplyKeyboardRemove())
+    # Swaps the share-phone keyboard back for the permanent menu button.
+    await message.answer(t.MSG_PHONE_CHANGED, reply_markup=menu_reply_kb(t))
     await message.answer(t.MSG_MAIN_MENU, reply_markup=main_menu_kb(t, config.website_url))
 
 
