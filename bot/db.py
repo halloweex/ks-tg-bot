@@ -40,6 +40,24 @@ CREATE TABLE IF NOT EXISTS users (
 );
 """
 
+# Columns added after the first release. Applied to an existing database by
+# migration 1, and to a new one right here — the CREATE statements above stay
+# at their original shape so the two paths cannot drift into different tables.
+_LATE_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("users", "full_name", "TEXT"),
+    ("users", "email", "TEXT"),
+    ("users", "updated_at", "TEXT"),
+    # NULL means "never chosen": the user's Telegram language still decides.
+    # Once they pick one explicitly it is stored and wins from then on.
+    ("users", "language", "TEXT"),
+    # Where this person came from — the payload of the deep link they opened,
+    # empty for anyone who found the bot by themselves. Written once, at
+    # registration, so it stays the *first* touch rather than the latest.
+    ("users", "source", "TEXT DEFAULT ''"),
+    ("orders", "external_id", "TEXT DEFAULT ''"),
+    ("orders", "status_group_id", "INTEGER DEFAULT 0"),
+)
+
 _CREATE_OPT_OUT = """
 CREATE TABLE IF NOT EXISTS opt_out (
     chat_id      INTEGER PRIMARY KEY,
@@ -47,15 +65,21 @@ CREATE TABLE IF NOT EXISTS opt_out (
 );
 """
 
-_CREATE_ORDERS = """
-CREATE TABLE IF NOT EXISTS orders (
+# The orders table as it must end up. Rebuilt through this exact statement by
+# migration 2, so there is one definition of the table and not two.
+#
+# The key is (chat_id, source, source_order_id) and not (source, source_order_id):
+# an order id is unique in the CRM, not per Telegram account, and rows are
+# written with INSERT OR REPLACE. Two accounts holding the same phone — a
+# household, a recycled mobile number, a customer who moved to a new Telegram —
+# meant the second one's refresh silently reassigned the first one's rows to
+# itself, and the first customer's history went empty.
+_ORDERS_TABLE_SQL = """
+CREATE TABLE {name} (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id         INTEGER NOT NULL REFERENCES users(chat_id),
     source          TEXT NOT NULL,
     source_order_id TEXT NOT NULL,
-    -- Same physical order seen in two systems shares this id (Shopify's numeric
-    -- order id, which KeyCRM mirrors as global_source_uuid). Empty for orders
-    -- that exist in one system only. See dedupe_shadowed_orders().
     external_id     TEXT DEFAULT '',
     order_name      TEXT DEFAULT '',
     status_name     TEXT DEFAULT '',
@@ -72,9 +96,15 @@ CREATE TABLE IF NOT EXISTS orders (
     receive_point   TEXT DEFAULT '',
     recipient_name  TEXT DEFAULT '',
     synced_at       TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(source, source_order_id)
+    UNIQUE(chat_id, source, source_order_id)
 );
 """
+
+
+# external_id: the same physical order seen in two systems shares this id
+# (Shopify's numeric order id, which KeyCRM mirrors as global_source_uuid).
+# Empty for orders that exist in one system only. See _DELETE_SHADOWED.
+_CREATE_ORDERS = _ORDERS_TABLE_SQL.format(name="IF NOT EXISTS orders")
 
 
 # Durable broadcast: a job + a per-recipient progress row so a broadcast
@@ -153,41 +183,108 @@ CREATE TABLE IF NOT EXISTS discount_requests (
 """
 
 
-_MIGRATIONS = [
-    "ALTER TABLE users ADD COLUMN full_name TEXT",
-    "ALTER TABLE users ADD COLUMN email TEXT",
-    "ALTER TABLE users ADD COLUMN updated_at TEXT",
-    "ALTER TABLE orders ADD COLUMN external_id TEXT DEFAULT ''",
-    # NULL means "never chosen": the user's Telegram language still decides.
-    # Once they pick one explicitly it is stored and wins from then on.
-    "ALTER TABLE users ADD COLUMN language TEXT",
-    "ALTER TABLE orders ADD COLUMN status_group_id INTEGER DEFAULT 0",
-]
+# --------------------------------------------------------------------------
+# Schema versions
+# --------------------------------------------------------------------------
+#
+# Versions are recorded in SQLite's own `PRAGMA user_version`, so the schema
+# needs no bookkeeping table and cannot disagree with itself. A migration runs
+# once, in order, inside the same transaction as everything else in init_db():
+# a failure leaves the database exactly as it was and the bot refuses to start,
+# which is the outcome to want — a half-migrated database that keeps serving is
+# how a cache becomes wrong without anyone noticing.
+#
+# The previous mechanism was a list of ALTER statements under `except: pass`.
+# It could not express this change (SQLite cannot alter a UNIQUE constraint),
+# and it silently swallowed real failures — a full disk logged success.
 
-# Rows cached before external_id existed can't be deduped by it, so they'd keep
-# showing a second copy of the order forever. The Shopify side is recoverable
-# from the stored gid, and the KeyCRM side is refilled on the next refresh —
-# together that's enough for dedupe_shadowed_orders to sweep the old pairs.
-# Idempotent: matches zero rows once it has run.
-_BACKFILL_SHOPIFY_EXTERNAL_ID = """
-UPDATE orders
-   SET external_id = replace(source_order_id, 'gid://shopify/Order/', '')
- WHERE source = 'shopify'
-   AND (external_id IS NULL OR external_id = '')
-   AND source_order_id LIKE 'gid://shopify/Order/%'
-"""
+SCHEMA_VERSION = 2
+
+
+async def _columns(db: aiosqlite.Connection, table: str) -> set[str]:
+    cursor = await db.execute(f"PRAGMA table_info({table})")
+    return {row[1] for row in await cursor.fetchall()}
+
+
+async def _migration_1_late_columns(db: aiosqlite.Connection) -> None:
+    """Columns added after the first release, plus the external_id backfill."""
+    for table, column, decl in _LATE_COLUMNS:
+        if column not in await _columns(db, table):
+            await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+    # Rows cached before external_id existed can't be deduped by it, so they'd
+    # keep showing a second copy of the order forever. The Shopify side is
+    # recoverable from the stored gid; the KeyCRM side refills on the next
+    # refresh. Idempotent: matches zero rows once it has run.
+    await db.execute(
+        "UPDATE orders "
+        "   SET external_id = replace(source_order_id, 'gid://shopify/Order/', '') "
+        " WHERE source = 'shopify' "
+        "   AND (external_id IS NULL OR external_id = '') "
+        "   AND source_order_id LIKE 'gid://shopify/Order/%'"
+    )
+
+
+async def _migration_2_orders_owned_per_chat(db: aiosqlite.Connection) -> None:
+    """Rebuild `orders` with chat_id in the unique key.
+
+    SQLite cannot alter a constraint, so the table is recreated and copied.
+    `id` is copied too: it is what the expand/collapse buttons carry, and
+    renumbering would point every button already on someone's screen at a
+    different order.
+    """
+    existing = await _columns(db, "orders")
+    await db.execute(_ORDERS_TABLE_SQL.format(name="orders_migrated"))
+    shared = [c for c in await _columns(db, "orders_migrated") if c in existing]
+    columns = ", ".join(shared)
+    # No row can be lost: the old key was unique across all chats, so any set
+    # of rows unique under it is also unique under the narrower new key.
+    await db.execute(
+        f"INSERT INTO orders_migrated ({columns}) SELECT {columns} FROM orders"
+    )
+    await db.execute("DROP TABLE orders")
+    await db.execute("ALTER TABLE orders_migrated RENAME TO orders")
+
+
+# (version, name, coroutine). Append only; never edit one that has shipped.
+_MIGRATIONS: tuple[tuple[int, str, object], ...] = (
+    (1, "late columns", _migration_1_late_columns),
+    (2, "orders owned per chat", _migration_2_orders_owned_per_chat),
+)
+
+
+async def _migrate(db: aiosqlite.Connection) -> None:
+    """Bring an existing database up to SCHEMA_VERSION."""
+    cursor = await db.execute("PRAGMA user_version")
+    version = (await cursor.fetchone())[0]
+    if version >= SCHEMA_VERSION:
+        return
+    for target, name, run in _MIGRATIONS:
+        if version >= target:
+            continue
+        logger.info("Applying schema migration {} — {}", target, name)
+        await run(db)
+        # PRAGMA takes no parameters; `target` is an int literal from this file.
+        await db.execute(f"PRAGMA user_version = {target}")
+        version = target
+    logger.info("Schema at version {}", version)
 
 
 async def init_db() -> None:
-    """Create the database and initialize tables if they don't exist.
+    """Create the database if absent, migrate it if present.
 
-    Safe to call multiple times — uses IF NOT EXISTS.
-    Runs column migrations with try/except (duplicate column → OperationalError, ignored).
+    Safe to call on every start. A database created here is stamped with the
+    current version rather than migrated: the CREATE statements already carry
+    the final shape, and replaying the history onto a table that never had it
+    would be a longer way to the same place — with more to go wrong.
     """
     async with _connect() as db:
         # WAL lets readers and the background-refresh writer run concurrently.
         # This is a persistent DB property — set once, stays across connections.
         await db.execute("PRAGMA journal_mode = WAL")
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'orders'"
+        )
+        fresh = (await cursor.fetchone())[0] == 0
         await db.execute(_CREATE_USERS)
         await db.execute(_CREATE_OPT_OUT)
         await db.execute(_CREATE_ORDERS)
@@ -197,12 +294,14 @@ async def init_db() -> None:
         await db.execute(_CREATE_STOCK_LEVELS)
         await db.execute(_CREATE_STOCK_SUBSCRIPTIONS)
         await db.execute(_CREATE_DISCOUNT_REQUESTS)
-        for migration in _MIGRATIONS:
-            try:
-                await db.execute(migration)
-            except Exception:  # noqa: BLE001 — OperationalError if column exists
-                pass
-        await db.execute(_BACKFILL_SHOPIFY_EXTERNAL_ID)
+
+        if fresh:
+            await db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        else:
+            # Before the indexes below: rebuilding a table drops its indexes,
+            # and they are recreated from here on the way out.
+            await _migrate(db)
+
         # Order lookups always filter by chat_id; without this they full-scan.
         await db.execute(
             "CREATE INDEX IF NOT EXISTS ix_orders_chat_id ON orders(chat_id)"
