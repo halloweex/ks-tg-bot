@@ -10,6 +10,7 @@ from loguru import logger
 
 from bot.config import load_config
 from bot.db import init_db
+from bot.fsm_storage import SQLiteStorage
 from bot.logs import setup_logging
 from bot.handlers.broadcast import resume_broadcasts, router as broadcast_router
 from bot.handlers.common import router as common_router
@@ -56,8 +57,10 @@ async def main() -> None:
         ),
     )
 
-    # Create Dispatcher
-    dp = Dispatcher()
+    # Create Dispatcher. State goes to SQLite, not to memory: a deploy used to
+    # drop every conversation in flight, and a customer typing to support then
+    # matched no handler at all and got silence.
+    dp = Dispatcher(storage=SQLiteStorage())
 
     # Dependency injection via dp workflow_data
     dp["config"] = config
