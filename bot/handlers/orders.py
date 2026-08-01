@@ -337,17 +337,24 @@ async def _is_cache_fresh(chat_id: int) -> bool:
 
 async def _refresh_orders(
     chat_id: int,
-    phone: str,
     keycrm: KeyCRMClient,
     shopify: ShopifyClient | None,
 ) -> None:
     """Fetch fresh orders from APIs and upsert into cache.
 
+    Takes chat_id rather than the phone number and looks the number up here,
+    so a spawned refresh never carries it as a task argument — a task argument
+    lives in a frame that ends up in the traceback of anything that fails
+    below it.
+
     Bounded by _refresh_semaphore so concurrent refreshes can't overwhelm the
     external APIs during a post-broadcast activity burst.
     """
+    phone = await get_user_phone(chat_id)
+    if not phone:
+        return
     async with _refresh_semaphore:
-        await _do_refresh_orders(chat_id, phone, keycrm, shopify)
+        await _do_refresh_orders(chat_id, keycrm, shopify)
 
 
 async def _do_refresh_orders(
@@ -436,10 +443,10 @@ async def orders_screen(
         # Fire-and-forget background refresh — but only if the cache is stale,
         # so repeated taps and post-broadcast bursts don't re-hit the APIs.
         if not await _is_cache_fresh(chat_id):
-            spawn(_refresh_orders(chat_id, phone, keycrm, shopify), name="refresh_orders")
+            spawn(_refresh_orders(chat_id, keycrm, shopify), name="refresh_orders")
     else:
         await typing(anchor)
-        await _refresh_orders(chat_id, phone, keycrm, shopify)
+        await _refresh_orders(chat_id, keycrm, shopify)
         cached = await get_cached_orders(chat_id)
         # Tracked after the fetch, not before: an empty cache says nothing about
         # whether the phone matched, and `found=0` here is exactly the signal
@@ -472,7 +479,7 @@ async def favourites_screen(
     cached = await get_cached_orders(chat_id)
     if not cached:
         await typing(anchor)
-        await _refresh_orders(chat_id, phone, keycrm, shopify)
+        await _refresh_orders(chat_id, keycrm, shopify)
         cached = await get_cached_orders(chat_id)
 
     text, markup, found = await _favourites_view(chat_id, t, cached)

@@ -26,6 +26,9 @@ class EnvSettings(BaseSettings):
     # ignored, so the misspelling would have started the bot with no Nova Poshta
     # at all and said nothing.
     novaposhta_api_keys: str | None = None
+    # INFO in production. DEBUG prints, among other things, the buyer-profile
+    # sync failures — see bot/logs.py for what happens to numbers on the way out.
+    log_level: str = "INFO"
 
     @property
     def novaposhta_keys(self) -> list[str]:
