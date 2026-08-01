@@ -49,8 +49,14 @@ def main_menu_kb(t: Texts) -> ReplyKeyboardMarkup:
     keyboard exists. No API creates it. An inline menu, however tidy, leaves
     that corner of the screen empty.
 
-    `is_persistent` keeps it open instead of folded away, and the placeholder
-    replaces "Write a message" in a field we would rather nobody typed into.
+    `is_persistent` is deliberately **not** set. It sounds like what we want —
+    "always show the keyboard" — but it is what takes the toggle icon away:
+    per the API, with it off "the custom keyboard can be hidden and opened with
+    a keyboard icon". The icon is the point. A menu that cannot be put away is
+    also a menu that cannot be brought back.
+
+    The placeholder replaces "Write a message" in a field we would rather
+    nobody typed into.
 
     Three to a row is safe here, unlike inline: a reply keyboard spans the
     screen instead of the message bubble.
@@ -66,7 +72,7 @@ def main_menu_kb(t: Texts) -> ReplyKeyboardMarkup:
     builder.adjust(2, 2, 3)
     return builder.as_markup(
         resize_keyboard=True,
-        is_persistent=True,
+        one_time_keyboard=False,
         input_field_placeholder=t.MSG_MENU_PLACEHOLDER,
     )
 

@@ -57,9 +57,13 @@ the reasoning is not obvious from the API docs:
   client **only while a reply keyboard exists**. No API creates it —
   `setChatMenuButton` is a different button, and `set_my_commands` is a
   different list. An inline menu leaves that corner of the screen empty.
-* So the main menu is a `ReplyKeyboardMarkup` (`main_menu_kb`), 2+2+3, with
-  `is_persistent=True` and an `input_field_placeholder`. Three to a row is fine
-  here: a reply keyboard spans the screen, not the message bubble.
+* So the main menu is a `ReplyKeyboardMarkup` (`main_menu_kb`), 2+2+3, with an
+  `input_field_placeholder`. Three to a row is fine here: a reply keyboard
+  spans the screen, not the message bubble.
+* `is_persistent` is left **off**, which is the opposite of what its name
+  suggests: the icon exists to hide and reopen the keyboard, so a keyboard that
+  can never be hidden gets no icon. Setting it to True made the menu appear and
+  the button not.
 * Its keys arrive as ordinary messages, matched on text in every language the
   label can be rendered in (`variants()`), so a keyboard that predates a
   language change still works. The labels come from the same constants the
