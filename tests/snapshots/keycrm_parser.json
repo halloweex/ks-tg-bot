@@ -1,0 +1,312 @@
+{
+  "order_cancelled": {
+    "as_row": {
+      "buyer_name": "Тесто-Клієнт 7947",
+      "chat_id": 777,
+      "currency": "грн",
+      "delivery_city": "",
+      "external_id": "",
+      "grand_total": 3766.0,
+      "order_name": "",
+      "ordered_at": "2026-07-31T12:57:31.000000Z",
+      "payment_status": "paid",
+      "products_json": "[{\"name\": \"Lalarecipe Matcha PDRN Bubble Serum - Сироватка для обличчя з Matcha PDRN комплексом, 95 мл\", \"qty\": 1, \"sku\": \"1710\"}, {\"name\": \"Lalarecipe Matcha PDRN Purifying Toner Pad - Тонер-педи з Matcha PDRN комплексом, 70 шт.\", \"qty\": 1, \"sku\": \"1709\"}, {\"name\": \"NEOGEN DERMALOGY DOUBLE VITA CAPSULE CLEANSING FOAM - Очищувальна гель-пінка з вітамінним комплексом,150 мл\", \"qty\": 1, \"sku\": \"368\"}, {\"name\": \"Neogen Dermalogy Probiotics Youth Repair Mist - Міст для обличчя з пробіотиками 120 мл\", \"qty\": 1, \"sku\": \"1711\"}]",
+      "receive_point": "самовивіз",
+      "recipient_name": "Тесто-Клієнт 7947",
+      "shipping_status": "",
+      "source": "keycrm",
+      "source_order_id": "45311",
+      "status_group_id": 5,
+      "status_name": "completed",
+      "tracking_code": ""
+    },
+    "parsed": {
+      "buyer_email": null,
+      "buyer_name": "Тесто-Клієнт 7947",
+      "delivery_city": "",
+      "external_id": "",
+      "external_number": "",
+      "grand_total": 3766.0,
+      "id": 45311,
+      "ordered_at": "2026-07-31T12:57:31.000000Z",
+      "payment_status": "paid",
+      "products": [
+        {
+          "name": "Lalarecipe Matcha PDRN Bubble Serum - Сироватка для обличчя з Matcha PDRN комплексом, 95 мл",
+          "qty": 1,
+          "sku": "1710"
+        },
+        {
+          "name": "Lalarecipe Matcha PDRN Purifying Toner Pad - Тонер-педи з Matcha PDRN комплексом, 70 шт.",
+          "qty": 1,
+          "sku": "1709"
+        },
+        {
+          "name": "NEOGEN DERMALOGY DOUBLE VITA CAPSULE CLEANSING FOAM - Очищувальна гель-пінка з вітамінним комплексом,150 мл",
+          "qty": 1,
+          "sku": "368"
+        },
+        {
+          "name": "Neogen Dermalogy Probiotics Youth Repair Mist - Міст для обличчя з пробіотиками 120 мл",
+          "qty": 1,
+          "sku": "1711"
+        }
+      ],
+      "receive_point": "самовивіз",
+      "recipient_name": "Тесто-Клієнт 7947",
+      "shipping_status": "",
+      "status_group_id": 5,
+      "status_name": "completed",
+      "tracking_code": ""
+    }
+  },
+  "order_delivered_with_ttn": {
+    "as_row": {
+      "buyer_name": "Тесто-Клієнт 8012",
+      "chat_id": 777,
+      "currency": "грн",
+      "delivery_city": "Фікстурне",
+      "external_id": "",
+      "grand_total": 2855.0,
+      "order_name": "",
+      "ordered_at": "2026-08-01T11:39:24.000000Z",
+      "payment_status": "not_paid",
+      "products_json": "[{\"name\": \"NEOGEN DERMALOGY A-CLEAR ACNE FOAM CLEANSER - пінка для вмивання , 150 мл\", \"qty\": 1, \"sku\": \"303\"}, {\"name\": \"ANUA Відлущувальний тонер для обличчя з кислотами - ANUA BHA 2 GENTLE EXFOLIATING TONER, 150ml\", \"qty\": 1, \"sku\": \"767\"}, {\"name\": \"DIFFER&DEEPER SKY WATERING CRYO CREAM MASK - зволожуюча та заспокійлива маска для обличчя\", \"qty\": 1, \"sku\": \"1323\"}]",
+      "receive_point": "Відділення №1: вул. Прикордонників, 4 (біля митниці «Ягодин»)",
+      "recipient_name": "Тесто-Клієнт 8012",
+      "shipping_status": "transit",
+      "source": "keycrm",
+      "source_order_id": "45362",
+      "status_group_id": 4,
+      "status_name": "delivered",
+      "tracking_code": "20451501251169"
+    },
+    "parsed": {
+      "buyer_email": "customer11315@example.com",
+      "buyer_name": "Тесто-Клієнт 8012",
+      "delivery_city": "Фікстурне",
+      "external_id": "",
+      "external_number": "",
+      "grand_total": 2855.0,
+      "id": 45362,
+      "ordered_at": "2026-08-01T11:39:24.000000Z",
+      "payment_status": "not_paid",
+      "products": [
+        {
+          "name": "NEOGEN DERMALOGY A-CLEAR ACNE FOAM CLEANSER - пінка для вмивання , 150 мл",
+          "qty": 1,
+          "sku": "303"
+        },
+        {
+          "name": "ANUA Відлущувальний тонер для обличчя з кислотами - ANUA BHA 2 GENTLE EXFOLIATING TONER, 150ml",
+          "qty": 1,
+          "sku": "767"
+        },
+        {
+          "name": "DIFFER&DEEPER SKY WATERING CRYO CREAM MASK - зволожуюча та заспокійлива маска для обличчя",
+          "qty": 1,
+          "sku": "1323"
+        }
+      ],
+      "receive_point": "Відділення №1: вул. Прикордонників, 4 (біля митниці «Ягодин»)",
+      "recipient_name": "Тесто-Клієнт 8012",
+      "shipping_status": "transit",
+      "status_group_id": 4,
+      "status_name": "delivered",
+      "tracking_code": "20451501251169"
+    }
+  },
+  "order_from_shopify": {
+    "as_row": {
+      "buyer_name": "Тесто-Клієнт 0604",
+      "chat_id": 777,
+      "currency": "грн",
+      "delivery_city": "Демоград",
+      "external_id": "13035563647308",
+      "grand_total": 980.0,
+      "order_name": "#20041",
+      "ordered_at": "2026-08-01T14:56:17.000000Z",
+      "payment_status": "paid",
+      "products_json": "[{\"name\": \"Lalarecipe Очищувальний бальзам-гоммаж з екстрактом юдзу, 50 мл – Lalarecipe Yuzu Vita C 3in1 Gommage Cleansing Balm\", \"qty\": 1, \"sku\": \"732\"}]",
+      "receive_point": "Відділення №1: вул. Старий шлях, 1",
+      "recipient_name": "Тесто-Клієнт 0604",
+      "shipping_status": "",
+      "source": "keycrm",
+      "source_order_id": "45371",
+      "status_group_id": 1,
+      "status_name": "new",
+      "tracking_code": ""
+    },
+    "parsed": {
+      "buyer_email": "customer12257@example.com",
+      "buyer_name": "Тесто-Клієнт 0604",
+      "delivery_city": "Демоград",
+      "external_id": "13035563647308",
+      "external_number": "20041",
+      "grand_total": 980.0,
+      "id": 45371,
+      "ordered_at": "2026-08-01T14:56:17.000000Z",
+      "payment_status": "paid",
+      "products": [
+        {
+          "name": "Lalarecipe Очищувальний бальзам-гоммаж з екстрактом юдзу, 50 мл – Lalarecipe Yuzu Vita C 3in1 Gommage Cleansing Balm",
+          "qty": 1,
+          "sku": "732"
+        }
+      ],
+      "receive_point": "Відділення №1: вул. Старий шлях, 1",
+      "recipient_name": "Тесто-Клієнт 0604",
+      "shipping_status": "",
+      "status_group_id": 1,
+      "status_name": "new",
+      "tracking_code": ""
+    }
+  },
+  "order_multi_item": {
+    "as_row": {
+      "buyer_name": "Тесто-Клієнт 7594",
+      "chat_id": 777,
+      "currency": "грн",
+      "delivery_city": "Тестомісто",
+      "external_id": "",
+      "grand_total": 1311.0,
+      "order_name": "",
+      "ordered_at": "2026-08-01T14:17:47.000000Z",
+      "payment_status": "not_paid",
+      "products_json": "[{\"name\": \"Wellage Real Hyaluronic Blue 100 Ampoule – Зволожувальна ампула для відновлення водного балансу шкіри , 60 мл\", \"qty\": 1, \"sku\": \"1417\"}, {\"name\": \"Neogen Dermalogy Next Glow Pore Refining Toner - Тонер для очищення пор, 210 мл\", \"qty\": 1, \"sku\": \"1392\"}, {\"name\": \"SUR.MEDIC+ AZULENE SOOTHING CREAM - Заспокійливий крем із азуленом 15 ml\", \"qty\": 2, \"sku\": \"433\"}]",
+      "receive_point": "Відділення №92 (до 30 кг на одне місце): вул. Богатирська, 6А",
+      "recipient_name": "Тесто-Клієнт 7594",
+      "shipping_status": "",
+      "source": "keycrm",
+      "source_order_id": "45369",
+      "status_group_id": 1,
+      "status_name": "new",
+      "tracking_code": ""
+    },
+    "parsed": {
+      "buyer_email": "customer65003@example.com",
+      "buyer_name": "Тесто-Клієнт 7594",
+      "delivery_city": "Тестомісто",
+      "external_id": "",
+      "external_number": "",
+      "grand_total": 1311.0,
+      "id": 45369,
+      "ordered_at": "2026-08-01T14:17:47.000000Z",
+      "payment_status": "not_paid",
+      "products": [
+        {
+          "name": "Wellage Real Hyaluronic Blue 100 Ampoule – Зволожувальна ампула для відновлення водного балансу шкіри , 60 мл",
+          "qty": 1,
+          "sku": "1417"
+        },
+        {
+          "name": "Neogen Dermalogy Next Glow Pore Refining Toner - Тонер для очищення пор, 210 мл",
+          "qty": 1,
+          "sku": "1392"
+        },
+        {
+          "name": "SUR.MEDIC+ AZULENE SOOTHING CREAM - Заспокійливий крем із азуленом 15 ml",
+          "qty": 2,
+          "sku": "433"
+        }
+      ],
+      "receive_point": "Відділення №92 (до 30 кг на одне місце): вул. Богатирська, 6А",
+      "recipient_name": "Тесто-Клієнт 7594",
+      "shipping_status": "",
+      "status_group_id": 1,
+      "status_name": "new",
+      "tracking_code": ""
+    }
+  },
+  "order_new_without_ttn": {
+    "as_row": {
+      "buyer_name": "Тесто-Клієнт 4995",
+      "chat_id": 777,
+      "currency": "грн",
+      "delivery_city": "Тестомісто",
+      "external_id": "",
+      "grand_total": 2300.0,
+      "order_name": "",
+      "ordered_at": "2026-08-01T15:19:57.000000Z",
+      "payment_status": "not_paid",
+      "products_json": "[{\"name\": \"Wellage Real Hyaluronic Toner set - Тонер з гіалуроновою кислотою, 300 мл + бавовняні педи, 60 шт\", \"qty\": 1, \"sku\": \"1618\"}, {\"name\": \"Lalarecipe Bakuchinol Eye Cream EMS Lift Pro - Ліфтинг-крем для зони навколо очей з EMS-аплікатором 15ml\", \"qty\": 1, \"sku\": \"1375\"}]",
+      "receive_point": "Відділення №400 (до 30 кг): бульв. Лесі Українки, 10",
+      "recipient_name": "Тесто-Клієнт 4995",
+      "shipping_status": "",
+      "source": "keycrm",
+      "source_order_id": "45372",
+      "status_group_id": 1,
+      "status_name": "new",
+      "tracking_code": ""
+    },
+    "parsed": {
+      "buyer_email": "customer78973@example.com",
+      "buyer_name": "Тесто-Клієнт 4995",
+      "delivery_city": "Тестомісто",
+      "external_id": "",
+      "external_number": "",
+      "grand_total": 2300.0,
+      "id": 45372,
+      "ordered_at": "2026-08-01T15:19:57.000000Z",
+      "payment_status": "not_paid",
+      "products": [
+        {
+          "name": "Wellage Real Hyaluronic Toner set - Тонер з гіалуроновою кислотою, 300 мл + бавовняні педи, 60 шт",
+          "qty": 1,
+          "sku": "1618"
+        },
+        {
+          "name": "Lalarecipe Bakuchinol Eye Cream EMS Lift Pro - Ліфтинг-крем для зони навколо очей з EMS-аплікатором 15ml",
+          "qty": 1,
+          "sku": "1375"
+        }
+      ],
+      "receive_point": "Відділення №400 (до 30 кг): бульв. Лесі Українки, 10",
+      "recipient_name": "Тесто-Клієнт 4995",
+      "shipping_status": "",
+      "status_group_id": 1,
+      "status_name": "new",
+      "tracking_code": ""
+    }
+  },
+  "order_without_items": {
+    "as_row": {
+      "buyer_name": "Тесто-Клієнт 4995",
+      "chat_id": 777,
+      "currency": "грн",
+      "delivery_city": "Тестомісто",
+      "external_id": "",
+      "grand_total": 2300.0,
+      "order_name": "",
+      "ordered_at": "2026-08-01T15:19:57.000000Z",
+      "payment_status": "not_paid",
+      "products_json": "[]",
+      "receive_point": "Відділення №400 (до 30 кг): бульв. Лесі Українки, 10",
+      "recipient_name": "Тесто-Клієнт 4995",
+      "shipping_status": "",
+      "source": "keycrm",
+      "source_order_id": "45372",
+      "status_group_id": 1,
+      "status_name": "new",
+      "tracking_code": ""
+    },
+    "parsed": {
+      "buyer_email": "customer78973@example.com",
+      "buyer_name": "Тесто-Клієнт 4995",
+      "delivery_city": "Тестомісто",
+      "external_id": "",
+      "external_number": "",
+      "grand_total": 2300.0,
+      "id": 45372,
+      "ordered_at": "2026-08-01T15:19:57.000000Z",
+      "payment_status": "not_paid",
+      "products": [],
+      "receive_point": "Відділення №400 (до 30 кг): бульв. Лесі Українки, 10",
+      "recipient_name": "Тесто-Клієнт 4995",
+      "shipping_status": "",
+      "status_group_id": 1,
+      "status_name": "new",
+      "tracking_code": ""
+    }
+  }
+}

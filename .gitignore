@@ -42,3 +42,7 @@ build/
 
 # Research working files
 .planning/research/
+
+# Tooling caches
+.import_linter_cache/
+.pytest_cache/

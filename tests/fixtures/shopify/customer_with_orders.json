@@ -1,0 +1,68 @@
+{
+  "_fixture_note": "RECONSTRUCTED from the GraphQL query in bot/services/shopify.py:10-40. Not a recorded response: no Shopify credentials are configured.",
+  "data": {
+    "customers": {
+      "edges": [
+        {
+          "node": {
+            "id": "gid://shopify/Customer/7000000000001",
+            "displayName": "Тесто-Клієнт 0001",
+            "orders": {
+              "edges": [
+                {
+                  "node": {
+                    "id": "gid://shopify/Order/13025577828684",
+                    "name": "#19966",
+                    "displayFinancialStatus": "PAID",
+                    "displayFulfillmentStatus": "FULFILLED",
+                    "totalPriceSet": {
+                      "shopMoney": {
+                        "amount": "1450.00",
+                        "currencyCode": "UAH"
+                      }
+                    },
+                    "createdAt": "2026-07-14T09:12:33Z",
+                    "lineItems": {
+                      "edges": [
+                        {
+                          "node": {
+                            "name": "Пінка для вмивання 150 мл",
+                            "quantity": 1
+                          }
+                        },
+                        {
+                          "node": {
+                            "name": "Сироватка з ніацинамідом 30 мл",
+                            "quantity": 2
+                          }
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "node": {
+                    "id": "gid://shopify/Order/13025577828111",
+                    "name": "#19801",
+                    "displayFinancialStatus": "REFUNDED",
+                    "displayFulfillmentStatus": "UNFULFILLED",
+                    "totalPriceSet": {
+                      "shopMoney": {
+                        "amount": "0",
+                        "currencyCode": "UAH"
+                      }
+                    },
+                    "createdAt": "2026-06-02T17:40:01Z",
+                    "lineItems": {
+                      "edges": []
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

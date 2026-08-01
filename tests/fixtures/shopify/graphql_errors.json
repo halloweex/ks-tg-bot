@@ -1,0 +1,11 @@
+{
+  "_fixture_note": "RECONSTRUCTED. Shape of a throttled/failed GraphQL reply.",
+  "errors": [
+    {
+      "message": "Throttled",
+      "extensions": {
+        "code": "THROTTLED"
+      }
+    }
+  ]
+}
