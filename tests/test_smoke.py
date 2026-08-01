@@ -110,3 +110,28 @@ def test_schema_migrates_a_production_dump(tmp_path, monkeypatch):
         )
     after.close()
     print(f"\nmigrated from user_version={version_before}, tables={sorted(tables_before)}")
+
+
+def test_fresh_database_has_every_column_the_code_uses(tmp_path, monkeypatch):
+    """A fresh database is stamped, not migrated, so the late columns have to be
+    applied on that path too.
+
+    They were not. `users` came out holding chat_id, phone and created_at alone,
+    and every language lookup, profile write and language change failed with
+    "no such column" from the first /start. Production predates those columns
+    and got them through migration 1, so only a genuinely new deployment ever
+    saw it — which is the kind of bug that waits for the day the server is
+    rebuilt.
+    """
+    path = tmp_path / "fresh.db"
+    monkeypatch.setattr(botdb, "DB_PATH", str(path))
+    asyncio.run(botdb.init_db())
+
+    db = sqlite3.connect(path)
+    users = {r[1] for r in db.execute("PRAGMA table_info(users)")}
+    orders = {r[1] for r in db.execute("PRAGMA table_info(orders)")}
+    db.close()
+
+    for table, column, _decl in botdb._LATE_COLUMNS:
+        present = users if table == "users" else orders
+        assert column in present, f"{table}.{column} missing from a fresh database"

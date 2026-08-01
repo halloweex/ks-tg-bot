@@ -237,11 +237,25 @@ async def _columns(db: aiosqlite.Connection, table: str) -> set[str]:
     return {row[1] for row in await cursor.fetchall()}
 
 
-async def _migration_1_late_columns(db: aiosqlite.Connection) -> None:
-    """Columns added after the first release, plus the external_id backfill."""
+async def _add_late_columns(db: aiosqlite.Connection) -> None:
+    """Add every column in _LATE_COLUMNS that the table does not already have.
+
+    Used by both paths on purpose. A fresh database is stamped with the current
+    version instead of being migrated, so migration 1 never runs on it — and
+    without this call it was left with `users` holding chat_id, phone and
+    created_at alone. Every language lookup, every profile write and every
+    language change then failed with "no such column" from the first /start.
+    Production never hit it because it predates those columns and received them
+    through the migration; only a genuinely new deployment did.
+    """
     for table, column, decl in _LATE_COLUMNS:
         if column not in await _columns(db, table):
             await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+
+async def _migration_1_late_columns(db: aiosqlite.Connection) -> None:
+    """Columns added after the first release, plus the external_id backfill."""
+    await _add_late_columns(db)
     # Rows cached before external_id existed can't be deduped by it, so they'd
     # keep showing a second copy of the order forever. The Shopify side is
     # recoverable from the stored gid; the KeyCRM side refills on the next
@@ -396,6 +410,11 @@ async def init_db() -> None:
         await db.execute(_CREATE_DISCOUNT_REQUESTS)
 
         if fresh:
+            # The CREATE statements above deliberately keep their original
+            # shape so the two paths cannot drift; the columns added later are
+            # applied here, exactly as migration 1 applies them to an existing
+            # database.
+            await _add_late_columns(db)
             await db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         else:
             # Before the indexes below: rebuilding a table drops its indexes,
