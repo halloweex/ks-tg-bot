@@ -18,6 +18,8 @@ from __future__ import annotations
 import hashlib
 import re
 import sys
+import threading
+import traceback
 
 from loguru import logger
 
@@ -43,6 +45,28 @@ def _masked_stderr(message: object) -> None:
     sys.stderr.write(_PHONE_RE.sub(_mask, str(message)))
 
 
+def _masked_excepthook(exc_type, exc, tb) -> None:
+    """Route an uncaught exception through the same masker as the log.
+
+    Without this the fix looks complete and is not: an exception nobody caught
+    never reaches loguru at all — the interpreter hands it to sys.excepthook,
+    which writes the traceback straight to stderr. Verified: a RuntimeError
+    carrying a phone number printed it in full with the sink installed.
+
+    That path is not hypothetical. It is how a failure inside load_config()
+    surfaces, and pydantic-settings puts the offending value into the error.
+    """
+    text = "".join(traceback.format_exception(exc_type, exc, tb))
+    sys.stderr.write(_PHONE_RE.sub(_mask, text))
+
+
+def _masked_thread_excepthook(args) -> None:
+    """Same, for threads — aiosqlite runs every connection on one."""
+    if args.exc_type is SystemExit:
+        return
+    _masked_excepthook(args.exc_type, args.exc_value, args.exc_traceback)
+
+
 def setup_logging(level: str = "INFO") -> None:
     """Replace loguru's default handler. Idempotent — safe to call again.
 
@@ -58,3 +82,5 @@ def setup_logging(level: str = "INFO") -> None:
         diagnose=False,
         colorize=False,
     )
+    sys.excepthook = _masked_excepthook
+    threading.excepthook = _masked_thread_excepthook
