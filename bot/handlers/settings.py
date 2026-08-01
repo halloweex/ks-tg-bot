@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
+from aiogram.types import CallbackQuery, Message
 
 from bot.i18n import Texts, normalize
 from bot.callbacks import SettingsAction
@@ -52,8 +52,10 @@ async def process_new_contact(
 
     await save_user(message.chat.id, phone)
     await state.clear()
-    await message.answer(t.MSG_PHONE_CHANGED, reply_markup=ReplyKeyboardRemove())
-    await message.answer(t.MSG_MAIN_MENU, reply_markup=main_menu_kb(t, config.website_url))
+    # Sending the menu keyboard replaces the share-phone one it is answering.
+    await message.answer(
+        f"{t.MSG_PHONE_CHANGED}\n\n{t.MSG_MAIN_MENU}", reply_markup=main_menu_kb(t)
+    )
 
 
 @router.message(SettingsStates.waiting_new_phone)
@@ -90,11 +92,8 @@ async def set_language(
     track(callback.from_user.id, "language_changed", to=chosen)
     await callback.answer()
 
-    # Confirmation and menu in one screen: two messages for "done, here is the
-    # menu again" is exactly the noise the single-screen navigation removes.
+    # The keyboard carries the button labels, so a language change has to send
+    # a new one — an edit cannot touch the keyboard under the input field.
     t = Texts(chosen)
-    await render(
-        callback,
-        f"{t.MSG_LANGUAGE_SET}\n\n{t.MSG_MAIN_MENU}",
-        main_menu_kb(t, config.website_url),
-    )
+    await render(callback, t.MSG_LANGUAGE_SET)
+    await callback.message.answer(t.MSG_MAIN_MENU, reply_markup=main_menu_kb(t))

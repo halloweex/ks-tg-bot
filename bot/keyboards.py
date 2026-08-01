@@ -4,9 +4,9 @@ from __future__ import annotations
 from urllib.parse import urlencode, urlparse
 
 from aiogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
-from bot.callbacks import BroadcastAction, DeliveryAction, InfoAction, MenuAction, SettingsAction
+from bot.callbacks import BroadcastAction, InfoAction, SettingsAction
 from bot.i18n import LANGUAGE_NAMES, SUPPORTED, Texts
 
 
@@ -40,53 +40,56 @@ def share_phone_kb(t: Texts) -> ReplyKeyboardMarkup:
     )
 
 
-def main_menu_kb(t: Texts, website_url: str) -> InlineKeyboardMarkup:
-    """Build the main menu inline keyboard (7 buttons in a 2+2+2+1 grid).
+def main_menu_kb(t: Texts) -> ReplyKeyboardMarkup:
+    """The main menu, as the keyboard under the input field.
 
-    Seven buttons stacked one per row filled a phone screen and made every
-    option look equally important. The grid puts the two questions people
-    actually arrive with — where is my order, when does it come — side by side
-    at the top, what they might do next below, and the rarely-tapped ones last.
+    It is a reply keyboard and not an inline one for a reason that has nothing
+    to do with taste: the square toggle in the input row — the thing people
+    reach for to get the menu back — is drawn by the client only while a reply
+    keyboard exists. No API creates it. An inline menu, however tidy, leaves
+    that corner of the screen empty.
 
-    Never three to a row. An inline keyboard is only as wide as the message
-    bubble it hangs under, and the menu's text is three words: at three columns
-    the labels are cut off, which is what a 2+2+3 layout looked like in
-    production. Two columns is the widest that a short message can carry.
+    `is_persistent` keeps it open instead of folded away, and the placeholder
+    replaces "Write a message" in a field we would rather nobody typed into.
+
+    Three to a row is safe here, unlike inline: a reply keyboard spans the
+    screen instead of the message bubble.
+
+    «🌐 Сайт» is a key like the others because a reply button cannot carry a
+    URL — pressing it makes the bot answer with the link.
     """
+    builder = ReplyKeyboardBuilder()
+    for label in (t.BTN_ORDERS, t.BTN_DELIVERY_STATUS,
+                  t.BTN_FAVOURITES, t.BTN_SUPPORT,
+                  t.BTN_WEBSITE, t.BTN_INFO, t.BTN_SETTINGS):
+        builder.button(text=label)
+    builder.adjust(2, 2, 3)
+    return builder.as_markup(
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder=t.MSG_MENU_PLACEHOLDER,
+    )
+
+
+def website_kb(t: Texts, website_url: str) -> InlineKeyboardMarkup:
+    """The shop link, which only an inline button can carry."""
     builder = InlineKeyboardBuilder()
-    builder.button(text=t.BTN_ORDERS, callback_data=MenuAction(action="orders"))
-    builder.button(text=t.BTN_DELIVERY_STATUS, callback_data=DeliveryAction(action="view"))
-    builder.button(text=t.BTN_FAVOURITES, callback_data=MenuAction(action="favourites"))
-    builder.button(text=t.BTN_SUPPORT, callback_data=MenuAction(action="support"))
     builder.button(text=t.BTN_WEBSITE, url=tagged_website_url(website_url))
-    builder.button(text=t.BTN_INFO, callback_data=MenuAction(action="info"))
-    builder.button(text=t.BTN_SETTINGS, callback_data=MenuAction(action="settings"))
-    builder.adjust(2, 2, 2, 1)
-    return builder.as_markup()
-
-
-def menu_only_kb(t: Texts) -> InlineKeyboardMarkup:
-    """A screen whose only way on is back to the menu.
-
-    Replaces the reply keyboard the dead-end screens used to carry: with a menu
-    button beside the input field, a second permanent «📋 Меню» underneath was
-    two navigations for one bot, and the reply keyboard ate a third of a phone
-    screen to say one word.
-    """
-    builder = InlineKeyboardBuilder()
-    builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="back"))
     return builder.as_markup()
 
 
 def info_menu_kb(t: Texts) -> InlineKeyboardMarkup:
-    """Build the info submenu inline keyboard (4 items + back, 2+2+1 layout)."""
+    """Build the info submenu inline keyboard (4 pages, 2+2).
+
+    No Back button: the main menu is on screen at all times now, under the
+    input field, so there is nothing to go back *to*.
+    """
     builder = InlineKeyboardBuilder()
     builder.button(text=t.BTN_ABOUT, callback_data=InfoAction(page="about"))
     builder.button(text=t.BTN_CONTACTS, callback_data=InfoAction(page="contacts"))
     builder.button(text=t.BTN_PAYMENT, callback_data=InfoAction(page="payment"))
     builder.button(text=t.BTN_DELIVERY, callback_data=InfoAction(page="delivery"))
-    builder.button(text=t.BTN_BACK, callback_data=InfoAction(page="back"))
-    builder.adjust(2, 2, 1)
+    builder.adjust(2, 2)
     return builder.as_markup()
 
 
@@ -100,15 +103,15 @@ def broadcast_confirm_kb(t: Texts) -> InlineKeyboardMarkup:
 
 
 def settings_menu_kb(t: Texts) -> InlineKeyboardMarkup:
-    """Build the settings submenu inline keyboard (2 items + back, 1 per row).
+    """Build the settings submenu inline keyboard (2 items, 1 per row).
 
-    "Налаштування:" is an even shorter bubble than the main menu's, and
-    «📱 Змінити номер» does not survive being squeezed into half of it.
+    One per row because "Налаштування:" is a short message and an inline
+    keyboard is only as wide as the bubble it hangs under — «📱 Змінити номер»
+    does not survive being squeezed into half of it.
     """
     builder = InlineKeyboardBuilder()
     builder.button(text=t.BTN_CHANGE_PHONE, callback_data=SettingsAction(action="phone"))
     builder.button(text=t.BTN_LANGUAGE, callback_data=SettingsAction(action="language"))
-    builder.button(text=t.BTN_BACK, callback_data=SettingsAction(action="back"))
     builder.adjust(1)
     return builder.as_markup()
 

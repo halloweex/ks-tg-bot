@@ -13,6 +13,12 @@ arrive with on top (orders, delivery), what they might do next below
 (favourites, manager), and the rest on the last row. Labels lost the words that
 were doing nothing — «📦 Мої замовлення» → «📦 Замовлення».
 
+Inline, that grid had to become 2+2+2+1: an inline keyboard is only as wide as
+the message bubble it hangs under, the menu's text is three words, and at three
+columns the labels were cut off in production. The constraint disappeared when
+the menu became a reply keyboard (below), which spans the screen — the layout
+is 2+2+3 again.
+
 ### Orders and favourites are numbered, and the buttons say the number
 
 `🔎 Товари: 📸 Instagram, 15.06.2026` was one button per row and still ambiguous:
@@ -38,25 +44,54 @@ than messages; toggling a back-in-stock subscription redraws the screen, so the
 button reflects what it just did; "Номер прийнято!" and "Завантажую…" are gone,
 replaced by "typing…"; /start greets and shows the menu in one message.
 
-### The reply keyboard is gone, and the menu button is set per chat
+Opening a *section* is now a new message rather than an edit — the menu key is
+a message of the customer's own, so there is nothing above it to edit into.
+Within a section, editing in place is unchanged.
 
-The «📋 Меню» keyboard under the input field duplicated the menu button Telegram
-puts *in* the input row — two navigations for one bot, one of them covering a
-third of the screen. Worse, a reply keyboard occupies that slot, so as long as
-it was there the real menu button could not appear at all. The bot no longer
-sends it; `clear_reply_keyboard()` takes away any that a customer still has, on
-/start or on the first tap of the old button. The only reply keyboard left is
-share-phone, which is how Telegram proves the number is theirs, and it is
-removed as soon as the number is verified.
+### The menu *is* the keyboard under the input field
 
-`profile.ensure_menu_button()` then sets `MenuButtonCommands` **for that chat**
-on every /start. The global default was already set, but a per-chat setting
-overrides the default and outlives whatever set it, so the default alone is not
-a guarantee for any particular person.
+Settled after three wrong turns in one evening, and worth writing down because
+the reasoning is not obvious from the API docs:
 
-Detour worth recording: the keyboard was briefly brought back on request and
-removed again within the hour, once it was clear that what was wanted was the
-button in the input row — the thing the keyboard was hiding.
+* The square toggle in the input row that people reach for is drawn by the
+  client **only while a reply keyboard exists**. No API creates it —
+  `setChatMenuButton` is a different button, and `set_my_commands` is a
+  different list. An inline menu leaves that corner of the screen empty.
+* So the main menu is a `ReplyKeyboardMarkup` (`main_menu_kb`), 2+2+3, with
+  `is_persistent=True` and an `input_field_placeholder`. Three to a row is fine
+  here: a reply keyboard spans the screen, not the message bubble.
+* Its keys arrive as ordinary messages, matched on text in every language the
+  label can be rendered in (`variants()`), so a keyboard that predates a
+  language change still works. The labels come from the same constants the
+  keyboard is built from, which is what makes the emoji-variation-selector trap
+  impossible here.
+* «🌐 Сайт» is a key like any other and answers with a message carrying the
+  link, because a reply button cannot hold a URL.
+* Each key opens a section as a new message; the section's own inline buttons
+  then edit that message in place. No inline main menu, and no Back buttons
+  anywhere — the menu never leaves the screen.
+
+Pressing a menu key clears any FSM state (an abandoned "write to support" no
+longer swallows the next message), except while a phone number is being shared,
+where the keys are ignored so the flow cannot be half-abandoned.
+
+### What the previous attempts got wrong
+
+1. **Removed the reply keyboard entirely**, on the theory that it duplicated
+   Telegram's own button. It does sit in the same slot — but removing it left
+   nothing there at all, because the slot is *made* by the keyboard.
+2. **Chased `setChatMenuButton`.** `profile.ensure_menu_button()` survives from
+   that attempt and still runs on /start: it sets `MenuButtonCommands` for the
+   chat, which is worth having (a per-chat setting overrides the global default
+   and outlives whatever set it) but was never the button being asked about.
+3. **Brought back a single «📋 Меню» key** instead of the menu itself — one tap
+   more than necessary for every action.
+
+One implementation bug found along the way, and it is a good trap to know:
+a `ReplyKeyboardRemove` sent on a message that is then **deleted does not
+stick**. The client ties the keyboard's state to the message that changed it, so
+deleting the message restores the keyboard. Removal has to ride on a message
+that stays — or, as now, simply be replaced by sending another keyboard.
 
 ### Quiet at night, confetti when it is good news
 
@@ -70,8 +105,9 @@ image.
 
 ### Not verified live
 
-The effect id and the grid were checked offline against fakes, not against
-Telegram. Worth one pass through the bot on the phone after deploy.
+The message-effect id and the screens were checked offline against fakes. The
+menu keyboard itself was confirmed on production, the hard way: the reply
+keyboard's toggle icon was the evidence that told us what the menu had to be.
 
 ## 2026-07-29 … 07-31 — Customer-facing features, and a lot of measuring
 

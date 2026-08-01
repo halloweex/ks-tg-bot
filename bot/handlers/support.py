@@ -6,33 +6,16 @@ import re
 from aiogram import F, Router
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import Message
 from loguru import logger
 
 from bot.i18n import Texts, customer_texts, operator_texts
-from bot.callbacks import MenuAction
 from bot.analytics import track
 from bot.config import AppConfig
 from bot.db import get_user_language
-from bot.keyboards import main_menu_kb
-from bot.screen import render
 from bot.states import SupportStates
 
 router = Router()
-
-
-@router.callback_query(MenuAction.filter(F.action == "support"))
-async def enter_support_mode(
-    callback: CallbackQuery,
-    callback_data: MenuAction,
-    state: FSMContext,
-    t: Texts,
-) -> None:
-    """Prompt user to type a message for the support team."""
-    await callback.answer()
-    track(callback.from_user.id, "support_opened")
-    await state.set_state(SupportStates.waiting_message)
-    await render(callback, t.MSG_SUPPORT_PROMPT)
 
 
 @router.message(SupportStates.waiting_message)
@@ -72,10 +55,8 @@ async def forward_to_support(
     # Confirm to user and return to main menu
     await state.clear()
     track(message.chat.id, "support_message_sent")
-    await message.answer(
-        t.MSG_SUPPORT_FORWARDED,
-        reply_markup=main_menu_kb(t, config.website_url),
-    )
+    # No keyboard to attach: the menu is already under the input field.
+    await message.answer(t.MSG_SUPPORT_FORWARDED)
 
 
 # Narrow on purpose. support_chat_id is often an admin's own DM with the bot, and

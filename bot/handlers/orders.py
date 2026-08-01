@@ -7,13 +7,12 @@ from datetime import datetime
 from html import escape
 
 from aiogram import F, Router
-from aiogram.types import (CallbackQuery, InlineKeyboardMarkup, Message,
-                           ReplyKeyboardRemove)
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from loguru import logger
 
 from bot import texts
-from bot.i18n import Texts, operator_texts, variants
+from bot.i18n import Texts, operator_texts
 from bot.callbacks import DiscountAction, MenuAction, OrderAction, StockAction
 from bot.analytics import track
 from bot.config import AppConfig
@@ -22,7 +21,6 @@ from bot.db import (CANCELLED_STATUS_GROUP, add_discount_request, add_stock_subs
                     get_last_sync_time, get_stock_levels, get_subscribed_skus,
                     get_user_phone, recent_discount_request,
                     remove_stock_subscription, save_user, upsert_orders)
-from bot.keyboards import main_menu_kb, menu_only_kb
 from bot.screen import render, typing
 from bot.services.keycrm import KeyCRMClient, keycrm_order_to_dict
 from bot.services.shopify import ShopifyClient, shopify_order_to_dict
@@ -251,14 +249,12 @@ def _orders_kb(
             callback_data=OrderAction(action="items", order_id=expanded_id, page=target),
         )
 
-    builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="back"))
-
     # All expand buttons on one row — there are at most _ORDERS_PER_PAGE of
-    # them and each is a glyph and a number — then paging, then Menu.
+    # them and each is a glyph and a number — then paging. No Menu button:
+    # the menu is the keyboard under the input field, always there.
     layout = [expand_buttons] if expand_buttons else []
     if nav:
         layout.append(len(nav))
-    layout.append(1)
     builder.adjust(*layout)
     return builder.as_markup()
 
@@ -272,8 +268,6 @@ def _no_orders_kb(t: Texts) -> InlineKeyboardMarkup:
     """
     builder = InlineKeyboardBuilder()
     builder.button(text=t.BTN_SUPPORT, callback_data=MenuAction(action="support"))
-    builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="back"))
-    builder.adjust(2)
     return builder.as_markup()
 
 
@@ -416,94 +410,74 @@ async def _do_refresh_orders(
 
 
 # ---------------------------------------------------------------------------
-# Handlers
+# Screens — built here, opened from the menu keyboard in handlers/menu.py,
+# and edited in place by the callbacks further down this file.
 # ---------------------------------------------------------------------------
 
-async def _render_orders(callback: CallbackQuery, chat_id: int, t: Texts) -> None:
-    """Draw the cached orders, with expand/collapse buttons, on the screen."""
-    cached = await get_cached_orders(chat_id)
-    await render(
-        callback,
-        _format_orders_from_cache(cached, t),
-        _orders_kb(cached, t) if cached else _no_orders_kb(t),
-    )
-
-
-@router.callback_query(MenuAction.filter(F.action == "orders"))
-async def show_orders(
-    callback: CallbackQuery,
-    callback_data: MenuAction,
+async def orders_screen(
+    chat_id: int,
+    t: Texts,
     keycrm: KeyCRMClient,
     shopify: ShopifyClient | None,
-    config: AppConfig,
-    t: Texts,
-) -> None:
-    """Display orders from local cache, refresh from APIs in background."""
-    await callback.answer()
+    anchor: Message,
+) -> tuple[str, InlineKeyboardMarkup | None]:
+    """The orders screen, ready to be sent or edited into place.
 
-    chat_id = callback.from_user.id
+    `anchor` is only used to show "typing…" while a cold cache is filled; the
+    caller decides whether the result becomes a new message or replaces one.
+    """
     phone = await get_user_phone(chat_id)
     if not phone:
-        await render(callback, t.ERR_PHONE_NOT_FOUND, menu_only_kb(t))
-        return
+        return t.ERR_PHONE_NOT_FOUND, None
 
-    # Try to show cached orders instantly
     cached = await get_cached_orders(chat_id)
-
     if cached:
         track(chat_id, "orders_viewed", found=len(cached), cached=True)
-        await render(
-            callback,
-            _format_orders_from_cache(cached, t),
-            _orders_kb(cached, t),
-        )
         # Fire-and-forget background refresh — but only if the cache is stale,
         # so repeated taps and post-broadcast bursts don't re-hit the APIs.
         if not await _is_cache_fresh(chat_id):
             spawn(_refresh_orders(chat_id, phone, keycrm, shopify), name="refresh_orders")
     else:
-        # No cache — show loading, fetch synchronously, then display
-        await typing(callback.message)
+        await typing(anchor)
         await _refresh_orders(chat_id, phone, keycrm, shopify)
+        cached = await get_cached_orders(chat_id)
         # Tracked after the fetch, not before: an empty cache says nothing about
         # whether the phone matched, and `found=0` here is exactly the signal
         # that a customer shared their contact and saw nothing.
-        fetched = await get_cached_orders(chat_id)
-        track(chat_id, "orders_viewed", found=len(fetched), cached=False)
-        await _render_orders(callback, chat_id, t)
+        track(chat_id, "orders_viewed", found=len(cached), cached=False)
+
+    return (
+        _format_orders_from_cache(cached, t),
+        _orders_kb(cached, t) if cached else _no_orders_kb(t),
+    )
 
 
-@router.callback_query(MenuAction.filter(F.action == "favourites"))
-async def show_favourites(
-    callback: CallbackQuery,
-    callback_data: MenuAction,
+async def favourites_screen(
+    chat_id: int,
+    t: Texts,
     keycrm: KeyCRMClient,
     shopify: ShopifyClient | None,
-    t: Texts,
-) -> None:
-    """Show the products this customer orders most often.
+    anchor: Message,
+) -> tuple[str, InlineKeyboardMarkup | None]:
+    """The favourites screen.
 
     Computed from the cached orders, which already carry their product lines —
     no extra API call. Falls back to a fetch when the cache is cold so the very
     first visit is not empty.
     """
-    chat_id = callback.from_user.id
-    await callback.answer()
-
     phone = await get_user_phone(chat_id)
     if not phone:
-        await render(callback, t.ERR_PHONE_NOT_FOUND, menu_only_kb(t))
-        return
+        return t.ERR_PHONE_NOT_FOUND, None
 
     cached = await get_cached_orders(chat_id)
     if not cached:
-        await typing(callback.message)
+        await typing(anchor)
         await _refresh_orders(chat_id, phone, keycrm, shopify)
         cached = await get_cached_orders(chat_id)
 
     text, markup, found = await _favourites_view(chat_id, t, cached)
     track(chat_id, "favourites_viewed", found=found)
-    await render(callback, text, markup)
+    return text, markup
 
 
 async def _favourites_view(
@@ -580,9 +554,8 @@ def _favourites_kb(favourites, levels, subscribed, t: Texts) -> InlineKeyboardMa
         notify_buttons += 1
     builder.button(text=t.BTN_WANT_DISCOUNT,
                    callback_data=DiscountAction(action="ask"))
-    builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="back"))
     layout = [notify_buttons] if notify_buttons else []
-    layout += [1, 1]
+    layout.append(1)
     builder.adjust(*layout)
     return builder.as_markup()
 
@@ -715,25 +688,4 @@ async def toggle_order_items(
         callback,
         _format_orders_from_cache(cached, t, expanded_id, page),
         _orders_kb(cached, t, expanded_id, page),
-    )
-
-
-@router.message(F.text.in_(variants("BTN_MENU")))
-async def menu_button_handler(
-    message: Message,
-    config: AppConfig,
-    t: Texts,
-) -> None:
-    """Serve — and retire — the old reply-keyboard Menu button.
-
-    The bot no longer sends that keyboard: it occupies the input row where
-    Telegram's own menu button belongs. Anyone who still has one gets it taken
-    away here, on the tap, and the removal rides on the first message rather
-    than on a throwaway one — a deleted message takes its keyboard change with
-    it, which is how the keyboard survived an earlier attempt at this.
-    """
-    await message.answer(t.MSG_MENU_RETIRED, reply_markup=ReplyKeyboardRemove())
-    await message.answer(
-        t.MSG_MAIN_MENU,
-        reply_markup=main_menu_kb(t, config.website_url),
     )

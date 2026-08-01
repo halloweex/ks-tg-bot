@@ -4,7 +4,7 @@ from __future__ import annotations
 from aiogram import Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, ReplyKeyboardRemove
+from aiogram.types import Message
 
 from bot.i18n import LANGUAGE_NAMES, Texts
 from bot.analytics import track
@@ -66,16 +66,10 @@ async def cmd_start(
             greeting = t.MSG_WELCOME_BACK_NAME.format(name=user["full_name"])
         else:
             greeting = t.MSG_WELCOME_BACK
-        # Two messages, and they cannot be one. A reply keyboard sits exactly
-        # where the menu button belongs, so /start has to take away any left
-        # over from an older version — and that instruction can only travel on
-        # a message that has no inline buttons and is not deleted afterwards.
-        # The greeting carries it; the menu follows as the screen every later
-        # tap is edited into.
-        await message.answer(greeting, reply_markup=ReplyKeyboardRemove())
+        # One message: the greeting carries the menu keyboard, and sending a
+        # keyboard replaces whatever the chat had before it.
         await message.answer(
-            t.MSG_MAIN_MENU,
-            reply_markup=main_menu_kb(t, config.website_url),
+            f"{greeting}\n\n{t.MSG_MAIN_MENU}", reply_markup=main_menu_kb(t)
         )
         await _maybe_offer_language(message, t, lang, tg_lang)
         return

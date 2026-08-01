@@ -6,7 +6,7 @@ from typing import Optional
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, ReplyKeyboardRemove
+from aiogram.types import Message
 from loguru import logger
 
 from bot.i18n import Texts
@@ -125,8 +125,11 @@ async def _register_user(
 
     await state.clear()
     track(message.chat.id, "registered")
-    await message.answer(t.MSG_PHONE_VERIFIED, reply_markup=ReplyKeyboardRemove())
-    await message.answer(t.MSG_MAIN_MENU, reply_markup=main_menu_kb(t, config.website_url))
+    # Sending a reply keyboard replaces the share-phone one, so registration
+    # ends with the menu already under the customer's thumb.
+    await message.answer(
+        f"{t.MSG_PHONE_VERIFIED}\n\n{t.MSG_MAIN_MENU}", reply_markup=main_menu_kb(t)
+    )
 
 
 @router.message(OnboardingStates.waiting_phone, F.contact)
