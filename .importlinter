@@ -100,6 +100,17 @@ forbidden_modules =
 #     core.adapters
 #     core.repos
 
+# [importlinter:contract:domain-knows-no-config]
+# name = core.domain не знает даже про core.config
+# # Причина: правило v4 §3. Домен, знающий про конфиг, нельзя протестировать без
+# # окружения — а тестируемость без окружения это единственное, ради чего он
+# # выделен в отдельный слой.
+# type = forbidden
+# source_modules =
+#     core.domain
+# forbidden_modules =
+#     core.config
+
 # [importlinter:contract:core-leaves-are-leaves]
 # name = core: config и i18n ничего не импортируют из core
 # # Причина: их импортирует всё дерево, поэтому любая их зависимость

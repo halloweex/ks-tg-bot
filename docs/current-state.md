@@ -457,24 +457,24 @@ workflow не использует; не упоминает автодеплой
 
 | Документ | Код |
 |---|---|
-| §1, §2: «бот в сеть за данными не ходит», читает только свою базу | Хендлеры вызывают KeyCRM/Shopify/НП напрямую: `bot/handlers/orders.py:369,371`, `onboarding.py:74,76,111`, `delivery.py:106` |
-| §3.1: `merge_key`, `source` — атрибут, `UNIQUE(merge_key)` глобально | `UNIQUE(chat_id, source, source_order_id)` — `bot/db.py:114`; `source` в ключе, ключ per-chat |
-| §3.1: `source_rank` в строке | Колонки нет — `bot/db.py:92-116` |
-| §3.2: сырьё отдельной таблицей `order_raw(merge_key, source, payload, fetched_at)` | Ни таблицы, ни колонки; в `orders` только разобранные поля (`bot/db.py:92-116`) |
-| §3.3: суррогатный `users.id`, все ссылки на него | `chat_id INTEGER PRIMARY KEY` (`bot/db.py:52`); все таблицы ссылаются на `chat_id` |
-| §3.3: `phone_normalized` уникален | `phone TEXT NOT NULL` без UNIQUE (`bot/db.py:53`); нормализованной колонки нет |
-| §3.3: все метки `timestamptz`, внутри UTC | Все метки `TEXT` через `datetime('now')` (`bot/db.py:54,113,…`); сравнение с `datetime.utcnow()` (`bot/handlers/orders.py:335`) |
-| §3.4: RLS | Неприменимо к SQLite; разделение по `chat_id` в каждом запросе вручную |
-| §4.2: `sync_state`, курсор с перехлёстом | Таблицы нет; синхронизация — по запросу пользователя, по телефону (`bot/handlers/orders.py:362-375`) |
-| §4.4: `orders.user_id` nullable, привязка по телефону | `chat_id INTEGER NOT NULL REFERENCES users(chat_id)` (`bot/db.py:95`) — заказ не может существовать без чата |
-| §4.5: алерт на отсутствие успеха синка | Ни `sync_state`, ни алертов; единственный алертинг в проекте — Telegram-уведомления бэкапа (`deploy/backup.sh:112-122`) |
-| §5: outbox с арендой, `dedup_key`, `not_before` | Таблицы нет. Рассылка шлёт напрямую (`bot/handlers/broadcast.py:75`), уведомления о стоке — тоже (`bot/stock.py:60,64`) |
-| §5.6: `users.notify_from` | Колонки нет (`bot/db.py:61-74`) |
-| §8: Alembic | Собственный драйвер на `PRAGMA user_version` (`bot/db.py:226,280-300`) |
-| §8: сборка в GHCR, на сервере только `pull` | Сборка на боевой машине (`.github/workflows/deploy.yml:44`) |
-| §8: `/healthz` и `/readyz` в healthcheck компоуза | Healthcheck отсутствует в обоих файлах |
-| §8: пять пунктов тестов | Тестов ноль |
-| §9: `VerifiedPhone` как тип | `own_contact_phone(message) -> str | None` (`bot/handlers/onboarding.py:50`), `normalize_phone(raw) -> str | None` (`:28`) — обычный `str`, инвариант держится расположением кода |
+| §4.1: «бот в сеть за данными не ходит», читает только свою базу | Хендлеры вызывают KeyCRM/Shopify/НП напрямую: `bot/handlers/orders.py:369,371`, `onboarding.py:74,76,111`, `delivery.py:106` |
+| §4.4: `merge_key`, `source` — атрибут, `UNIQUE(merge_key)` глобально | `UNIQUE(chat_id, source, source_order_id)` — `bot/db.py:114`; `source` в ключе, ключ per-chat |
+| §4.4: `source_rank` в строке | Колонки нет — `bot/db.py:92-116` |
+| §4.5: сырьё отдельной таблицей `order_raw(merge_key, source, payload, fetched_at)` | Ни таблицы, ни колонки; в `orders` только разобранные поля (`bot/db.py:92-116`) |
+| §4.6: суррогатный `users.id`, все ссылки на него | `chat_id INTEGER PRIMARY KEY` (`bot/db.py:52`); все таблицы ссылаются на `chat_id` |
+| §4.6: `phone_normalized` уникален | `phone TEXT NOT NULL` без UNIQUE (`bot/db.py:53`); нормализованной колонки нет |
+| §4.6: все метки `timestamptz`, внутри UTC | Все метки `TEXT` через `datetime('now')` (`bot/db.py:54,113,…`); сравнение с `datetime.utcnow()` (`bot/handlers/orders.py:335`) |
+| §4.7: RLS | Неприменимо к SQLite; разделение по `chat_id` в каждом запросе вручную |
+| §5.2: `sync_state`, курсор с перехлёстом | Таблицы нет; синхронизация — по запросу пользователя, по телефону (`bot/handlers/orders.py:362-375`) |
+| §5.4: `orders.user_id` nullable, привязка по телефону | `chat_id INTEGER NOT NULL REFERENCES users(chat_id)` (`bot/db.py:95`) — заказ не может существовать без чата |
+| §5.5: алерт на отсутствие успеха синка | Ни `sync_state`, ни алертов; единственный алертинг в проекте — Telegram-уведомления бэкапа (`deploy/backup.sh:112-122`) |
+| §6: outbox с арендой, `dedup_key`, `not_before` | Таблицы нет. Рассылка шлёт напрямую (`bot/handlers/broadcast.py:75`), уведомления о стоке — тоже (`bot/stock.py:60,64`) |
+| §6.5: `users.notify_from` | Колонки нет (`bot/db.py:61-74`) |
+| §10: Alembic | Собственный драйвер на `PRAGMA user_version` (`bot/db.py:226,280-300`) |
+| §10: сборка в GHCR, на сервере только `pull` | Сборка на боевой машине (`.github/workflows/deploy.yml:44`) |
+| §10: `/healthz` и `/readyz` в healthcheck компоуза | Healthcheck отсутствует в обоих файлах |
+| §10: пять пунктов тестов | Тестов ноль |
+| §11: `VerifiedPhone` как тип | `own_contact_phone(message) -> str | None` (`bot/handlers/onboarding.py:50`), `normalize_phone(raw) -> str | None` (`:28`) — обычный `str`, инвариант держится расположением кода |
 
 ### 7.2. Где код опережает документ
 
@@ -489,18 +489,16 @@ workflow не использует; не упоминает автодеплой
 
 ### 7.3. Чего в документе нет вообще, а в коде есть
 
-Четыре подсистемы не упомянуты в `.planning/research/ARCHITECTURE.md` ни разу —
-проверено грепом по v3 (строки 1–481): «аналитик», «сток», «остатк», «скидк»,
-«демо», «demo» — ноль совпадений на каждое. Пятая, локализация, документом
-покрыта (§7: «Тексты бота и веба в одном модуле `core` с измерением по локали»),
-поэтому ниже она приведена отдельной строкой как исключение:
+Все пять подсистем теперь описаны в архитектуре — v4 §7 «Подсистемы, уже
+живущие в коде». На момент сверки с v3 их там не было ни строкой, и этот раздел
+фиксировал расхождение; v4 его закрыл, включая правило изоляции демо-режима и
+роль стока как пилота outbox. Таблица ниже сохранена как карта «что где лежит в
+коде», а не как список пропущенного:
 
-| Подсистема | Код | Таблицы |
-|---|---|---|
 | Продуктовая аналитика | `bot/analytics.py`, 10 импортёров; агрегаты `bot/db.py:701-768` | `events` (`bot/db.py:154`) |
 | Мониторинг остатков и подписка «сообщить о поступлении» | `bot/stock.py` (151 строка), вечный цикл `:141-151` | `stock_levels` (`:152`), `stock_subscriptions` (`:162`) |
 | Запрос скидки | `bot/handlers/orders.py:589-619` | `discount_requests` (`:176`) |
-| Локализация ru/uk — **покрыта §7 документа** | `bot/i18n.py` (308 строк), `bot/middlewares.py`, 13 импортёров | `users.language` (`bot/db.py:67`) |
+| Локализация ru/uk — **покрыта §9 документа** | `bot/i18n.py` (308 строк), `bot/middlewares.py`, 13 импортёров | `users.language` (`bot/db.py:67`) |
 | Демо-режим для админа | `bot/handlers/demo.py` (141 строка) | использует `orders` с отдельным `source` |
 
 Плюс инфраструктурные модули без места в целевом списке: `bot/screen.py`
