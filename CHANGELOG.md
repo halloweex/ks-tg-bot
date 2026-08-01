@@ -107,11 +107,16 @@ best-effort: if the effect id is ever rejected the message goes again without
 it. `tzdata` added to requirements so the timezone resolves inside the slim
 image.
 
+### Verified live
+
+The menu keyboard and the toggle icon in the input row, on production, after
+the `is_persistent` fix.
+
 ### Not verified live
 
-The message-effect id and the screens were checked offline against fakes. The
-menu keyboard itself was confirmed on production, the hard way: the reply
-keyboard's toggle icon was the evidence that told us what the menu had to be.
+The message effect on restock messages (the id is only guarded by a retry
+without it), and the section screens — orders, delivery, favourites, the
+language switch — which were checked offline against fakes.
 
 ## 2026-07-29 … 07-31 — Customer-facing features, and a lot of measuring
 
