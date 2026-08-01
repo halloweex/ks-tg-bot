@@ -1,6 +1,12 @@
 # Secrets — never commit
 .env
 
+# Local agent permissions. Records verbatim command lines, which have carried
+# customer phone numbers as script arguments. A global ~/.config/git/ignore
+# already covers it on this machine — that protection travels with the machine,
+# not with the repository, so it is stated here too.
+.claude/settings.local.json
+
 # Server-specific backup target (see deploy/backup.env.example)
 deploy/backup.env
 
