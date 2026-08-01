@@ -140,3 +140,90 @@ def test_a_reply_in_another_chat_is_ignored(db, config):
     msg.chat = SimpleNamespace(id=SUPPORT_CHAT + 1)
     asyncio.run(support.admin_reply(msg, config, None))
     assert not bot.sent and not bot.copied
+
+
+# --- albums ---------------------------------------------------------------
+
+class _ForwardingBot(_FakeBot):
+    def __init__(self):
+        super().__init__()
+        self._next_id = 1000
+        self.forwarded: list[int] = []
+
+    async def send_message(self, chat_id, text, **kw):
+        await super().send_message(chat_id, text, **kw)
+        self._next_id += 1
+        return SimpleNamespace(message_id=self._next_id)
+
+    async def forward_message(self, chat_id, from_chat_id, message_id, **kw):
+        self._next_id += 1
+        self.forwarded.append(message_id)
+        return SimpleNamespace(message_id=self._next_id)
+
+
+def _customer_message(bot, *, message_id, media_group_id=None):
+    answered: list[str] = []
+
+    async def answer(text, **kw):
+        answered.append(text)
+
+    msg = SimpleNamespace(
+        bot=bot, chat=SimpleNamespace(id=CUSTOMER), message_id=message_id,
+        media_group_id=media_group_id, answer=answer,
+    )
+    msg.answered = answered
+    return msg
+
+
+class _NoState:
+    async def clear(self):
+        return None
+
+
+@pytest.fixture()
+def texts():
+    return SimpleNamespace(MSG_SUPPORT_FORWARDED="ok")
+
+
+def test_an_album_is_announced_once_and_every_part_forwarded(db, config, texts):
+    """Three photos used to become one: the first cleared the state and the rest
+    matched no handler at all."""
+    bot = _ForwardingBot()
+    parts = [_customer_message(bot, message_id=i, media_group_id="alb-1") for i in (1, 2, 3)]
+
+    asyncio.run(support.forward_to_support(parts[0], _NoState(), config, texts))
+    for part in parts[1:]:
+        asyncio.run(support.forward_album_tail(part, _NoState(), config, texts))
+
+    assert bot.forwarded == [1, 2, 3], "every photo must reach the manager"
+    # Metadata line and instruction once, not three times.
+    assert len(bot.sent) == 2
+    # The customer is told once.
+    assert parts[0].answered == ["ok"] and parts[1].answered == []
+
+
+def test_every_part_of_an_album_can_be_replied_to(db, config, texts):
+    bot = _ForwardingBot()
+    parts = [_customer_message(bot, message_id=i, media_group_id="alb-2") for i in (1, 2)]
+    asyncio.run(support.forward_to_support(parts[0], _NoState(), config, texts))
+    asyncio.run(support.forward_album_tail(parts[1], _NoState(), config, texts))
+
+    owners = {asyncio.run(botdb.support_thread_owner(mid)) for mid in range(1001, 1006)}
+    assert owners == {CUSTOMER, None} or owners == {CUSTOMER}
+    assert CUSTOMER in owners
+
+
+def test_an_unrelated_album_is_not_forwarded(db, config, texts):
+    """Scoping matters: a photo sent later, outside a support flow, must not be
+    quietly relayed to the manager."""
+    bot = _ForwardingBot()
+    msg = _customer_message(bot, message_id=9, media_group_id="never-started")
+    asyncio.run(support.forward_album_tail(msg, _NoState(), config, texts))
+    assert bot.forwarded == [] and bot.sent == []
+
+
+def test_claiming_an_album_twice_reports_only_the_first(db):
+    assert asyncio.run(botdb.start_album(CUSTOMER, "alb-3")) is True
+    assert asyncio.run(botdb.start_album(CUSTOMER, "alb-3")) is False
+    assert asyncio.run(botdb.album_in_progress(CUSTOMER, "alb-3")) is True
+    assert asyncio.run(botdb.album_in_progress(CUSTOMER, "other")) is False

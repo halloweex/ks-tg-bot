@@ -20,7 +20,8 @@ from bot.db import (CANCELLED_STATUS_GROUP, add_discount_request, add_stock_subs
                     get_cached_orders,
                     get_last_sync_time, get_stock_levels, get_subscribed_skus,
                     get_user_phone, recent_discount_request,
-                    remove_stock_subscription, save_user, upsert_orders)
+                    remember_support_thread, remove_stock_subscription,
+                    save_user, upsert_orders)
 from bot.screen import render, typing
 from bot.services.keycrm import KeyCRMClient, keycrm_order_to_dict
 from bot.services.shopify import ShopifyClient, shopify_order_to_dict
@@ -597,9 +598,15 @@ async def request_discount(
     ]
     lines += ["", escape(op.MSG_SUPPORT_REPLY_INSTRUCTION)]
     try:
-        await callback.bot.send_message(
+        sent = await callback.bot.send_message(
             config.support_chat_id, "\n".join(lines), parse_mode="HTML"
         )
+        # Same thread mechanism as support: a manager replying to this message
+        # reaches the customer. Without it the request carried only the chat_id
+        # printed in the text, so a reply landed nowhere unless the manager
+        # happened to reply to that exact line — the failure this whole table
+        # exists to remove.
+        await remember_support_thread([sent.message_id], chat_id)
     except Exception as exc:  # noqa: BLE001 — the customer must still get an answer
         logger.warning("Discount request not delivered to support: {}", exc)
 

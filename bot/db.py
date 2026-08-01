@@ -209,6 +209,20 @@ CREATE TABLE IF NOT EXISTS support_threads (
 """
 
 
+# An album arrives as several separate messages sharing a media_group_id, with
+# no signal marking the last one. This records that a chat's album is already
+# being forwarded, so the messages after the first join the same thread instead
+# of being dropped. Short-lived by nature — the parts arrive within a second.
+_CREATE_SUPPORT_ALBUMS = """
+CREATE TABLE IF NOT EXISTS support_albums (
+    chat_id        INTEGER NOT NULL,
+    media_group_id TEXT NOT NULL,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (chat_id, media_group_id)
+);
+"""
+
+
 # Conversation state, so a deploy does not drop everyone mid-flow. One row per
 # conversation; the key is built in bot/fsm_storage.py from every field aiogram
 # uses to tell conversations apart.
@@ -260,7 +274,7 @@ CREATE TABLE IF NOT EXISTS discount_requests (
 # It could not express this change (SQLite cannot alter a UNIQUE constraint),
 # and it silently swallowed real failures — a full disk logged success.
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 async def _columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -401,6 +415,11 @@ async def _migration_5_fsm_state(db: aiosqlite.Connection) -> None:
     await db.execute(_CREATE_FSM_STATE)
 
 
+async def _migration_6_support_albums(db: aiosqlite.Connection) -> None:
+    """Track an album already being forwarded, so its later parts are not lost."""
+    await db.execute(_CREATE_SUPPORT_ALBUMS)
+
+
 # (version, name, coroutine). Append only; never edit one that has shipped.
 _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (1, "late columns", _migration_1_late_columns),
@@ -408,6 +427,7 @@ _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (3, "merge_key identity", _migration_3_merge_key),
     (4, "support threads", _migration_4_support_threads),
     (5, "persistent fsm state", _migration_5_fsm_state),
+    (6, "support albums", _migration_6_support_albums),
 )
 
 
@@ -461,6 +481,7 @@ async def init_db() -> None:
         await db.execute(_CREATE_DISCOUNT_REQUESTS)
         await db.execute(_CREATE_SUPPORT_THREADS)
         await db.execute(_CREATE_FSM_STATE)
+        await db.execute(_CREATE_SUPPORT_ALBUMS)
 
         if fresh:
             # The CREATE statements above deliberately keep their original
@@ -798,6 +819,42 @@ async def remember_support_thread(admin_message_ids: list[int], chat_id: int) ->
             (f"-{_SUPPORT_THREAD_TTL_DAYS} days",),
         )
         await db.commit()
+
+
+# An album's parts arrive within a second of each other. An hour is generous and
+# keeps the table from holding anything meaningful for long.
+_ALBUM_TTL_MINUTES = 60
+
+
+async def start_album(chat_id: int, media_group_id: str) -> bool:
+    """Claim an album for this chat. True if this is its first message.
+
+    The insert is the claim: a second caller for the same album conflicts and
+    gets False, so only one message of an album triggers the metadata line and
+    the confirmation to the customer.
+    """
+    async with _connect() as db:
+        cursor = await db.execute(
+            "INSERT OR IGNORE INTO support_albums (chat_id, media_group_id) "
+            "VALUES (?, ?)",
+            (chat_id, media_group_id),
+        )
+        first = cursor.rowcount == 1
+        await db.execute(
+            "DELETE FROM support_albums WHERE created_at < datetime('now', ?)",
+            (f"-{_ALBUM_TTL_MINUTES} minutes",),
+        )
+        await db.commit()
+        return first
+
+
+async def album_in_progress(chat_id: int, media_group_id: str) -> bool:
+    async with _connect() as db:
+        cursor = await db.execute(
+            "SELECT 1 FROM support_albums WHERE chat_id = ? AND media_group_id = ?",
+            (chat_id, media_group_id),
+        )
+        return await cursor.fetchone() is not None
 
 
 async def support_thread_owner(admin_message_id: int) -> int | None:

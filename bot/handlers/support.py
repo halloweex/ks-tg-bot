@@ -12,7 +12,8 @@ from loguru import logger
 from bot.i18n import Texts, customer_texts, operator_texts
 from bot.analytics import track
 from bot.config import AppConfig
-from bot.db import get_user_language, remember_support_thread, support_thread_owner
+from bot.db import (album_in_progress, get_user_language, remember_support_thread,
+                    start_album, support_thread_owner)
 from bot.states import SupportStates
 
 router = Router()
@@ -25,46 +26,91 @@ async def forward_to_support(
     config: AppConfig,
     t: Texts,
 ) -> None:
-    """Forward user's message to admin chat with metadata."""
+    """Forward user's message to admin chat with metadata.
+
+    An album is several messages sharing a media_group_id, and Telegram gives no
+    signal for the last one. Only the first claims the album; the rest are
+    forwarded into the same thread without repeating the metadata line, the
+    instruction or the confirmation to the customer. Before this, the state was
+    cleared by the first part and every later photo matched no handler at all,
+    so a customer sending three photos had two of them disappear.
+    """
     bot = message.bot
+    album = message.media_group_id
+    first_of_album = True
+    if album:
+        first_of_album = await start_album(message.chat.id, album)
 
     # These two go to the support chat, not to the customer. `t` is the
     # customer's language — using it here made the managers' own note and
     # instructions change language depending on who happened to write in.
     op = operator_texts()
 
-    # Send metadata line with chat_id (privacy-safe identifier)
-    note = await bot.send_message(
-        chat_id=config.support_chat_id,
-        text=op.MSG_SUPPORT_ADMIN_NOTE.format(chat_id=message.chat.id),
-    )
+    thread_ids: list[int] = []
 
-    # Forward the actual message
+    if first_of_album:
+        # Send metadata line with chat_id (privacy-safe identifier)
+        note = await bot.send_message(
+            chat_id=config.support_chat_id,
+            text=op.MSG_SUPPORT_ADMIN_NOTE.format(chat_id=message.chat.id),
+        )
+        thread_ids.append(note.message_id)
+
+    # Forward the actual message. forward_message carries whatever the customer
+    # sent — photo, voice, video note, document — so attachments reach the
+    # manager unchanged in this direction.
     forwarded = await bot.forward_message(
         chat_id=config.support_chat_id,
         from_chat_id=message.chat.id,
         message_id=message.message_id,
     )
+    thread_ids.append(forwarded.message_id)
 
-    # Send instruction for replying
-    instruction = await bot.send_message(
-        chat_id=config.support_chat_id,
-        text=op.MSG_SUPPORT_REPLY_INSTRUCTION,
-    )
+    if first_of_album:
+        # Send instruction for replying
+        instruction = await bot.send_message(
+            chat_id=config.support_chat_id,
+            text=op.MSG_SUPPORT_REPLY_INSTRUCTION,
+        )
+        thread_ids.append(instruction.message_id)
 
-    # All three, because a manager replies to whichever of them is under their
-    # thumb — most often the forwarded text, which is the one that carries no
-    # usable sender when the customer has forwarding privacy on.
-    await remember_support_thread(
-        [note.message_id, forwarded.message_id, instruction.message_id],
-        message.chat.id,
-    )
+    # Every bot-sent message of the request, because a manager replies to
+    # whichever is under their thumb — most often the forwarded one, which is
+    # exactly the one carrying no usable sender when the customer has
+    # forwarding privacy on. Each part of an album is registered too, so a
+    # reply to any photo reaches the right person.
+    await remember_support_thread(thread_ids, message.chat.id)
+
+    if not first_of_album:
+        # A later part of an album: already confirmed, state already cleared.
+        return
 
     # Confirm to user and return to main menu
     await state.clear()
     track(message.chat.id, "support_message_sent")
     # No keyboard to attach: the menu is already under the input field.
     await message.answer(t.MSG_SUPPORT_FORWARDED)
+
+
+@router.message(StateFilter(None), F.media_group_id)
+async def forward_album_tail(
+    message: Message,
+    state: FSMContext,
+    config: AppConfig,
+    t: Texts,
+) -> None:
+    """Later parts of an album whose first part already cleared the state.
+
+    Without this they match nothing: the state filter above no longer applies
+    and there is no other handler for a photo. Scoped to an album this chat is
+    already sending, so an unrelated album sent later is not silently forwarded
+    to support.
+    """
+    if message.chat.id == config.support_chat_id:
+        return
+    if not await album_in_progress(message.chat.id, message.media_group_id):
+        return
+    await forward_to_support(message, state, config, t)
 
 
 async def _reply_target(replied: Message | None) -> int | None:
