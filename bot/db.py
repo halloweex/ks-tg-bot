@@ -191,6 +191,24 @@ CREATE TABLE IF NOT EXISTS stock_subscriptions (
 """
 
 
+# Which customer a message in the support chat belongs to. Every bot-sent
+# message of one support request is recorded — the metadata line, the forwarded
+# copy and the instruction — so a manager replying to any of the three reaches
+# the right person.
+#
+# Replaces guessing from the message itself. `forward_from` is empty whenever
+# the customer has forwarding privacy on, which is the default for many, and
+# the metadata line is only readable if the manager happened to reply to that
+# particular message rather than to the forwarded text.
+_CREATE_SUPPORT_THREADS = """
+CREATE TABLE IF NOT EXISTS support_threads (
+    admin_message_id INTEGER PRIMARY KEY,
+    chat_id          INTEGER NOT NULL,
+    created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
+
 # A customer asking for a discount on what they buy most. Deliberately a request
 # a manager answers, not an automatically issued code: there is no discount
 # policy yet, and inventing one in the bot would commit the business to it.
@@ -229,7 +247,7 @@ CREATE TABLE IF NOT EXISTS discount_requests (
 # It could not express this change (SQLite cannot alter a UNIQUE constraint),
 # and it silently swallowed real failures — a full disk logged success.
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 async def _columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -352,11 +370,22 @@ async def _migration_3_merge_key(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _migration_4_support_threads(db: aiosqlite.Connection) -> None:
+    """Add the table that maps a support-chat message to its customer.
+
+    Nothing to backfill: the mapping for messages sent before this existed
+    cannot be reconstructed, so old threads keep falling back to the two
+    guesses in the handler until they age out of use.
+    """
+    await db.execute(_CREATE_SUPPORT_THREADS)
+
+
 # (version, name, coroutine). Append only; never edit one that has shipped.
 _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (1, "late columns", _migration_1_late_columns),
     (2, "orders owned per chat", _migration_2_orders_owned_per_chat),
     (3, "merge_key identity", _migration_3_merge_key),
+    (4, "support threads", _migration_4_support_threads),
 )
 
 
@@ -408,6 +437,7 @@ async def init_db() -> None:
         await db.execute(_CREATE_STOCK_LEVELS)
         await db.execute(_CREATE_STOCK_SUBSCRIPTIONS)
         await db.execute(_CREATE_DISCOUNT_REQUESTS)
+        await db.execute(_CREATE_SUPPORT_THREADS)
 
         if fresh:
             # The CREATE statements above deliberately keep their original
@@ -675,6 +705,39 @@ async def upsert_orders(chat_id: int, orders: list[dict]) -> None:
             values = tuple(row.get(col, "") for col in _ORDER_COLUMNS)
             await db.execute(_UPSERT_SQL, values)
         await db.commit()
+
+
+# Support threads older than this are never replied to in practice, and the
+# table would otherwise grow for the life of the bot.
+_SUPPORT_THREAD_TTL_DAYS = 90
+
+
+async def remember_support_thread(admin_message_ids: list[int], chat_id: int) -> None:
+    """Record which customer a set of support-chat messages belongs to."""
+    if not admin_message_ids:
+        return
+    async with _connect() as db:
+        await db.executemany(
+            "INSERT OR REPLACE INTO support_threads (admin_message_id, chat_id) "
+            "VALUES (?, ?)",
+            [(mid, chat_id) for mid in admin_message_ids],
+        )
+        await db.execute(
+            "DELETE FROM support_threads WHERE created_at < datetime('now', ?)",
+            (f"-{_SUPPORT_THREAD_TTL_DAYS} days",),
+        )
+        await db.commit()
+
+
+async def support_thread_owner(admin_message_id: int) -> int | None:
+    """The customer behind a message in the support chat, or None if unknown."""
+    async with _connect() as db:
+        cursor = await db.execute(
+            "SELECT chat_id FROM support_threads WHERE admin_message_id = ?",
+            (admin_message_id,),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None
 
 
 async def get_cached_orders(chat_id: int) -> list[dict]:
