@@ -85,13 +85,37 @@ class NovaPoshtaClient:
         try:
             async with httpx.AsyncClient() as client:
                 doc = None
+                last_status_error: httpx.HTTPStatusError | None = None
                 for api_key in self._key_order(ttn):
-                    doc = await self._track_with(client, api_key, ttn, phone)
+                    try:
+                        doc = await self._track_with(client, api_key, ttn, phone)
+                    except httpx.HTTPStatusError as exc:
+                        # 401, 403 and 429 are answers about this key, so the
+                        # next one is worth trying — this is the failover the
+                        # docstring above promises. Until this except existed,
+                        # raise_for_status() threw straight out of the loop and
+                        # a single rate-limited key hid the parcel entirely.
+                        #
+                        # Deliberately narrower than httpx.HTTPError: a connect
+                        # error or a timeout is about the host, and every key
+                        # posts to the same API_URL, so retrying would only
+                        # multiply a 10-second wait by the number of keys —
+                        # inside a Telegram handler that already loops over
+                        # every parcel in the order list.
+                        last_status_error = exc
+                        doc = None
+                        continue
                     if doc is not None:
                         self._key_for_ttn[ttn] = api_key
                         break
                 if doc is None:
-                    logger.warning("Nova Poshta: no data for TTN {}", ttn)
+                    if last_status_error is not None:
+                        logger.error(
+                            "Nova Poshta: every key failed for TTN {}, last: {}",
+                            ttn, last_status_error,
+                        )
+                    else:
+                        logger.warning("Nova Poshta: no data for TTN {}", ttn)
                     return None
 
                 return TrackingStatus(
