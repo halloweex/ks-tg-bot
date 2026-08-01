@@ -37,7 +37,12 @@ async def main() -> None:
 
     # Load config (reads .env + config.yaml)
     config = load_config()
-    setup_logging(config.env.log_level)
+    setup_logging(config.env.log_level, phone_salt=config.env.log_phone_salt)
+    if not config.env.log_phone_salt:
+        logger.warning(
+            "LOG_PHONE_SALT is not set — phone digests in the log are "
+            "brute-forceable and must not leave this machine"
+        )
     logger.info("Config loaded. Brand: {}", config.brand_name)
 
     # Create Bot instance with HTML parse mode

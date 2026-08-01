@@ -29,6 +29,12 @@ class EnvSettings(BaseSettings):
     # INFO in production. DEBUG prints, among other things, the buyer-profile
     # sync failures — see bot/logs.py for what happens to numbers on the way out.
     log_level: str = "INFO"
+    # Key for the phone digests in the log. Without it the mask is reversible:
+    # the Ukrainian mobile space is ~10^9 numbers and the digest is 24 bits, so
+    # the whole space enumerates in seconds. Only matters once logs leave this
+    # machine — which is what Sentry in the plan means. Any long random string;
+    # changing it renumbers every digest, so set it once.
+    log_phone_salt: str = ""
 
     @property
     def novaposhta_keys(self) -> list[str]:

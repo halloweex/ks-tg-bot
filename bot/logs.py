@@ -31,14 +31,22 @@ from loguru import logger
 _PHONE_RE = re.compile(r"(?<![\d+])\+?(?:38)?0\d{9}(?!\d)")
 
 
+# Keyed, not plain. Ukrainian mobile space is on the order of 10^9 numbers and
+# a 24-bit digest is nothing: an unsalted mask is reversible by enumerating the
+# whole space in seconds. That does not matter while logs sit on one machine —
+# it matters the moment they leave it, and Sentry is in the plan. Logs travel,
+# the key does not.
+_SALT = b""
+
+
 def _mask(match: re.Match[str]) -> str:
-    """Replace a number with a stable short digest of it.
+    """Replace a number with a stable keyed digest of it.
 
     Stable, so two lines about the same customer can still be tied together;
-    a digest, so the number cannot be read back out.
+    keyed, so the number cannot be recovered by brute force from the digest.
     """
     digits = re.sub(r"\D", "", match.group(0))[-10:]
-    return f"<phone:{hashlib.sha256(digits.encode()).hexdigest()[:6]}>"
+    return f"<phone:{hashlib.sha256(_SALT + digits.encode()).hexdigest()[:6]}>"
 
 
 def _masked_stderr(message: object) -> None:
@@ -67,13 +75,19 @@ def _masked_thread_excepthook(args) -> None:
     _masked_excepthook(args.exc_type, args.exc_value, args.exc_traceback)
 
 
-def setup_logging(level: str = "INFO") -> None:
+def setup_logging(level: str = "INFO", *, phone_salt: str = "") -> None:
     """Replace loguru's default handler. Idempotent — safe to call again.
 
     Called twice on startup: once before the config is read, so a crash inside
     load_config() cannot print the environment it was reading, and once after,
-    to apply LOG_LEVEL.
+    to apply LOG_LEVEL and the salt. Digests from the first call differ from the
+    second; the window is the few milliseconds it takes to read a file.
+
+    An empty salt still hides the number from a reader but not from a search,
+    so the caller warns about it — see bot/__main__.py.
     """
+    global _SALT
+    _SALT = phone_salt.encode()
     logger.remove()
     logger.add(
         _masked_stderr,
