@@ -14,9 +14,52 @@ concurrency:
   group: deploy-production
   cancel-in-progress: false
 
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
 jobs:
-  deploy:
+  # Build here, not on the production host. Building there meant a failed build
+  # took the bot down with no previous tag to return to, because the image was
+  # always rebuilt under the same name.
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: meta
+        run: echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # Two tags on purpose: the sha is what actually runs and what a
+          # rollback names; latest is only a convenience for a manual pull.
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.meta.outputs.tag }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
 
@@ -27,22 +70,51 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
 
-      - name: Sync code to server
+      # Only what the server runs from. The application code now arrives inside
+      # the image, so syncing it too would let the files on disk drift away from
+      # the running container and mean nothing.
+      - name: Sync compose and deploy scripts
         run: |
           rsync -az --delete \
             -e "ssh -i ~/.ssh/deploy_key" \
-            --exclude '.git' --exclude '.github' --exclude '.venv' \
-            --exclude '__pycache__' --exclude '*.pyc' \
-            --exclude '.env' --exclude 'data' --exclude 'backups' \
-            --exclude 'deploy/backup.env' \
-            --exclude '*.db' --exclude '*.db-wal' --exclude '*.db-shm' \
-            --exclude '.planning' \
-            ./ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/opt/ks-tg-bot/"
+            --exclude 'backup.env' \
+            docker-compose.yml deploy \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/opt/ks-tg-bot/"
 
-      - name: Build & restart container
+      - name: Pull and restart
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ACTOR: ${{ github.actor }}
         run: |
-          ssh -i ~/.ssh/deploy_key "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
-            'cd /opt/ks-tg-bot && docker compose up -d --build && docker compose ps'
+          ssh -i ~/.ssh/deploy_key \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "IMAGE='${{ env.IMAGE }}' TAG='$TAG' GH_TOKEN='$GH_TOKEN' GH_ACTOR='$GH_ACTOR' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd /opt/ks-tg-bot
+
+          # The login persists in ~/.docker/config.json, so a later manual pull
+          # for a rollback works without going back to Actions for a token.
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
+
+          docker pull "$IMAGE:$TAG"
+
+          # Pin the running version in .env so it survives a bare `up -d` and a
+          # reboot. Without this a rollback would silently jump back to latest
+          # the next time anyone ran compose by hand.
+          if grep -q '^IMAGE_TAG=' .env; then
+            sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=$TAG|" .env
+          else
+            printf '\nIMAGE_TAG=%s\n' "$TAG" >> .env
+          fi
+
+          # Sequential by construction: one replica, so compose stops the old
+          # container before starting the new one. Two overlapping long-pollers
+          # on one token give the second a 409 from Telegram, and nothing in the
+          # code handles it. Do not scale this service.
+          docker compose up -d --remove-orphans
+          docker compose ps
+          REMOTE
 
       - name: Health check
         run: |
@@ -52,6 +124,19 @@ jobs:
             sleep 5
             status=$(docker inspect -f "{{.State.Status}}" ks-tg-bot)
             echo "container status: $status"
-            docker compose logs --tail 20
+            docker compose logs --tail 30
             [ "$status" = "running" ] || { echo "::error::container not running"; exit 1; }
+            # The line the bot prints once startup finished. Status alone only
+            # says the process exists; it can be five seconds away from dying on
+            # a failed migration.
+            docker compose logs --tail 100 | grep -q "Bot started successfully" \
+              || { echo "::error::startup never completed"; exit 1; }
           '
+
+      - name: How to roll back
+        if: failure()
+        run: |
+          echo "::error::Deploy failed. On the server:"
+          echo "  cd /opt/ks-tg-bot && IMAGE_TAG=<previous-sha-tag> docker compose up -d"
+          echo "  previous tags: docker images ${{ env.IMAGE }} --format '{{.Tag}}'"
+          echo "See deploy/README.md."

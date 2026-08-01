@@ -153,12 +153,16 @@ propagate and wipe the off-site history.
 
 ## Updating to new code
 
-```bash
-cd /opt/ks-tg-bot
-git pull --ff-only
-docker compose up -d --build     # rebuilds image, recreates container, keeps the volume
-docker compose logs -f
-```
+**Automatic.** A push to `master` builds the image in GitHub Actions, pushes it
+to GHCR and makes the server pull it. Nothing is built on this machine any more.
+The runbook — including how to roll back in one command — is in
+[README.md](README.md).
+
+The instructions that used to be here (`git pull --ff-only` followed by
+`docker compose up -d --build`) are not just outdated, they now break things:
+the compose file names a registry image pinned by `IMAGE_TAG`, so `--build`
+would put a locally built image under a tag that means something else, and the
+working tree on the server is no longer the source of what runs.
 
 ## Common operations
 

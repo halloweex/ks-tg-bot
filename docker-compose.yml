@@ -1,8 +1,13 @@
 services:
   bot:
-    build: .
-    image: ks-tg-bot
+    # Built and pushed by .github/workflows/deploy.yml; the server only pulls.
+    # IMAGE_TAG is written into .env by the deploy and names the exact build
+    # that is running, which is what makes a rollback one command.
+    image: ghcr.io/halloweex/ks-tg-bot:${IMAGE_TAG:-latest}
     container_name: ks-tg-bot
+    # One replica, always. Two long-pollers on one token give the second a 409
+    # from Telegram, and FSM state lives in process memory (bot/__main__.py:49),
+    # so a second instance would also lose every conversation in flight.
     restart: always
     # Secrets are read from .env and injected as environment variables;
     # pydantic-settings picks them up automatically.
