@@ -22,7 +22,11 @@ jobs:
   # took the bot down with no previous tag to return to, because the image was
   # always rebuilt under the same name.
   build:
-    runs-on: ubuntu-latest
+    # arm64 runner, because the server is arm64 — the first GHCR deploy failed
+    # with "no matching manifest for linux/arm64/v8". Building natively rather
+    # than cross-building under QEMU: this repository is public, so GitHub's
+    # arm runners cost nothing, and emulated pip installs are minutes slower.
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       packages: write
@@ -46,6 +50,7 @@ jobs:
         with:
           context: .
           push: true
+          platforms: linux/arm64
           # Two tags on purpose: the sha is what actually runs and what a
           # rollback names; latest is only a convenience for a manual pull.
           tags: |
