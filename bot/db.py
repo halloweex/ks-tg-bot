@@ -9,6 +9,8 @@ from typing import AsyncIterator
 import aiosqlite
 from loguru import logger
 
+from bot.merge import merge_key, source_rank
+
 # Configurable so the DB can live on a mounted volume in Docker.
 # Defaults to a file in the working directory for local runs.
 DB_PATH = Path(os.getenv("BOT_DB_PATH", "bot_data.db"))
@@ -96,6 +98,10 @@ CREATE TABLE IF NOT EXISTS {name} (
     source          TEXT NOT NULL,
     source_order_id TEXT NOT NULL,
     external_id     TEXT DEFAULT '',
+    -- Identity of the physical order across systems, and which source's data
+    -- currently occupies the row. See bot/merge.py.
+    merge_key       TEXT NOT NULL DEFAULT '',
+    source_rank     INTEGER NOT NULL DEFAULT 0,
     order_name      TEXT DEFAULT '',
     status_name     TEXT DEFAULT '',
     status_group_id INTEGER DEFAULT 0,
@@ -118,7 +124,7 @@ CREATE TABLE IF NOT EXISTS {name} (
 
 # external_id: the same physical order seen in two systems shares this id
 # (Shopify's numeric order id, which KeyCRM mirrors as global_source_uuid).
-# Empty for orders that exist in one system only. See _DELETE_SHADOWED.
+# Empty for orders that exist in one system only. Feeds merge_key (bot/merge.py).
 _CREATE_ORDERS = _ORDERS_TABLE_SQL.format(name="orders")
 
 
@@ -223,7 +229,7 @@ CREATE TABLE IF NOT EXISTS discount_requests (
 # It could not express this change (SQLite cannot alter a UNIQUE constraint),
 # and it silently swallowed real failures — a full disk logged success.
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 async def _columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -276,10 +282,67 @@ async def _migration_2_orders_owned_per_chat(db: aiosqlite.Connection) -> None:
     await db.execute("ALTER TABLE orders_migrated RENAME TO orders")
 
 
+async def _migration_3_merge_key(db: aiosqlite.Connection) -> None:
+    """Give every order a cross-system identity and collapse the duplicates.
+
+    Replaces _DELETE_SHADOWED, which deleted the Shopify copy on every refresh
+    for as long as the bot ran. A unique index does the same job once, in the
+    schema, where it also stops the duplicate being written in the first place.
+
+    The index is scoped to (chat_id, merge_key) and not to merge_key alone,
+    which is what docs/architecture.md 3.1 asks for. Orders still belong to a
+    chat and are still fetched per chat; a global key would mean two accounts
+    sharing a phone collapse onto one row, which is the bug migration 2 exists
+    to fix. It widens to a global key in the stage that makes orders.user_id
+    nullable, and not before.
+    """
+    from bot.merge import merge_key as _key, source_rank as _rank
+
+    existing = await _columns(db, "orders")
+    for column, decl in (("merge_key", "TEXT NOT NULL DEFAULT ''"),
+                         ("source_rank", "INTEGER NOT NULL DEFAULT 0")):
+        if column not in existing:
+            await db.execute(f"ALTER TABLE orders ADD COLUMN {column} {decl}")
+
+    cursor = await db.execute(
+        "SELECT id, source, source_order_id, external_id FROM orders")
+    rows = await cursor.fetchall()
+    for row_id, source, source_order_id, external_id in rows:
+        await db.execute(
+            "UPDATE orders SET merge_key = ?, source_rank = ? WHERE id = ?",
+            (_key(source, source_order_id, external_id), _rank(source), row_id),
+        )
+
+    # Collapse what _DELETE_SHADOWED used to sweep on every refresh: within one
+    # chat, keep the highest-ranked copy of each key, oldest id breaking ties so
+    # the id an on-screen button carries survives where it can.
+    await db.execute(
+        "DELETE FROM orders WHERE id NOT IN ("
+        "  SELECT id FROM orders o WHERE o.id = ("
+        "    SELECT i.id FROM orders i"
+        "     WHERE i.chat_id = o.chat_id AND i.merge_key = o.merge_key"
+        "     ORDER BY i.source_rank DESC, i.id ASC LIMIT 1))"
+    )
+    # Partial on purpose. An image rolled back past this migration runs code
+    # that knows nothing about merge_key, writes '' for every order and uses
+    # INSERT OR REPLACE — so a full index would make each order replace the
+    # previous one and leave the chat holding a single row. Silently, because
+    # REPLACE resolves the conflict instead of raising. Measured on a copy of
+    # production: three orders in, one row out. Excluding the empty key leaves
+    # those writes to the table's own UNIQUE(chat_id, source, source_order_id),
+    # which is exactly what the old code expects, and a rollback is boring
+    # again.
+    await db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_merge "
+        "ON orders(chat_id, merge_key) WHERE merge_key != ''"
+    )
+
+
 # (version, name, coroutine). Append only; never edit one that has shipped.
 _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (1, "late columns", _migration_1_late_columns),
     (2, "orders owned per chat", _migration_2_orders_owned_per_chat),
+    (3, "merge_key identity", _migration_3_merge_key),
 )
 
 
@@ -342,6 +405,11 @@ async def init_db() -> None:
         # Order lookups always filter by chat_id; without this they full-scan.
         await db.execute(
             "CREATE INDEX IF NOT EXISTS ix_orders_chat_id ON orders(chat_id)"
+        )
+        # One row per physical order per chat. Replaces the per-refresh sweep.
+        await db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_merge "
+            "ON orders(chat_id, merge_key) WHERE merge_key != ''"
         )
         # Cross-system dedup matches rows by external_id within one user.
         await db.execute(
@@ -495,12 +563,24 @@ async def get_broadcast_recipients() -> list[int]:
 
 
 _ORDER_COLUMNS = (
-    "chat_id", "source", "source_order_id", "external_id", "order_name",
+    "chat_id", "merge_key", "source", "source_order_id", "source_rank",
+    "external_id", "order_name",
     "status_name", "status_group_id", "grand_total", "currency", "ordered_at",
     "products_json",
     "buyer_name", "payment_status", "tracking_code", "shipping_status",
     "delivery_city", "receive_point", "recipient_name",
 )
+
+# On conflict, whose value wins.
+#   _PRIORITY  — the reporting system's own view of the order. Overwritten only
+#                by a source at least as authoritative (KeyCRM over Shopify).
+#   _KEEP_BEST — a value one source has and the other does not; a non-empty
+#                incoming value fills a gap, an empty one never erases.
+_PRIORITY = ("source", "source_order_id", "status_name", "status_group_id",
+             "grand_total", "currency", "ordered_at", "products_json",
+             "buyer_name", "payment_status", "tracking_code", "shipping_status",
+             "delivery_city", "receive_point", "recipient_name")
+_KEEP_BEST = ("external_id", "order_name")
 
 # Seeded by the /demo admin command, never by a sync. Kept out of the real
 # sources so it can be deleted precisely and can never collide with a genuine
@@ -512,44 +592,69 @@ DEMO_SOURCE = "demo"
 # it were on its way.
 CANCELLED_STATUS_GROUP = 6
 
-# A Shopify row is redundant once KeyCRM reports the same order: KeyCRM is the
-# operational system of record (fulfilment status, tracking code, delivery
-# point), and it carries the store order number too, so nothing is lost.
-_DELETE_SHADOWED = """
-DELETE FROM orders
- WHERE chat_id = ?
-   AND source = 'shopify'
-   AND external_id != ''
-   AND external_id IN (
-         SELECT external_id FROM orders
-          WHERE chat_id = ? AND source = 'keycrm' AND external_id != ''
-       )
-"""
+def _build_upsert() -> str:
+    """INSERT ... ON CONFLICT, assembled from the column policy above.
+
+    Written out rather than hand-typed because it is twenty near-identical CASE
+    expressions and a single wrong column name would silently stop one field
+    from ever updating.
+
+    GREATEST is not used: SQLite has no such function and PostgreSQL's max() is
+    an aggregate, so CASE WHEN is the only form that survives the move to
+    Postgres unchanged. Verified on sqlite 3.51.2.
+    """
+    cols = ", ".join(_ORDER_COLUMNS)
+    placeholders = ", ".join("?" for _ in _ORDER_COLUMNS)
+    wins = "excluded.source_rank >= orders.source_rank"
+    sets = [f"{c} = CASE WHEN {wins} THEN excluded.{c} ELSE orders.{c} END"
+            for c in _PRIORITY]
+    sets += [f"{c} = CASE WHEN excluded.{c} != '' THEN excluded.{c} ELSE orders.{c} END"
+             for c in _KEEP_BEST]
+    sets.append("source_rank = CASE WHEN excluded.source_rank > orders.source_rank "
+                "THEN excluded.source_rank ELSE orders.source_rank END")
+    sets.append("synced_at = datetime('now')")
+    return (
+        f"INSERT INTO orders ({cols}, synced_at) "
+        f"VALUES ({placeholders}, datetime('now')) "
+        # The WHERE repeats the partial index's predicate: SQLite refuses the
+        # conflict target otherwise ("does not match any PRIMARY KEY or UNIQUE
+        # constraint"), and PostgreSQL needs the same to pick a partial index.
+        f"ON CONFLICT(chat_id, merge_key) WHERE merge_key != '' "
+        f"DO UPDATE SET " + ", ".join(sets)
+    )
+
+
+_UPSERT_SQL = _build_upsert()
 
 
 async def upsert_orders(chat_id: int, orders: list[dict]) -> None:
     """Bulk upsert orders from API results into the local cache.
 
-    Each dict must have keys matching _ORDER_COLUMNS.
-    Uses INSERT OR REPLACE keyed on UNIQUE(source, source_order_id).
+    Each dict must have keys matching _ORDER_COLUMNS. Rows are keyed by
+    merge_key (bot/merge.py), so the same physical order reported by both
+    systems lands on one row whichever arrives first, and the more
+    authoritative source's values are the ones kept.
 
-    Afterwards drops any Shopify row shadowed by a KeyCRM row for the same
-    physical order, so one order is never shown twice with two statuses. The
-    sweep runs on every refresh, which also cleans out duplicates written by
-    earlier versions of the bot.
+    This replaced a delete-the-Shopify-copy sweep that ran after every refresh.
+    A unique index does the job once, in the schema, and also refuses to write
+    the duplicate rather than cleaning it up afterwards.
     """
     if not orders:
         return
-    placeholders = ", ".join("?" for _ in _ORDER_COLUMNS)
-    sql = (
-        f"INSERT OR REPLACE INTO orders ({', '.join(_ORDER_COLUMNS)}, synced_at) "
-        f"VALUES ({placeholders}, datetime('now'))"
-    )
     async with _connect() as db:
         for order in orders:
-            values = tuple(order.get(col, "") for col in _ORDER_COLUMNS)
-            await db.execute(sql, values)
-        await db.execute(_DELETE_SHADOWED, (chat_id, chat_id))
+            row = dict(order)
+            # Derived here and nowhere else. Letting callers pass merge_key
+            # would mean a caller that forgets it writes an empty one, and an
+            # empty key is shared by every such row — the unique index would
+            # then collapse unrelated orders into one. Found exactly that way.
+            row["merge_key"] = merge_key(
+                row.get("source", ""), str(row.get("source_order_id", "")),
+                row.get("external_id") or None,
+            )
+            row["source_rank"] = source_rank(row.get("source", ""))
+            values = tuple(row.get(col, "") for col in _ORDER_COLUMNS)
+            await db.execute(_UPSERT_SQL, values)
         await db.commit()
 
 

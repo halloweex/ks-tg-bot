@@ -377,14 +377,9 @@ async def _do_refresh_orders(
     shopify_result = results[1]
 
     db_rows: list[dict] = []
-    # External ids of orders KeyCRM already knows about. Anything Shopify
-    # returns with a matching id is the same physical order, and would
-    # otherwise be listed twice with two different statuses.
-    keycrm_external_ids: set[str] = set()
 
     if not isinstance(keycrm_result, Exception):
         db_rows.extend(keycrm_order_to_dict(o, chat_id) for o in keycrm_result)
-        keycrm_external_ids = {o.external_id for o in keycrm_result if o.external_id}
         # Silent buyer profile refresh
         if keycrm_result:
             first = keycrm_result[0]
@@ -395,22 +390,14 @@ async def _do_refresh_orders(
                         full_name=first.buyer_name or None,
                         email=first.buyer_email or None,
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
 
     if not isinstance(shopify_result, Exception):
-        skipped = 0
-        for order in shopify_result:
-            row = shopify_order_to_dict(order, chat_id)
-            if row["external_id"] and row["external_id"] in keycrm_external_ids:
-                skipped += 1
-                continue
-            db_rows.append(row)
-        if skipped:
-            logger.debug(
-                "Deduped {} Shopify order(s) already present in KeyCRM for chat {}",
-                skipped, chat_id,
-            )
+        # No filtering against the KeyCRM ids any more: both sources write the
+        # same merge_key for the same physical order, so the unique index keeps
+        # one row and the priority in the upsert decides whose values it holds.
+        db_rows.extend(shopify_order_to_dict(o, chat_id) for o in shopify_result)
 
     if db_rows:
         await upsert_orders(chat_id, db_rows)

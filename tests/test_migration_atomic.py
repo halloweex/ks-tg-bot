@@ -15,6 +15,7 @@ import sys
 
 import pytest
 
+from bot import db as botdb
 from tests.conftest import REPO_ROOT
 
 # The pre-migration shape: unique key without chat_id, no external_id.
@@ -128,13 +129,11 @@ def test_restart_after_crash_migrates_unattended(v1_db):
         capture_output=True,
         text=True,
     )
-    from bot import db as botdb
-
     botdb.DB_PATH = v1_db
     asyncio.run(botdb.init_db())
 
     after = _probe(v1_db)
-    assert after["user_version"] == 2
+    assert after["user_version"] == botdb.SCHEMA_VERSION
     assert after["orders"] == 25
     assert not after["leftover"]
     assert "chat_id" in after["unique_sql"]
@@ -149,20 +148,16 @@ def test_wal_survives_the_transactional_block(v1_db):
     disables WAL with no error anywhere — the regression this pins is a silent
     one.
     """
-    from bot import db as botdb
-
     botdb.DB_PATH = v1_db
     asyncio.run(botdb.init_db())
     assert _probe(v1_db)["journal_mode"] == "wal"
 
 
 def test_init_db_is_idempotent(v1_db):
-    from bot import db as botdb
-
     botdb.DB_PATH = v1_db
     asyncio.run(botdb.init_db())
     asyncio.run(botdb.init_db())
     after = _probe(v1_db)
-    assert after["user_version"] == 2
+    assert after["user_version"] == botdb.SCHEMA_VERSION
     assert after["orders"] == 25
     assert after["journal_mode"] == "wal"

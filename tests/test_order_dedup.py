@@ -110,16 +110,54 @@ def test_two_chats_sharing_a_phone_keep_separate_rows(db):
     assert len(asyncio.run(db.get_cached_orders(CHAT + 1))) == 1
 
 
-def test_row_id_changes_on_every_refresh(db):
-    """Pins a defect, not a guarantee — see docs/found-during-move.md.
+def test_row_id_survives_a_refresh(db):
+    """Was defect #1 in docs/found-during-move.md; fixed by the merge_key work.
 
-    upsert is INSERT OR REPLACE, which deletes and reinserts, so the AUTOINCREMENT
-    id moves. That id is what the expand/collapse buttons carry in their callback
-    data, so a button on a screen someone is already looking at points at a
-    different order after a refresh.
+    The old upsert was INSERT OR REPLACE, which deletes and reinserts, so the
+    AUTOINCREMENT id moved on every refresh. That id is what the expand/collapse
+    buttons carry in their callback data, so a button on a screen someone was
+    already looking at pointed at a different order. ON CONFLICT DO UPDATE
+    updates the row in place, and the id stays.
     """
     asyncio.run(db.upsert_orders(CHAT, [KEYCRM]))
     before = _cached(db)[0]["id"]
     asyncio.run(db.upsert_orders(CHAT, [KEYCRM]))
-    after = _cached(db)[0]["id"]
-    assert before != after
+    assert _cached(db)[0]["id"] == before
+
+
+# --- the identity rule itself --------------------------------------------
+
+@pytest.mark.parametrize(
+    "source,source_order_id,external_id,expected",
+    [
+        # Both systems' copies of one store order land on one key.
+        ("keycrm", "900001", "13025577828684", "shopify:13025577828684"),
+        ("shopify", "gid://shopify/Order/13025577828684", "13025577828684",
+         "shopify:13025577828684"),
+        # No store id: the reporting system's own id, namespaced.
+        ("keycrm", "900002", None, "keycrm:900002"),
+        ("keycrm", "900002", "", "keycrm:900002"),
+        ("demo", "demo-1", None, "demo:demo-1"),
+    ],
+    ids=["keycrm-side", "shopify-side", "manual-none", "manual-empty", "demo"],
+)
+def test_merge_key(source, source_order_id, external_id, expected):
+    from bot.merge import merge_key
+
+    assert merge_key(source, source_order_id, external_id) == expected
+
+
+def test_merge_key_is_always_namespaced():
+    """A bare number would collide the day a second channel reports numeric ids,
+    and the collision would look like an order overwriting an unrelated one."""
+    from bot.merge import merge_key
+
+    assert ":" in merge_key("keycrm", "1", "1")
+    assert not merge_key("keycrm", "1", "1").isdigit()
+
+
+def test_keycrm_outranks_shopify():
+    from bot.merge import source_rank
+
+    assert source_rank("keycrm") > source_rank("shopify") > source_rank("demo")
+    assert source_rank("something-new") == 0
