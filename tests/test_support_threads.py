@@ -57,14 +57,23 @@ def test_reply_to_the_forwarded_text_resolves(db):
     assert asyncio.run(support._reply_target(replied)) == CUSTOMER
 
 
-def test_forward_from_still_works_for_threads_older_than_the_table(db):
-    replied = _replied(77, text="де моє замовлення?", forward_from_id=CUSTOMER)
-    assert asyncio.run(support._reply_target(replied)) == CUSTOMER
+@pytest.mark.parametrize(
+    "replied,why",
+    [
+        (_replied(77, text="?", forward_from_id=CUSTOMER), "forward_from is not trusted"),
+        (_replied(78, text=f"Нове звернення. chat_id: {CUSTOMER}"), "the text is not parsed"),
+    ],
+    ids=["forward-from", "metadata-regex"],
+)
+def test_guesses_are_gone_and_do_not_route_a_reply(db, replied, why):
+    """Both used to be fallbacks and both were removed.
 
-
-def test_metadata_line_still_works_for_threads_older_than_the_table(db):
-    replied = _replied(78, text=f"Нове звернення. chat_id: {CUSTOMER}")
-    assert asyncio.run(support._reply_target(replied)) == CUSTOMER
+    A guess that is right most of the time is worse than an error here: the time
+    it is wrong, a customer's message goes to a stranger. Threads older than the
+    table are not migrated — there were three users — so they now produce the
+    visible error instead.
+    """
+    assert asyncio.run(support._reply_target(replied)) is None, why
 
 
 def test_no_target_when_nothing_identifies_the_customer(db):
@@ -227,3 +236,59 @@ def test_claiming_an_album_twice_reports_only_the_first(db):
     assert asyncio.run(botdb.start_album(CUSTOMER, "alb-3")) is False
     assert asyncio.run(botdb.album_in_progress(CUSTOMER, "alb-3")) is True
     assert asyncio.run(botdb.album_in_progress(CUSTOMER, "other")) is False
+
+
+# --- the two cases the brief named separately -----------------------------
+
+def test_an_unknown_thread_gives_the_manager_a_visible_error(db, config):
+    """Silence is worse than an error: the manager believes they replied.
+
+    This is the path a pre-table thread takes now that the guesses are gone.
+    """
+    bot = _FakeBot()
+    complaints: list[str] = []
+
+    async def answer(text, **kw):
+        complaints.append(text)
+
+    msg = _manager_message(bot, text="Вже відправили!", replied=_replied(4242, text="?"))
+    msg.answer = answer
+    asyncio.run(support.admin_reply(msg, config, None))
+
+    assert complaints, "the manager must be told the reply went nowhere"
+    assert not bot.sent and not bot.copied, "and nothing may be sent to anyone"
+
+
+def test_a_reply_to_something_that_is_not_a_support_message_stays_quiet(db, config):
+    """Not every reply in this chat is a support action; complaining would be noise."""
+    bot = _FakeBot()
+    complaints: list[str] = []
+
+    async def answer(text, **kw):
+        complaints.append(text)
+
+    msg = _manager_message(bot, text="ok", replied=_replied(4242, text="?", from_bot=False))
+    msg.answer = answer
+    asyncio.run(support.admin_reply(msg, config, None))
+
+    assert not complaints and not bot.sent
+
+
+def test_attachments_travel_in_both_directions(db, config, texts):
+    """Customer to manager rides forward_message, which carries any content;
+    manager to customer rides copy_message. Both are asserted here so the pair
+    cannot regress independently."""
+    bot = _ForwardingBot()
+
+    # A voice note from the customer: no text at all.
+    incoming = _customer_message(bot, message_id=77)
+    asyncio.run(support.forward_to_support(incoming, _NoState(), config, texts))
+    assert bot.forwarded == [77], "the customer's attachment must be forwarded as-is"
+
+    forwarded_id = 1002  # note=1001, forward=1002 with _ForwardingBot's counter
+    assert asyncio.run(botdb.support_thread_owner(forwarded_id)) == CUSTOMER
+
+    # A photo back from the manager: message.text is None.
+    reply = _manager_message(bot, text=None, replied=_replied(forwarded_id, text=None))
+    asyncio.run(support.admin_reply(reply, config, None))
+    assert bot.copied and bot.copied[-1]["chat_id"] == CUSTOMER

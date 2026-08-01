@@ -1,8 +1,6 @@
 """Support relay — user-to-admin forwarding and admin-to-user reply."""
 from __future__ import annotations
 
-import re
-
 from aiogram import F, Router
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
@@ -114,29 +112,24 @@ async def forward_album_tail(
 
 
 async def _reply_target(replied: Message | None) -> int | None:
-    """Which customer this reply is aimed at.
+    """Which customer this reply is aimed at. The table, and nothing else.
 
-    The table answers for anything sent since it existed. The two guesses below
-    it are what the bot used to rely on entirely, kept only for threads that
-    predate the table:
+    Two guesses used to sit under this — `forward_from`, and a regex for the
+    chat_id in the metadata line — and both were removed rather than kept as a
+    fallback. They are what the failure was: `forward_from` is empty whenever
+    the customer has forwarding privacy on, and the metadata line is only
+    readable if the manager replied to that exact message. Keeping them meant a
+    reply could still be routed by a guess, and a guess that is right most of
+    the time is worse than an error, because the time it is wrong the message
+    goes to a stranger.
 
-      - `forward_from` is absent whenever the customer has forwarding privacy
-        enabled, which is the default for a large share of accounts;
-      - the metadata line is only readable when the manager happened to reply to
-        that exact message rather than to the forwarded text sitting under it.
+    Threads that predate the table are not migrated: there were three users when
+    it shipped. Replying to one now produces the visible error below, which is
+    the correct outcome — the manager retries in the current thread.
     """
     if replied is None:
         return None
-    owner = await support_thread_owner(replied.message_id)
-    if owner is not None:
-        return owner
-    if replied.forward_from:
-        return replied.forward_from.id
-    if replied.text:
-        match = re.search(r"chat_id:\s*(\d+)", replied.text)
-        if match:
-            return int(match.group(1))
-    return None
+    return await support_thread_owner(replied.message_id)
 
 
 # Narrow on purpose. support_chat_id is often an admin's own DM with the bot, and
