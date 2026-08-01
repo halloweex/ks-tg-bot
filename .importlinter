@@ -1,0 +1,262 @@
+# Правила зависимостей, проверяемые CI.
+#
+#   pip install import-linter
+#   lint-imports --config .importlinter
+#
+# Каждый контракт снабжён строкой причины. Контракт без причины — кандидат на
+# удаление: значит никто уже не помнит, что он защищает.
+#
+# Файл написан на целевую структуру из docs/components.md, но запускается прямо
+# сейчас: секция ЭТАП 0 проверяет три границы, которые в текущем дереве уже
+# соблюдаются (docs/current-state.md, §2), и не даёт им сломаться во время
+# переезда. Секции ЭТАП 1+ закомментированы до появления пакетов `core`, `web`,
+# `worker` — import-linter падает на несуществующем модуле, а не пропускает его.
+
+[importlinter]
+root_packages =
+    bot
+#    core                 ← раскомментировать вместе с секцией ЭТАП 1
+#    web                  ← раскомментировать, когда появится кабинет
+#    worker               ← раскомментировать, когда появится воркер
+include_external_packages = True
+
+
+# ============================================================================
+# ЭТАП 0 — границы, которые держатся в текущем дереве. Работает сегодня.
+# ============================================================================
+
+[importlinter:contract:phase0-http-only-in-services]
+name = ЭТАП 0: httpx живёт только в bot.services
+# Причина: пока сеть заперта в трёх файлах, её можно вынести в core.adapters
+# одним движением. Первый httpx в хендлере превращает переезд в раскопки.
+type = forbidden
+source_modules =
+    bot
+forbidden_modules =
+    httpx
+ignore_imports =
+    bot.services.keycrm -> httpx
+    bot.services.shopify -> httpx
+    bot.services.novaposhta -> httpx
+
+[importlinter:contract:phase0-sql-only-in-db]
+name = ЭТАП 0: aiosqlite живёт только в bot.db
+# Причина: единственная граница слоя, которая сегодня соблюдается полностью
+# (весь SQL в bot/db.py, вне его — ни одного вхождения). Её надо донести до
+# core.repos, а не потерять по дороге.
+type = forbidden
+source_modules =
+    bot
+forbidden_modules =
+    aiosqlite
+ignore_imports =
+    bot.db -> aiosqlite
+
+[importlinter:contract:phase0-services-know-no-telegram]
+name = ЭТАП 0: bot.services ничего не знает про aiogram
+# Причина: клиенты внешних API уже переносимы в core.adapters как есть. Первый
+# импорт aiogram здесь означает, что адаптер начал знать про свой транспорт.
+type = forbidden
+source_modules =
+    bot.services
+forbidden_modules =
+    aiogram
+
+
+# ============================================================================
+# ЭТАП 1+ — целевой контракт. Раскомментировать вместе с root_packages.
+# ============================================================================
+
+# [importlinter:contract:core-foundation]
+# name = core: ports может знать domain, обратное — нет
+# # Причина: domain — низ стека. Импорт вверх делает цикл и тянет ввод-вывод
+# # в функции, которые обязаны тестироваться без сети и БД.
+# type = layers
+# layers =
+#     core.ports
+#     core.domain
+
+# [importlinter:contract:core-never-inverts]
+# name = core: domain и ports не смотрят вверх
+# # Причина: то же правило, выраженное для трёх верхних модулей core, которые
+# # нельзя уложить в один layers-контракт, потому что они сиблинги.
+# type = forbidden
+# source_modules =
+#     core.domain
+#     core.ports
+# forbidden_modules =
+#     core.usecases
+#     core.adapters
+#     core.repos
+
+# [importlinter:contract:core-siblings-are-independent]
+# name = core: usecases, adapters и repos не видят друг друга
+# # Причина: сценарий, знающий конкретную реализацию, нельзя протестировать без
+# # сети и БД — это и есть смысл существования core.ports. Адаптер, знающий
+# # репозиторий, делает запись невидимой для транзакции сценария.
+# type = independence
+# modules =
+#     core.usecases
+#     core.adapters
+#     core.repos
+
+# [importlinter:contract:core-leaves-are-leaves]
+# name = core: config и i18n ничего не импортируют из core
+# # Причина: их импортирует всё дерево, поэтому любая их зависимость
+# # автоматически становится зависимостью всего дерева.
+# type = forbidden
+# source_modules =
+#     core.config
+#     core.i18n
+# forbidden_modules =
+#     core.domain
+#     core.ports
+#     core.adapters
+#     core.repos
+#     core.usecases
+
+# [importlinter:contract:core-does-not-know-its-callers]
+# name = core не знает про точки входа
+# # Причина: один и тот же core обслуживает три процесса. Зависимость от любого
+# # из них приколачивает ядро к этому процессу и ломает «один образ, три команды».
+# type = forbidden
+# source_modules =
+#     core
+# forbidden_modules =
+#     bot
+#     web
+#     worker
+
+# [importlinter:contract:only-adapters-speak-http]
+# name = httpx живёт только в core.adapters
+# # Причина: §2 документа — «ни bot, ни web, ни worker не импортируют httpx».
+# # Сеть должна быть подменяема в тестах одной заменой реализации порта.
+# type = forbidden
+# source_modules =
+#     core.domain
+#     core.ports
+#     core.repos
+#     core.usecases
+#     core.config
+#     core.i18n
+#     bot
+#     web
+#     worker
+# forbidden_modules =
+#     httpx
+
+# [importlinter:contract:parsers-are-pure]
+# name = разборщики ответов не знают про транспорт
+# # Причина: вся ценность отделения parse от client в том, что тесты парсеров
+# # идут на сохранённых фикстурах и не требуют мока сети.
+# type = forbidden
+# source_modules =
+#     core.adapters.keycrm.parse
+#     core.adapters.shopify.parse
+#     core.adapters.novaposhta.parse
+# forbidden_modules =
+#     httpx
+
+# [importlinter:contract:only-repos-touch-db]
+# name = SQL и драйвер БД живут только в core.repos
+# # Причина: сохранить границу, которая уже есть (весь SQL в одном модуле), и
+# # не дать транзакции растечься по хендлерам и джобам.
+# type = forbidden
+# source_modules =
+#     core.domain
+#     core.ports
+#     core.adapters
+#     core.usecases
+#     core.config
+#     core.i18n
+#     bot
+#     web
+#     worker
+# forbidden_modules =
+#     sqlalchemy
+#     asyncpg
+#     aiosqlite
+
+# [importlinter:contract:telegram-stays-in-its-corner]
+# name = aiogram живёт только в core.adapters и в bot
+# # Причина: §5 документа — единственный отправитель это outbox. Для web и
+# # worker.jobs это выражается запретом импорта; для bot — не выражается,
+# # см. docs/components.md §12.2.
+# type = forbidden
+# source_modules =
+#     core.domain
+#     core.ports
+#     core.repos
+#     core.usecases
+#     core.config
+#     core.i18n
+#     web
+#     worker.jobs
+# forbidden_modules =
+#     aiogram
+
+# [importlinter:contract:web-framework-stays-in-web]
+# name = FastAPI и Jinja живут только в web
+# # Причина: обратная сторона предыдущего правила. Ядро не должно знать, что у
+# # него есть HTTP-интерфейс.
+# type = forbidden
+# source_modules =
+#     core
+#     bot
+#     worker
+# forbidden_modules =
+#     fastapi
+#     jinja2
+#     starlette
+
+# [importlinter:contract:entrypoints-are-independent]
+# name = bot, web и worker не импортируют друг друга
+# # Причина: один образ и три команды. Общий код живёт в core, иначе через месяц
+# # web начнёт импортировать хендлер бота ради одной функции форматирования.
+# type = independence
+# modules =
+#     bot
+#     web
+#     worker
+
+# [importlinter:contract:handlers-see-ports-only]
+# name = хендлеры, роуты и джобы видят сценарии и порты, но не реализации
+# # Причина: композиционный корень (bot.main, web.app, worker.main) — это
+# # единственное место, где известно, какой адаптер подставлен. Сегодня
+# # хендлеры импортируют конкретные клиенты (bot/handlers/orders.py:25,26) и
+# # bot.db в 8 файлах из 10, поэтому их нельзя протестировать без сети и БД.
+# type = forbidden
+# source_modules =
+#     bot.handlers
+#     web.routes
+#     worker.jobs
+# forbidden_modules =
+#     core.adapters
+#     core.repos
+
+# [importlinter:contract:config-read-once]
+# name = .env читается только в core.config
+# # Причина: сегодня BOT_DB_PATH читается мимо конфига (bot/db.py:14), из-за
+# # чего значение из .env локально не подхватывается, а в Docker подхватывается.
+# # Такие расхождения находятся только в проде.
+# #
+# # ВНИМАНИЕ: контракт закрывает только половину правила. Запретить `os.environ`
+# # здесь нельзя — проверено на import-linter 2.13, ответ дословно: «Invalid
+# # forbidden module os.environ: subpackages of external packages are not
+# # valid». Запрет `os` целиком бессмыслен (это stdlib, его импортируют для
+# # path и прочего), а `import os` + `os.getenv(...)` — обращение к атрибуту,
+# # которого статический граф импортов не видит в принципе. Вторая половина
+# # правила проверяется грепом в CI, см. docs/components.md §12.7.
+# type = forbidden
+# source_modules =
+#     core.domain
+#     core.ports
+#     core.adapters
+#     core.repos
+#     core.usecases
+#     core.i18n
+#     bot.handlers
+#     web.routes
+#     worker.jobs
+# forbidden_modules =
+#     dotenv

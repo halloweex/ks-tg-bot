@@ -18,14 +18,29 @@ _BUSY_TIMEOUT_MS = 5000
 
 
 @asynccontextmanager
-async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+async def _connect(*, transactional: bool = False) -> AsyncIterator[aiosqlite.Connection]:
     """Open a connection with a busy timeout so concurrent writers wait
     instead of failing with 'database is locked' during activity bursts.
 
     WAL journal mode is enabled once in init_db() and persists in the DB file,
     so readers here never block the background order-refresh writers.
+
+    transactional=True switches the connection out of sqlite3's legacy mode,
+    where an implicit BEGIN is issued before DML but *not* before DDL, into
+    PEP 249 semantics, where a single transaction covers both. Only the schema
+    work in init_db() needs it — every other caller writes one statement at a
+    time and legacy mode is what it has always run under.
+
+    Two things behave differently on a transactional connection, both verified
+    on python 3.14.2 / sqlite 3.51.2:
+      - `PRAGMA journal_mode = WAL` raises "cannot change into wal mode from
+        within a transaction" as the first statement, and silently reports
+        'delete' after any other statement has opened one. WAL is therefore
+        set on its own connection in init_db().
+      - closing without commit rolls the whole thing back, which is the point.
     """
-    db = await aiosqlite.connect(DB_PATH)
+    kwargs = {"autocommit": False} if transactional else {}
+    db = await aiosqlite.connect(DB_PATH, **kwargs)
     try:
         await db.execute(f"PRAGMA busy_timeout = {_BUSY_TIMEOUT_MS}")
         yield db
@@ -75,7 +90,7 @@ CREATE TABLE IF NOT EXISTS opt_out (
 # meant the second one's refresh silently reassigned the first one's rows to
 # itself, and the first customer's history went empty.
 _ORDERS_TABLE_SQL = """
-CREATE TABLE {name} (
+CREATE TABLE IF NOT EXISTS {name} (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id         INTEGER NOT NULL REFERENCES users(chat_id),
     source          TEXT NOT NULL,
@@ -104,7 +119,7 @@ CREATE TABLE {name} (
 # external_id: the same physical order seen in two systems shares this id
 # (Shopify's numeric order id, which KeyCRM mirrors as global_source_uuid).
 # Empty for orders that exist in one system only. See _DELETE_SHADOWED.
-_CREATE_ORDERS = _ORDERS_TABLE_SQL.format(name="IF NOT EXISTS orders")
+_CREATE_ORDERS = _ORDERS_TABLE_SQL.format(name="orders")
 
 
 # Durable broadcast: a job + a per-recipient progress row so a broadcast
@@ -194,6 +209,16 @@ CREATE TABLE IF NOT EXISTS discount_requests (
 # which is the outcome to want — a half-migrated database that keeps serving is
 # how a cache becomes wrong without anyone noticing.
 #
+# That last sentence was false until the connection became transactional.
+# sqlite3's legacy mode opens an implicit transaction before DML but not before
+# DDL, so every ALTER and CREATE here committed itself the moment it ran: a
+# crash halfway through migration 2 left a partly filled `orders_migrated`
+# behind, the next start died on "table orders_migrated already exists", and
+# `restart: always` turned that into a crash loop with no way back — the image
+# is built on the production host, so there is no previous tag to roll to.
+# _connect(transactional=True) plus the DROP below are what make the comment
+# true. Verified by killing the process mid-copy and restarting it.
+#
 # The previous mechanism was a list of ALTER statements under `except: pass`.
 # It could not express this change (SQLite cannot alter a UNIQUE constraint),
 # and it silently swallowed real failures — a full disk logged success.
@@ -233,6 +258,12 @@ async def _migration_2_orders_owned_per_chat(db: aiosqlite.Connection) -> None:
     different order.
     """
     existing = await _columns(db, "orders")
+    # Idempotent restart: a leftover from an interrupted attempt is dropped
+    # rather than reused, because IF NOT EXISTS alone would keep a partly
+    # copied table and the INSERT below would then duplicate every row it
+    # already holds. Inside the transaction this DROP is invisible to anyone
+    # else; on a healthy database it matches nothing.
+    await db.execute("DROP TABLE IF EXISTS orders_migrated")
     await db.execute(_ORDERS_TABLE_SQL.format(name="orders_migrated"))
     shared = [c for c in await _columns(db, "orders_migrated") if c in existing]
     columns = ", ".join(shared)
@@ -277,10 +308,16 @@ async def init_db() -> None:
     the final shape, and replaying the history onto a table that never had it
     would be a longer way to the same place — with more to go wrong.
     """
+    # WAL lets readers and the background-refresh writer run concurrently.
+    # This is a persistent DB property — set once, stays across connections.
+    # It gets its own connection because SQLite refuses to enter WAL from
+    # inside a transaction, and the block below runs in one.
     async with _connect() as db:
-        # WAL lets readers and the background-refresh writer run concurrently.
-        # This is a persistent DB property — set once, stays across connections.
         await db.execute("PRAGMA journal_mode = WAL")
+
+    # One transaction for the whole schema: tables, migrations, indexes and the
+    # version stamp commit together or not at all.
+    async with _connect(transactional=True) as db:
         cursor = await db.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'orders'"
         )

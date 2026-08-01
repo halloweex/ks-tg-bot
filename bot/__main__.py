@@ -10,6 +10,7 @@ from loguru import logger
 
 from bot.config import load_config
 from bot.db import init_db
+from bot.logs import setup_logging
 from bot.handlers.broadcast import resume_broadcasts, router as broadcast_router
 from bot.handlers.common import router as common_router
 from bot.handlers.demo import router as demo_router
@@ -30,8 +31,18 @@ from bot.tasks import drain, spawn
 
 async def main() -> None:
     """Initialize all components and start polling."""
+    # Before anything else: loguru's default handler prints local variables in
+    # tracebacks, and load_config() has secrets in its frame.
+    setup_logging()
+
     # Load config (reads .env + config.yaml)
     config = load_config()
+    setup_logging(config.env.log_level, phone_salt=config.env.log_phone_salt)
+    if not config.env.log_phone_salt:
+        logger.warning(
+            "LOG_PHONE_SALT is not set — phone digests in the log are "
+            "brute-forceable and must not leave this machine"
+        )
     logger.info("Config loaded. Brand: {}", config.brand_name)
 
     # Create Bot instance with HTML parse mode
