@@ -448,7 +448,7 @@ workflow не использует; не упоминает автодеплой
 
 ---
 
-## 7. Расхождения между `docs/architecture.md` и кодом
+## 7. Расхождения между `.planning/research/ARCHITECTURE.md` и кодом
 
 Не чинится. Выписано, чтобы `docs/components.md` знал, что переезд, а что
 переименование.
@@ -460,7 +460,7 @@ workflow не использует; не упоминает автодеплой
 | §1, §2: «бот в сеть за данными не ходит», читает только свою базу | Хендлеры вызывают KeyCRM/Shopify/НП напрямую: `bot/handlers/orders.py:369,371`, `onboarding.py:74,76,111`, `delivery.py:106` |
 | §3.1: `merge_key`, `source` — атрибут, `UNIQUE(merge_key)` глобально | `UNIQUE(chat_id, source, source_order_id)` — `bot/db.py:114`; `source` в ключе, ключ per-chat |
 | §3.1: `source_rank` в строке | Колонки нет — `bot/db.py:92-116` |
-| §3.2: сырой ответ API в JSONB отдельно от разобранного | Колонки `raw` нет ни в одной таблице; в `orders` только разобранные поля (`bot/db.py:92-116`) |
+| §3.2: сырьё отдельной таблицей `order_raw(merge_key, source, payload, fetched_at)` | Ни таблицы, ни колонки; в `orders` только разобранные поля (`bot/db.py:92-116`) |
 | §3.3: суррогатный `users.id`, все ссылки на него | `chat_id INTEGER PRIMARY KEY` (`bot/db.py:52`); все таблицы ссылаются на `chat_id` |
 | §3.3: `phone_normalized` уникален | `phone TEXT NOT NULL` без UNIQUE (`bot/db.py:53`); нормализованной колонки нет |
 | §3.3: все метки `timestamptz`, внутри UTC | Все метки `TEXT` через `datetime('now')` (`bot/db.py:54,113,…`); сравнение с `datetime.utcnow()` (`bot/handlers/orders.py:335`) |
@@ -469,7 +469,7 @@ workflow не использует; не упоминает автодеплой
 | §4.4: `orders.user_id` nullable, привязка по телефону | `chat_id INTEGER NOT NULL REFERENCES users(chat_id)` (`bot/db.py:95`) — заказ не может существовать без чата |
 | §4.5: алерт на отсутствие успеха синка | Ни `sync_state`, ни алертов; единственный алертинг в проекте — Telegram-уведомления бэкапа (`deploy/backup.sh:112-122`) |
 | §5: outbox с арендой, `dedup_key`, `not_before` | Таблицы нет. Рассылка шлёт напрямую (`bot/handlers/broadcast.py:75`), уведомления о стоке — тоже (`bot/stock.py:60,64`) |
-| §5.5: `users.notify_from` | Колонки нет (`bot/db.py:61-74`) |
+| §5.6: `users.notify_from` | Колонки нет (`bot/db.py:61-74`) |
 | §8: Alembic | Собственный драйвер на `PRAGMA user_version` (`bot/db.py:226,280-300`) |
 | §8: сборка в GHCR, на сервере только `pull` | Сборка на боевой машине (`.github/workflows/deploy.yml:44`) |
 | §8: `/healthz` и `/readyz` в healthcheck компоуза | Healthcheck отсутствует в обоих файлах |
@@ -489,15 +489,18 @@ workflow не использует; не упоминает автодеплой
 
 ### 7.3. Чего в документе нет вообще, а в коде есть
 
-Пять подсистем, не упомянутых ни в одном разделе `docs/architecture.md`, и для
-них в целевом контракте нет модуля:
+Четыре подсистемы не упомянуты в `.planning/research/ARCHITECTURE.md` ни разу —
+проверено грепом по v3 (строки 1–481): «аналитик», «сток», «остатк», «скидк»,
+«демо», «demo» — ноль совпадений на каждое. Пятая, локализация, документом
+покрыта (§7: «Тексты бота и веба в одном модуле `core` с измерением по локали»),
+поэтому ниже она приведена отдельной строкой как исключение:
 
 | Подсистема | Код | Таблицы |
 |---|---|---|
 | Продуктовая аналитика | `bot/analytics.py`, 10 импортёров; агрегаты `bot/db.py:701-768` | `events` (`bot/db.py:154`) |
 | Мониторинг остатков и подписка «сообщить о поступлении» | `bot/stock.py` (151 строка), вечный цикл `:141-151` | `stock_levels` (`:152`), `stock_subscriptions` (`:162`) |
 | Запрос скидки | `bot/handlers/orders.py:589-619` | `discount_requests` (`:176`) |
-| Локализация ru/uk | `bot/i18n.py` (308 строк), `bot/middlewares.py`, 13 импортёров | `users.language` (`bot/db.py:67`) |
+| Локализация ru/uk — **покрыта §7 документа** | `bot/i18n.py` (308 строк), `bot/middlewares.py`, 13 импортёров | `users.language` (`bot/db.py:67`) |
 | Демо-режим для админа | `bot/handlers/demo.py` (141 строка) | использует `orders` с отдельным `source` |
 
 Плюс инфраструктурные модули без места в целевом списке: `bot/screen.py`
