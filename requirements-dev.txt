@@ -1,0 +1,7 @@
+# Development and CI only. The runtime image installs requirements.txt alone
+# (Dockerfile:11) and must stay free of these.
+-r requirements.txt
+
+pytest==8.4.2
+# Enforces the module boundaries in .importlinter. See docs/components.md §13.
+import-linter==2.13
