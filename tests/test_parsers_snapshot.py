@@ -103,3 +103,29 @@ def test_shopify_fixtures_are_marked_as_reconstructed():
     """
     for path in (FIXTURES / "shopify").glob("*.json"):
         assert "RECONSTRUCTED" in json.loads(path.read_text())["_fixture_note"]
+
+
+def test_keycrm_reports_one_shipment_per_order():
+    """The "multiple shipments" edge case the brief asked for does not exist.
+
+    KeyCRM returns `shipping` as a single object, not a list: measured across
+    150 live orders, every one of them a dict, and all 121 orders carrying a
+    tracking code carry exactly one string. So an order with two parcels is not
+    representable in the response this client reads, and no fixture can hold
+    one. order_multi_item covers multiple *line items*, which is a different
+    thing and was substituted for it.
+
+    Pinned rather than left as a note: if KeyCRM ever turns `shipping` into a
+    list, every consumer of tracking_code starts reading the wrong shape, and
+    this is the test that says so.
+    """
+    for path in KEYCRM_ORDERS:
+        shipping = json.loads(path.read_text()).get("shipping")
+        assert shipping is None or isinstance(shipping, dict), (
+            f"{path.name}: shipping became a {type(shipping).__name__}"
+        )
+        if shipping:
+            # None on an order that has not shipped, a string once it has —
+            # never a list. bot/services/keycrm.py absorbs the None with `or ""`.
+            tracking = shipping.get("tracking_code")
+            assert tracking is None or isinstance(tracking, str)
