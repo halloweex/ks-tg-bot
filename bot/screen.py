@@ -12,8 +12,7 @@ may be a photo, older than Telegram's edit window, or already gone.
 """
 from __future__ import annotations
 
-from aiogram.types import (CallbackQuery, InlineKeyboardMarkup, Message,
-                           ReplyKeyboardRemove)
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from aiogram.exceptions import TelegramBadRequest
 from loguru import logger
 
@@ -55,19 +54,14 @@ async def typing(message: Message) -> None:
         pass
 
 
-async def clear_reply_keyboard(message: Message) -> None:
-    """Take away a reply keyboard left over from an older version of the bot.
-
-    Telegram only removes one when a message says so, and a message can carry
-    either that instruction or inline buttons, not both — hence the throwaway
-    message, deleted as soon as it has done its job.
-    """
-    try:
-        # Silent: it exists for a fraction of a second to carry the instruction,
-        # and nobody should get a notification for it.
-        stub = await message.answer(
-            "👌", reply_markup=ReplyKeyboardRemove(), disable_notification=True
-        )
-        await stub.delete()
-    except Exception:  # noqa: BLE001 — cosmetic; never block what follows
-        logger.debug("Could not clear the reply keyboard in chat {}", message.chat.id)
+# Taking a reply keyboard away has no helper on purpose. It was one — a stub
+# message carrying ReplyKeyboardRemove, deleted immediately so as not to litter
+# the chat — and it did not work: the client ties the keyboard's state to the
+# message that changed it, so deleting that message put the keyboard back. The
+# grid icon in the input row stayed, and with it the reason the menu button had
+# nowhere to appear.
+#
+# So the instruction has to ride on a message that stays: the greeting on
+# /start, the confirmation after a phone is verified. A message carries either
+# ReplyKeyboardRemove or inline buttons, never both, which is why those flows
+# send two messages and the menu is always the second one.

@@ -7,7 +7,8 @@ from datetime import datetime
 from html import escape
 
 from aiogram import F, Router
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import (CallbackQuery, InlineKeyboardMarkup, Message,
+                           ReplyKeyboardRemove)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from loguru import logger
 
@@ -22,7 +23,7 @@ from bot.db import (CANCELLED_STATUS_GROUP, add_discount_request, add_stock_subs
                     get_user_phone, recent_discount_request,
                     remove_stock_subscription, save_user, upsert_orders)
 from bot.keyboards import main_menu_kb, menu_only_kb
-from bot.screen import clear_reply_keyboard, render, typing
+from bot.screen import render, typing
 from bot.services.keycrm import KeyCRMClient, keycrm_order_to_dict
 from bot.services.shopify import ShopifyClient, shopify_order_to_dict
 from bot.tasks import spawn
@@ -725,13 +726,13 @@ async def menu_button_handler(
 ) -> None:
     """Serve — and retire — the old reply-keyboard Menu button.
 
-    The bot no longer sends that keyboard: the menu button beside the input
-    field does the same job without covering half the screen. But Telegram
-    keeps a reply keyboard on the client until something removes it, so anyone
-    who still has one gets it cleared here, on the tap, rather than being left
-    with a button that answers nothing.
+    The bot no longer sends that keyboard: it occupies the input row where
+    Telegram's own menu button belongs. Anyone who still has one gets it taken
+    away here, on the tap, and the removal rides on the first message rather
+    than on a throwaway one — a deleted message takes its keyboard change with
+    it, which is how the keyboard survived an earlier attempt at this.
     """
-    await clear_reply_keyboard(message)
+    await message.answer(t.MSG_MENU_RETIRED, reply_markup=ReplyKeyboardRemove())
     await message.answer(
         t.MSG_MAIN_MENU,
         reply_markup=main_menu_kb(t, config.website_url),

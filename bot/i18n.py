@@ -96,6 +96,7 @@ EN: dict[str, str] = {
     ),
     "MSG_SUPPORT_FORWARDED": "Your message has been sent to a manager. Please wait for a reply.",
     "MSG_MAIN_MENU": "How can I help?",
+    "MSG_MENU_RETIRED": "The menu now lives in the ☰ button next to the input field 👇",
     "MSG_INFO_MENU": "Choose a section:",
     "MSG_SETTINGS_MENU": "Settings:",
     "MSG_LANGUAGE_CURRENT": "Current language: English ✅",

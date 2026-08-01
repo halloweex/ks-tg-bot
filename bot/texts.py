@@ -135,6 +135,10 @@ MSG_SUPPORT_FORWARDED = "Ваше повідомлення надіслано м
 
 # Menu headers
 MSG_MAIN_MENU = "Чим допомогти?"
+# Said once, to whoever still has the old «📋 Меню» keyboard when they tap it:
+# it disappears in that same moment, and a button vanishing without a word
+# reads as a fault.
+MSG_MENU_RETIRED = "Меню тепер у кнопці ☰ біля поля вводу 👇"
 MSG_INFO_MENU = "Оберіть розділ:"
 MSG_SETTINGS_MENU = "Налаштування:"
 
