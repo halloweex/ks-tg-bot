@@ -358,7 +358,7 @@ async def _refresh_orders(
     if not phone:
         return
     async with _refresh_semaphore:
-        await _do_refresh_orders(chat_id, keycrm, shopify)
+        await _do_refresh_orders(chat_id, phone, keycrm, shopify)
 
 
 async def _do_refresh_orders(
