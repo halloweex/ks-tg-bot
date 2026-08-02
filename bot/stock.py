@@ -22,7 +22,7 @@ from bot.analytics import track
 from bot.db import (clear_subscriptions, get_stock_levels, get_user_language,
                     save_stock_levels, subscribers_for)
 from bot.i18n import customer_texts
-from bot.quiet import is_quiet_now
+from core.domain.quiet import is_quiet_now
 from bot.services.keycrm import KeyCRMClient
 from bot.texts import shorten_name
 

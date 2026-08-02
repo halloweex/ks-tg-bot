@@ -9,7 +9,7 @@ from typing import AsyncIterator
 import aiosqlite
 from loguru import logger
 
-from bot.merge import merge_key, source_rank
+from core.domain.order import merge_key, source_rank
 
 # Configurable so the DB can live on a mounted volume in Docker.
 # Defaults to a file in the working directory for local runs.
@@ -355,7 +355,7 @@ async def _migration_3_merge_key(db: aiosqlite.Connection) -> None:
     to fix. It widens to a global key in the stage that makes orders.user_id
     nullable, and not before.
     """
-    from bot.merge import merge_key as _key, source_rank as _rank
+    from core.domain.order import merge_key as _key, source_rank as _rank
 
     existing = await _columns(db, "orders")
     for column, decl in (("merge_key", "TEXT NOT NULL DEFAULT ''"),

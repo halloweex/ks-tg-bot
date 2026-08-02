@@ -30,7 +30,7 @@ from bot.db import (
     opt_out_user,
 )
 from bot.keyboards import broadcast_confirm_kb
-from bot.quiet import is_quiet_now
+from core.domain.quiet import is_quiet_now
 from bot.states import BroadcastStates
 from bot.tasks import spawn
 
