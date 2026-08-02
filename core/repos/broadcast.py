@@ -11,11 +11,6 @@ import aiosqlite
 from core.repos.base import connect
 
 
-# ---------------------------------------------------------------------------
-# Durable broadcast
-# ---------------------------------------------------------------------------
-
-
 async def create_broadcast_job(text: str, created_by: int) -> int:
     """Create a broadcast job and snapshot the current recipient list into
     broadcast_targets (all 'pending'). Returns the new job id.

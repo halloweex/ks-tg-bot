@@ -14,7 +14,8 @@ from core.i18n import Texts, admin_texts
 from bot.callbacks import BroadcastAction
 from bot.analytics import track
 from core.config import AppConfig
-from bot.db import event_counts, funnel_counts, lookup_miss_rate, returning_users
+from core.repos.events import (event_counts, funnel_counts, lookup_miss_rate,
+                               returning_users)
 from core.repos.broadcast import (broadcast_job_stats, create_broadcast_job,
                                   finish_broadcast_job, get_pending_targets,
                                   get_unfinished_broadcasts, mark_target)

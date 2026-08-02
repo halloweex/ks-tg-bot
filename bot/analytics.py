@@ -17,7 +17,7 @@ import json
 
 from loguru import logger
 
-from bot.db import log_event
+from core.repos.events import log_event
 from bot.tasks import spawn
 
 
