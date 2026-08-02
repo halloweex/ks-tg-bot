@@ -17,6 +17,7 @@
 | `bot/services/novaposhta.py` | `core/adapters/novaposhta/{client,parse}.py` | те же три |
 | `bot/db.py`: соединение и схема | `core/repos/base.py`, `core/repos/schema.py` | `repos-do-not-know-their-callers`, `core-siblings-are-independent` |
 | `bot/db.py`: остальное, по агрегатам | `core/repos/{users,orders,broadcast,events,stock,support,fsm}.py` | `only-repos-touch-db` |
+| `_do_refresh_orders` из `bot/handlers/orders.py` | `core/usecases/sync_orders.py` | `usecases-do-not-know-their-callers` |
 
 Одиннадцать контрактов в `.importlinter`, 138 тестов, всё в продакшене. Ни
 `bot/services/`, ни `bot/db.py` больше не существует: в `bot/` осталась одна
@@ -32,12 +33,18 @@ Nova Poshta 83% → 85%; по трём клиентам вместе 61% → 73%
 
 ## Осталось, в этом порядке
 
-1. **Логика из хендлеров → `core/usecases/`.** Последний шаг переноса и первый,
-   где придётся думать, а не резать: в отличие от клиентов и запросов, сценарии
-   в хендлерах перемешаны с форматированием, клавиатурами и FSM. Карта, что куда,
-   — `components.md`, строки 1048–1051. Вместе с ними включаются оставшиеся
-   закомментированные контракты: `core-siblings-are-independent` пополняется
-   `core.usecases`, а `handlers-see-ports-only` становится выразимым.
+1. **`core/ports/` и `Order` в домене.** Долг, взятый сознательно: `sync_orders`
+   импортирует адаптеры и репозитории напрямую, поэтому в
+   `core-siblings-are-independent` его нет. Чтобы он там появился, нужен
+   Protocol источника заказов и доменный `Order`, куда уедут оба
+   `*_order_to_dict`. Это редизайн, а не перенос, и он же разблокирует
+   `handlers-see-ports-only`.
+2. **Остальные сценарии из хендлеров.** Карта — `components.md`, строки
+   1048–1051. Но половина написанного там ждёт не переноса, а этапов 6–7:
+   рассылка уезжает в outbox, доставка начинает читать `shipments` из базы,
+   `_refresh_semaphore` удаляется вместе с уходом синка в воркер. Переносимо
+   сегодня: регистрация (`_register_user`, `_sync_orders`) и
+   `own_contact_phone`/`normalize_phone` в домен.
 
 **Читать `DB_PATH` только как `base.DB_PATH`.** `configure()` переприсваивает имя
 в своём модуле, поэтому `from core.repos.base import DB_PATH` замораживает
@@ -99,6 +106,15 @@ Nova Poshta 83% → 85%; по трём клиентам вместе 61% → 73%
 - `components.md` не называет репозитория для заявок на скидку; они лежат в
   `core/repos/support.py`. Уходят в тот же чат и отвечает на них человек, а
   модуль на две функции сказал бы о них меньше, чем строчка в докстринге.
+- **v4 требует, чтобы `core.usecases` работал через `core.ports`; `sync_orders`
+  импортирует адаптеры и репозитории напрямую.** Решение принято сознательно:
+  порты требуют доменного `Order` и переезда обоих `*_order_to_dict` — это
+  редизайн, а не перенос. Поэтому `core.usecases` не добавлен в контракт
+  `core-siblings-are-independent`, и это первый пункт в списке «осталось».
+- `bot/handlers/onboarding.py` держит свой `_sync_orders` — тот же сценарий
+  минус обновление профиля покупателя. Не слит с `core/usecases/sync_orders.py`
+  намеренно: слияние добавило бы регистрации запись в профиль, которой там
+  сейчас нет, то есть изменило бы поведение.
 
 ## Не проверено живьём
 

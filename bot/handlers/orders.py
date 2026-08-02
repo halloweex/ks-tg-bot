@@ -21,13 +21,12 @@ from core.repos.support import (add_discount_request, recent_discount_request,
 from core.repos.stock import (add_stock_subscription, get_stock_levels,
                               get_subscribed_skus, remove_stock_subscription)
 from core.repos.orders import (CANCELLED_STATUS_GROUP, get_cached_orders,
-                               get_last_sync_time, upsert_orders)
-from core.repos.users import get_user_phone, save_user
+                               get_last_sync_time)
+from core.repos.users import get_user_phone
 from bot.screen import render, typing
 from core.adapters.keycrm.client import KeyCRMClient
-from core.adapters.keycrm.parse import keycrm_order_to_dict
 from core.adapters.shopify.client import ShopifyClient
-from core.adapters.shopify.parse import shopify_order_to_dict
+from core.usecases.sync_orders import sync_orders
 from bot.tasks import spawn
 
 router = Router()
@@ -358,53 +357,7 @@ async def _refresh_orders(
     if not phone:
         return
     async with _refresh_semaphore:
-        await _do_refresh_orders(chat_id, phone, keycrm, shopify)
-
-
-async def _do_refresh_orders(
-    chat_id: int,
-    phone: str,
-    keycrm: KeyCRMClient,
-    shopify: ShopifyClient | None,
-) -> None:
-    async def _empty_list() -> list:
-        return []
-
-    coros = [keycrm.get_orders_by_phone(phone)]
-    if shopify is not None:
-        coros.append(shopify.get_orders_by_phone(phone))
-    else:
-        coros.append(_empty_list())
-
-    results = await asyncio.gather(*coros, return_exceptions=True)
-    keycrm_result = results[0]
-    shopify_result = results[1]
-
-    db_rows: list[dict] = []
-
-    if not isinstance(keycrm_result, Exception):
-        db_rows.extend(keycrm_order_to_dict(o, chat_id) for o in keycrm_result)
-        # Silent buyer profile refresh
-        if keycrm_result:
-            first = keycrm_result[0]
-            if first.buyer_name or first.buyer_email:
-                try:
-                    await save_user(
-                        chat_id, phone,
-                        full_name=first.buyer_name or None,
-                        email=first.buyer_email or None,
-                    )
-                except Exception:  # noqa: BLE001
-                    pass
-
-    if not isinstance(shopify_result, Exception):
-        # No filtering against the KeyCRM ids any more: both sources write the
-        # same merge_key for the same physical order, so the unique index keeps
-        # one row and the priority in the upsert decides whose values it holds.
-        db_rows.extend(shopify_order_to_dict(o, chat_id) for o in shopify_result)
-
-    if db_rows:
-        await upsert_orders(chat_id, db_rows)
+        await sync_orders(chat_id, phone, keycrm, shopify)
 
 
 # ---------------------------------------------------------------------------

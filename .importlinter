@@ -42,6 +42,7 @@ source_modules =
     core.config
     core.i18n
     core.texts
+    core.usecases
 forbidden_modules =
     httpx
 # Правило про прямой импорт: хендлеру нельзя открывать сокет, а дотянуться до
@@ -66,6 +67,7 @@ source_modules =
     core.i18n
     core.texts
     core.adapters
+    core.usecases
 forbidden_modules =
     aiosqlite
     sqlalchemy
@@ -190,6 +192,24 @@ source_modules =
 forbidden_modules =
     bot
     httpx
+    aiogram
+
+[importlinter:contract:usecases-do-not-know-their-callers]
+name = core.usecases не знает ни бота, ни его фреймворка
+# Причина: сценарий существует ровно затем, чтобы его можно было вызвать и из
+# воркера, и из кабинета, и проверить без Telegram. Первый импорт aiogram здесь
+# возвращает его туда, откуда его вынули, — в хендлер.
+#
+# Чего здесь пока НЕТ и почему: v4 требует, чтобы сценарии работали через
+# core.ports, а не с реализациями. Сегодня core.usecases импортирует адаптеры и
+# репозитории напрямую, поэтому в контракт core-siblings-are-independent он не
+# добавлен. Порты — следующий шаг, вместе с типом Order в домене; см.
+# docs/move-status.md.
+type = forbidden
+source_modules =
+    core.usecases
+forbidden_modules =
+    bot
     aiogram
 
 [importlinter:contract:core-siblings-are-independent]
