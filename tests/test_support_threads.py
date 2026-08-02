@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from bot import db as botdb
+from core.repos import support as support_repo
 from core.repos import base as repos_base
 from core.repos.schema import init_db
 from bot.handlers import support
@@ -25,7 +25,7 @@ CUSTOMER = 555000111
 def db(tmp_path, monkeypatch):
     monkeypatch.setattr(repos_base, "DB_PATH", str(tmp_path / "bot_data.db"))
     asyncio.run(init_db())
-    return botdb
+    return support_repo
 
 
 def _replied(message_id: int, *, text: str | None = None, forward_from_id: int | None = None,
@@ -219,7 +219,7 @@ def test_every_part_of_an_album_can_be_replied_to(db, config, texts):
     asyncio.run(support.forward_to_support(parts[0], _NoState(), config, texts))
     asyncio.run(support.forward_album_tail(parts[1], _NoState(), config, texts))
 
-    owners = {asyncio.run(botdb.support_thread_owner(mid)) for mid in range(1001, 1006)}
+    owners = {asyncio.run(support_repo.support_thread_owner(mid)) for mid in range(1001, 1006)}
     assert owners == {CUSTOMER, None} or owners == {CUSTOMER}
     assert CUSTOMER in owners
 
@@ -234,10 +234,10 @@ def test_an_unrelated_album_is_not_forwarded(db, config, texts):
 
 
 def test_claiming_an_album_twice_reports_only_the_first(db):
-    assert asyncio.run(botdb.start_album(CUSTOMER, "alb-3")) is True
-    assert asyncio.run(botdb.start_album(CUSTOMER, "alb-3")) is False
-    assert asyncio.run(botdb.album_in_progress(CUSTOMER, "alb-3")) is True
-    assert asyncio.run(botdb.album_in_progress(CUSTOMER, "other")) is False
+    assert asyncio.run(support_repo.start_album(CUSTOMER, "alb-3")) is True
+    assert asyncio.run(support_repo.start_album(CUSTOMER, "alb-3")) is False
+    assert asyncio.run(support_repo.album_in_progress(CUSTOMER, "alb-3")) is True
+    assert asyncio.run(support_repo.album_in_progress(CUSTOMER, "other")) is False
 
 
 # --- the two cases the brief named separately -----------------------------
@@ -288,7 +288,7 @@ def test_attachments_travel_in_both_directions(db, config, texts):
     assert bot.forwarded == [77], "the customer's attachment must be forwarded as-is"
 
     forwarded_id = 1002  # note=1001, forward=1002 with _ForwardingBot's counter
-    assert asyncio.run(botdb.support_thread_owner(forwarded_id)) == CUSTOMER
+    assert asyncio.run(support_repo.support_thread_owner(forwarded_id)) == CUSTOMER
 
     # A photo back from the manager: message.text is None.
     reply = _manager_message(bot, text=None, replied=_replied(forwarded_id, text=None))
