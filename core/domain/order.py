@@ -34,3 +34,18 @@ def merge_key(source: str, source_order_id: str, external_id: str | None) -> str
     if external_id:
         return f"shopify:{external_id}"
     return f"{source}:{source_order_id}"
+
+
+def shopify_external_id(gid: str) -> str:
+    """Numeric order id from a Shopify GraphQL gid.
+
+    'gid://shopify/Order/13025577828684' -> '13025577828684'. This is the value
+    KeyCRM stores as `global_source_uuid` on orders it pulled in through the
+    Shopify integration, so it is the key that matches the two systems' copies
+    of one order. Returns '' if the gid has no numeric tail.
+
+    Lives next to merge_key because it produces the `external_id` merge_key
+    branches on: one rule for order identity, in one place.
+    """
+    tail = gid.rsplit("/", 1)[-1] if gid else ""
+    return tail if tail.isdigit() else ""

@@ -23,7 +23,7 @@ from bot.handlers.settings import router as settings_router
 from bot.handlers.support import router as support_router
 from core.adapters.keycrm.client import KeyCRMClient
 from bot.services.novaposhta import NovaPoshtaClient
-from bot.services.shopify import ShopifyClient
+from core.adapters.shopify.client import ShopifyClient
 from bot.middlewares import LanguageMiddleware
 from bot import profile
 from bot.stock import watch as watch_stock

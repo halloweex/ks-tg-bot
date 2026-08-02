@@ -44,7 +44,6 @@ forbidden_modules =
 # том, ради чего затевался перенос.
 allow_indirect_imports = True
 ignore_imports =
-    bot.services.shopify -> httpx
     bot.services.novaposhta -> httpx
 
 [importlinter:contract:phase0-sql-only-in-db]
@@ -135,6 +134,7 @@ name = разборщики ответов не знают про транспо
 type = forbidden
 source_modules =
     core.adapters.keycrm.parse
+    core.adapters.shopify.parse
 forbidden_modules =
     httpx
 
@@ -162,6 +162,7 @@ name = клиенты внешних API ничего не знают про aio
 type = forbidden
 source_modules =
     core.adapters.keycrm
+    core.adapters.shopify
 forbidden_modules =
     aiogram
 

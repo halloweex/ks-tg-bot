@@ -17,7 +17,8 @@ from bot.keyboards import main_menu_kb, share_phone_kb
 from bot.screen import typing
 from core.adapters.keycrm.client import KeyCRMClient
 from core.adapters.keycrm.parse import keycrm_order_to_dict
-from bot.services.shopify import ShopifyClient, shopify_order_to_dict
+from core.adapters.shopify.client import ShopifyClient
+from core.adapters.shopify.parse import shopify_order_to_dict
 from bot.states import OnboardingStates
 
 router = Router()

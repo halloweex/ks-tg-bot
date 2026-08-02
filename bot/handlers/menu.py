@@ -27,7 +27,7 @@ from bot.keyboards import (info_menu_kb, main_menu_kb, settings_menu_kb,
 from bot.screen import render
 from core.adapters.keycrm.client import KeyCRMClient
 from bot.services.novaposhta import NovaPoshtaClient
-from bot.services.shopify import ShopifyClient
+from core.adapters.shopify.client import ShopifyClient
 from bot.states import OnboardingStates, SettingsStates, SupportStates
 
 router = Router()

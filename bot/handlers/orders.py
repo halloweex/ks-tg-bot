@@ -25,7 +25,8 @@ from bot.db import (CANCELLED_STATUS_GROUP, add_discount_request, add_stock_subs
 from bot.screen import render, typing
 from core.adapters.keycrm.client import KeyCRMClient
 from core.adapters.keycrm.parse import keycrm_order_to_dict
-from bot.services.shopify import ShopifyClient, shopify_order_to_dict
+from core.adapters.shopify.client import ShopifyClient
+from core.adapters.shopify.parse import shopify_order_to_dict
 from bot.tasks import spawn
 
 router = Router()

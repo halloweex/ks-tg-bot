@@ -14,11 +14,13 @@ from dataclasses import asdict
 
 import pytest
 
-from bot.services.shopify import (_parse_shopify_order, shopify_external_id,
-                                  shopify_order_to_dict)
 from core.adapters.keycrm.parse import (_parse_order, keycrm_order_to_dict,
                                         last_page, parse_buyer, parse_orders,
                                         parse_stock_page)
+from core.adapters.shopify.parse import (_parse_shopify_order,
+                                         parse_orders as parse_shopify_orders,
+                                         shopify_order_to_dict)
+from core.domain.order import shopify_external_id
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 SNAPSHOTS = pathlib.Path(__file__).parent / "snapshots"
@@ -170,6 +172,28 @@ def test_shopify_parser_output_is_unchanged(order_name):
 )
 def test_shopify_external_id_edge_cases(gid, expected):
     assert shopify_external_id(gid) == expected
+
+
+def _shopify(fixture: str) -> dict:
+    return json.loads((FIXTURES / "shopify" / fixture).read_text())
+
+
+def test_the_shopify_envelope_unpacks_into_the_customers_orders():
+    """Newest first, as the query asks (sortKey: CREATED_AT, reverse: true)."""
+    orders = parse_shopify_orders(_shopify("customer_with_orders.json"))
+    assert [o.name for o in orders] == ["#19966", "#19801"]
+
+
+def test_a_phone_matching_no_customer_parses_to_nothing():
+    """The empty-edges guard: without it the first-customer lookup would raise
+    IndexError on every customer the store has never seen."""
+    assert parse_shopify_orders(_shopify("customer_not_found.json")) == []
+
+
+def test_a_graphql_error_envelope_carries_no_orders():
+    """The client returns [] here too, but only because it checks `errors`
+    first and logs them. This pins the half that does not depend on logging."""
+    assert parse_shopify_orders(_shopify("graphql_errors.json")) == []
 
 
 def test_shopify_fixtures_are_marked_as_reconstructed():
