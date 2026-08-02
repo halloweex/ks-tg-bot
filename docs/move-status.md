@@ -18,6 +18,7 @@
 | `bot/db.py`: соединение и схема | `core/repos/base.py`, `core/repos/schema.py` | `repos-do-not-know-their-callers`, `core-siblings-are-independent` |
 | `bot/db.py`: остальное, по агрегатам | `core/repos/{users,orders,broadcast,events,stock,support,fsm}.py` | `only-repos-touch-db` |
 | `_do_refresh_orders` из `bot/handlers/orders.py` | `core/usecases/sync_orders.py` | `usecases-do-not-know-their-callers` |
+| `_register_user`/`_sync_orders` из `bot/handlers/onboarding.py` | `core/usecases/register.py` | тот же |
 
 Одиннадцать контрактов в `.importlinter`, 138 тестов, всё в продакшене. Ни
 `bot/services/`, ни `bot/db.py` больше не существует: в `bot/` осталась одна
@@ -111,10 +112,11 @@ Nova Poshta 83% → 85%; по трём клиентам вместе 61% → 73%
   порты требуют доменного `Order` и переезда обоих `*_order_to_dict` — это
   редизайн, а не перенос. Поэтому `core.usecases` не добавлен в контракт
   `core-siblings-are-independent`, и это первый пункт в списке «осталось».
-- `bot/handlers/onboarding.py` держит свой `_sync_orders` — тот же сценарий
-  минус обновление профиля покупателя. Не слит с `core/usecases/sync_orders.py`
-  намеренно: слияние добавило бы регистрации запись в профиль, которой там
-  сейчас нет, то есть изменило бы поведение.
+- `core/usecases/register.py` держит свой `_sync_orders` — тот же сценарий минус
+  обновление профиля покупателя. Не слит с `core/usecases/sync_orders.py`
+  намеренно: регистрация забирает профиль отдельно и строкой выше, и слияние
+  дало бы ей вторую запись, которой сейчас нет. Теперь оба лежат рядом, так что
+  слияние — это один заход, когда кто-то решит, что вторая запись безвредна.
 
 ## Не проверено живьём
 

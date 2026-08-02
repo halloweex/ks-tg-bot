@@ -1,6 +1,5 @@
 """Onboarding handler — phone input, validation, and registration."""
 
-import asyncio
 import re
 from typing import Optional
 
@@ -12,14 +11,11 @@ from loguru import logger
 from core.i18n import Texts
 from bot.analytics import track
 from core.config import AppConfig
-from core.repos.orders import upsert_orders
-from core.repos.users import save_user
 from bot.keyboards import main_menu_kb, share_phone_kb
 from bot.screen import typing
 from core.adapters.keycrm.client import KeyCRMClient
-from core.adapters.keycrm.parse import keycrm_order_to_dict
 from core.adapters.shopify.client import ShopifyClient
-from core.adapters.shopify.parse import shopify_order_to_dict
+from core.usecases.register import register_customer
 from bot.states import OnboardingStates
 
 router = Router()
@@ -67,35 +63,6 @@ def own_contact_phone(message: Message) -> str | None:
     return normalize_phone(contact.phone_number)
 
 
-async def _sync_orders(
-    chat_id: int, phone: str,
-    keycrm: KeyCRMClient | None, shopify: ShopifyClient | None,
-) -> None:
-    """Fetch orders from APIs and cache locally (best-effort)."""
-    coros = []
-    if keycrm:
-        coros.append(keycrm.get_orders_by_phone(phone))
-    if shopify:
-        coros.append(shopify.get_orders_by_phone(phone))
-    if not coros:
-        return
-
-    results = await asyncio.gather(*coros, return_exceptions=True)
-
-    db_rows: list[dict] = []
-    idx = 0
-    if keycrm:
-        if not isinstance(results[idx], Exception):
-            db_rows.extend(keycrm_order_to_dict(o, chat_id) for o in results[idx])
-        idx += 1
-    if shopify:
-        if not isinstance(results[idx], Exception):
-            db_rows.extend(shopify_order_to_dict(o, chat_id) for o in results[idx])
-
-    if db_rows:
-        await upsert_orders(chat_id, db_rows)
-
-
 async def _register_user(
     message: Message,
     state: FSMContext,
@@ -105,26 +72,12 @@ async def _register_user(
     keycrm: KeyCRMClient | None = None,
     shopify: ShopifyClient | None = None,
 ) -> None:
-    """Save user, complete onboarding, and show main menu."""
-    await save_user(message.chat.id, phone)
+    """Register the customer, then show them the menu.
 
-    # Enrich profile with KeyCRM buyer data (best-effort)
-    if keycrm:
-        try:
-            buyer = await keycrm.get_buyer_by_phone(phone)
-            if buyer:
-                await save_user(
-                    message.chat.id, phone,
-                    full_name=buyer["full_name"], email=buyer["email"],
-                )
-        except Exception:
-            logger.debug("Buyer profile sync failed for {}", phone)
-
-    # Sync orders into local cache (best-effort, don't block onboarding)
-    try:
-        await _sync_orders(message.chat.id, phone, keycrm, shopify)
-    except Exception:
-        logger.debug("Order sync on registration failed for {}", phone)
+    The phone is ownership-verified before this is called — see
+    own_contact_phone above, which is the whole security boundary of the flow.
+    """
+    await register_customer(message.chat.id, phone, keycrm, shopify)
 
     await state.clear()
     track(message.chat.id, "registered")
