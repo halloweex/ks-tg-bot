@@ -11,7 +11,7 @@ import asyncio
 
 import pytest
 
-from bot import db as botdb
+from core.repos import orders as orders_repo
 from core.repos import base as repos_base
 from core.repos.schema import init_db
 
@@ -51,7 +51,7 @@ SHOPIFY = _row("shopify", f"gid://shopify/Order/{EXTERNAL}", status="FULFILLED",
 def db(tmp_path, monkeypatch):
     monkeypatch.setattr(repos_base, "DB_PATH", str(tmp_path / "bot_data.db"))
     asyncio.run(init_db())
-    return botdb
+    return orders_repo
 
 
 def _cached(db):
@@ -100,7 +100,7 @@ def test_an_order_with_no_external_id_is_never_collapsed(db):
 
 
 def test_two_chats_sharing_a_phone_keep_separate_rows(db):
-    """The unique key carries chat_id (bot/db.py, _ORDERS_TABLE_SQL).
+    """The unique key carries chat_id (core/repos/schema.py, _ORDERS_TABLE_SQL).
 
     Before it did, the second chat's refresh reassigned the first chat's rows to
     itself and the first customer's history went empty.

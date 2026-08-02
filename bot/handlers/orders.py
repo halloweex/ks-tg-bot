@@ -16,10 +16,11 @@ from core.i18n import Texts, operator_texts
 from bot.callbacks import DiscountAction, MenuAction, OrderAction, StockAction
 from bot.analytics import track
 from core.config import AppConfig
-from bot.db import (CANCELLED_STATUS_GROUP, add_discount_request,
-                    add_stock_subscription, get_cached_orders, get_last_sync_time,
-                    get_stock_levels, get_subscribed_skus, recent_discount_request,
-                    remember_support_thread, remove_stock_subscription, upsert_orders)
+from bot.db import (add_discount_request, add_stock_subscription, get_stock_levels,
+                    get_subscribed_skus, recent_discount_request,
+                    remember_support_thread, remove_stock_subscription)
+from core.repos.orders import (CANCELLED_STATUS_GROUP, get_cached_orders,
+                               get_last_sync_time, upsert_orders)
 from core.repos.users import get_user_phone, save_user
 from bot.screen import render, typing
 from core.adapters.keycrm.client import KeyCRMClient
