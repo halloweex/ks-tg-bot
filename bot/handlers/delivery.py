@@ -10,7 +10,8 @@ from aiogram.types import Message
 from core import texts
 from core.i18n import Texts
 from bot.analytics import track
-from bot.db import get_orders_with_tracking, get_user_phone, get_cached_orders
+from bot.db import get_cached_orders, get_orders_with_tracking
+from core.repos.users import get_user_phone
 from bot.screen import typing
 from core.adapters.novaposhta.client import NovaPoshtaClient
 

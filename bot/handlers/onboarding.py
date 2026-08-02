@@ -12,7 +12,8 @@ from loguru import logger
 from core.i18n import Texts
 from bot.analytics import track
 from core.config import AppConfig
-from bot.db import save_user, upsert_orders
+from bot.db import upsert_orders
+from core.repos.users import save_user
 from bot.keyboards import main_menu_kb, share_phone_kb
 from bot.screen import typing
 from core.adapters.keycrm.client import KeyCRMClient

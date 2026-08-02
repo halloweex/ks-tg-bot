@@ -21,8 +21,8 @@ from aiogram.types import Message
 from loguru import logger
 
 from core.config import AppConfig
-from bot.db import (DEMO_SOURCE, count_demo_orders, delete_demo_orders,
-                    get_user_phone, upsert_orders)
+from bot.db import DEMO_SOURCE, count_demo_orders, delete_demo_orders, upsert_orders
+from core.repos.users import get_user_phone
 router = Router()
 
 # Real catalogue names: the point of the fixture is to see the real rendering,

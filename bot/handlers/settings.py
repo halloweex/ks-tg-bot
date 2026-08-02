@@ -9,7 +9,7 @@ from core.i18n import Texts, normalize
 from bot.callbacks import SettingsAction
 from bot.analytics import track
 from core.config import AppConfig
-from bot.db import save_user, set_user_language
+from core.repos.users import save_user, set_user_language
 from bot.handlers.onboarding import own_contact_phone
 from bot.keyboards import language_kb, main_menu_kb, share_phone_kb
 from bot.screen import render

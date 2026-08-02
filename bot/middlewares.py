@@ -11,7 +11,7 @@ from typing import Any, Awaitable, Callable
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, User
 
-from bot.db import get_user_language
+from core.repos.users import get_user_language
 from core.i18n import DEFAULT_LANG, Texts, normalize
 
 

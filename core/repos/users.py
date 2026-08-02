@@ -1,0 +1,137 @@
+"""The users table and the opt-out list beside it.
+
+One aggregate: everything keyed by chat_id that says who a person is and whether
+they may be written to. get_broadcast_recipients lives here rather than in
+broadcast.py because the question it answers — who has not opted out — is about
+users, and the broadcast repository only records what happened to a job.
+"""
+from __future__ import annotations
+
+import aiosqlite
+
+from core.repos.base import connect
+
+
+async def save_user(
+    chat_id: int,
+    phone: str,
+    *,
+    full_name: str | None = None,
+    email: str | None = None,
+) -> None:
+    """Persist a verified chat_id-to-phone mapping with optional profile fields.
+
+    Uses INSERT OR REPLACE — chat_id is PRIMARY KEY, so re-verification
+    overwrites the old row. Optional full_name/email are stored when provided.
+
+    REPLACE writes a whole new row, so any column not listed here would be reset
+    to its default. The chosen language and the original signup date are carried
+    over explicitly: losing them on a phone re-verification would silently flip
+    the user back to Ukrainian and destroy the signup cohort.
+    """
+    async with connect() as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO users "
+            "(chat_id, phone, full_name, email, language, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, "
+            "  (SELECT language FROM users WHERE chat_id = ?), "
+            "  COALESCE((SELECT created_at FROM users WHERE chat_id = ?), datetime('now')), "
+            "  datetime('now'))",
+            (chat_id, phone, full_name, email, chat_id, chat_id),
+        )
+        await db.commit()
+
+
+async def get_user_phone(chat_id: int) -> str | None:
+    """Return the phone number for a verified user, or None if not found."""
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT phone FROM users WHERE chat_id = ?",
+            (chat_id,),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None
+
+
+async def get_user_language(chat_id: int) -> str | None:
+    """Return the language the user explicitly chose, or None if they never did.
+
+    None is meaningful: it means fall back to their Telegram language_code.
+    """
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT language FROM users WHERE chat_id = ?",
+            (chat_id,),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row and row[0] else None
+
+
+async def set_user_language(chat_id: int, lang: str) -> None:
+    """Persist an explicit language choice.
+
+    Only touches the language column — save_user() does INSERT OR REPLACE and
+    would wipe the profile fields if used here.
+    """
+    async with connect() as db:
+        await db.execute(
+            "UPDATE users SET language = ?, updated_at = datetime('now') "
+            "WHERE chat_id = ?",
+            (lang, chat_id),
+        )
+        await db.commit()
+
+
+async def get_user(chat_id: int) -> dict | None:
+    """Return full user profile dict or None if not found."""
+    async with connect() as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT phone, full_name, email FROM users WHERE chat_id = ?",
+            (chat_id,),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        return {"phone": row["phone"], "full_name": row["full_name"], "email": row["email"]}
+
+
+async def opt_out_user(chat_id: int) -> None:
+    """Mark a user as opted out of broadcasts."""
+    async with connect() as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO opt_out (chat_id) VALUES (?)",
+            (chat_id,),
+        )
+        await db.commit()
+
+
+async def opt_in_user(chat_id: int) -> None:
+    """Remove a user from the opt-out list (re-subscribe)."""
+    async with connect() as db:
+        await db.execute(
+            "DELETE FROM opt_out WHERE chat_id = ?",
+            (chat_id,),
+        )
+        await db.commit()
+
+
+async def is_opted_out(chat_id: int) -> bool:
+    """Check whether a user has opted out of broadcasts."""
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT 1 FROM opt_out WHERE chat_id = ?",
+            (chat_id,),
+        )
+        return await cursor.fetchone() is not None
+
+
+async def get_broadcast_recipients() -> list[int]:
+    """Return chat_ids of all users who have NOT opted out."""
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT u.chat_id FROM users u "
+            "WHERE u.chat_id NOT IN (SELECT chat_id FROM opt_out)",
+        )
+        rows = await cursor.fetchall()
+        return [row[0] for row in rows]
