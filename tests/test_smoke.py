@@ -16,20 +16,28 @@ import sqlite3
 import pytest
 
 import bot as bot_pkg
-from bot import db as botdb
+import core as core_pkg
+from core.repos import base as repos_base
+from core.repos import schema
 from tests.conftest import REPO_ROOT
 
 
 def test_every_module_imports():
-    """Also the cheapest cycle detector: a cycle raises here."""
+    """Also the cheapest cycle detector: a cycle raises here.
+
+    Walks core as well as bot. Half the tree lives there now, and the modules
+    moving into it are exactly the ones that could close a cycle — a repository
+    that imports a handler, an adapter that imports a repository.
+    """
     failed = []
-    for mod in pkgutil.walk_packages(bot_pkg.__path__, prefix="bot."):
-        if mod.name.endswith("__main__"):
-            continue  # imported separately below, it has side-effect-free top level
-        try:
-            importlib.import_module(mod.name)
-        except Exception as exc:  # noqa: BLE001
-            failed.append((mod.name, exc))
+    for package, prefix in ((bot_pkg, "bot."), (core_pkg, "core.")):
+        for mod in pkgutil.walk_packages(package.__path__, prefix=prefix):
+            if mod.name.endswith("__main__"):
+                continue  # imported separately below, it has side-effect-free top level
+            try:
+                importlib.import_module(mod.name)
+            except Exception as exc:  # noqa: BLE001
+                failed.append((mod.name, exc))
     assert not failed, failed
 
 
@@ -66,14 +74,14 @@ def test_all_routers_are_registered():
 
 def test_schema_builds_on_an_empty_database(tmp_path, monkeypatch):
     path = tmp_path / "fresh.db"
-    monkeypatch.setattr(botdb, "DB_PATH", str(path))
-    asyncio.run(botdb.init_db())
+    monkeypatch.setattr(repos_base, "DB_PATH", str(path))
+    asyncio.run(schema.init_db())
 
     db = sqlite3.connect(path)
     tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"users", "opt_out", "orders", "broadcast_jobs", "broadcast_targets",
             "events", "stock_levels", "stock_subscriptions", "discount_requests"} <= tables
-    assert db.execute("PRAGMA user_version").fetchone()[0] == botdb.SCHEMA_VERSION
+    assert db.execute("PRAGMA user_version").fetchone()[0] == schema.SCHEMA_VERSION
     assert db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     db.close()
 
@@ -99,11 +107,11 @@ def test_schema_migrates_a_production_dump(tmp_path, monkeypatch):
                      for t in tables_before if not t.startswith("sqlite_")}
     before.close()
 
-    monkeypatch.setattr(botdb, "DB_PATH", str(dump))
-    asyncio.run(botdb.init_db())
+    monkeypatch.setattr(repos_base, "DB_PATH", str(dump))
+    asyncio.run(schema.init_db())
 
     after = sqlite3.connect(dump)
-    assert after.execute("PRAGMA user_version").fetchone()[0] == botdb.SCHEMA_VERSION
+    assert after.execute("PRAGMA user_version").fetchone()[0] == schema.SCHEMA_VERSION
     assert after.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     for table, count in counts_before.items():
         assert after.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == count, (
@@ -125,15 +133,15 @@ def test_fresh_database_has_every_column_the_code_uses(tmp_path, monkeypatch):
     rebuilt.
     """
     path = tmp_path / "fresh.db"
-    monkeypatch.setattr(botdb, "DB_PATH", str(path))
-    asyncio.run(botdb.init_db())
+    monkeypatch.setattr(repos_base, "DB_PATH", str(path))
+    asyncio.run(schema.init_db())
 
     db = sqlite3.connect(path)
     users = {r[1] for r in db.execute("PRAGMA table_info(users)")}
     orders = {r[1] for r in db.execute("PRAGMA table_info(orders)")}
     db.close()
 
-    for table, column, _decl in botdb._LATE_COLUMNS:
+    for table, column, _decl in schema._LATE_COLUMNS:
         present = users if table == "users" else orders
         assert column in present, f"{table}.{column} missing from a fresh database"
 
@@ -156,12 +164,12 @@ def test_the_database_path_still_comes_from_the_environment(monkeypatch):
 
 
 def test_configure_points_the_module_at_a_file():
-    original = botdb.DB_PATH
+    original = repos_base.DB_PATH
     try:
-        botdb.configure("/tmp/somewhere.db")
-        assert str(botdb.DB_PATH) == "/tmp/somewhere.db"
+        repos_base.configure("/tmp/somewhere.db")
+        assert str(repos_base.DB_PATH) == "/tmp/somewhere.db"
     finally:
-        botdb.DB_PATH = original
+        repos_base.DB_PATH = original
 
 
 def test_the_environment_has_exactly_one_reader():

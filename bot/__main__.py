@@ -9,7 +9,8 @@ from aiogram.enums import ParseMode
 from loguru import logger
 
 from core.config import load_config
-from bot.db import configure as configure_db, init_db
+from core.repos.base import configure as configure_db
+from core.repos.schema import init_db
 from bot.fsm_storage import SQLiteStorage
 from bot.logs import setup_logging
 from bot.handlers.broadcast import resume_broadcasts, router as broadcast_router

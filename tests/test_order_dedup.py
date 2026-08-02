@@ -12,6 +12,8 @@ import asyncio
 import pytest
 
 from bot import db as botdb
+from core.repos import base as repos_base
+from core.repos.schema import init_db
 
 CHAT = 555
 EXTERNAL = "13025577828684"
@@ -47,8 +49,8 @@ SHOPIFY = _row("shopify", f"gid://shopify/Order/{EXTERNAL}", status="FULFILLED",
 
 @pytest.fixture()
 def db(tmp_path, monkeypatch):
-    monkeypatch.setattr(botdb, "DB_PATH", str(tmp_path / "bot_data.db"))
-    asyncio.run(botdb.init_db())
+    monkeypatch.setattr(repos_base, "DB_PATH", str(tmp_path / "bot_data.db"))
+    asyncio.run(init_db())
     return botdb
 
 

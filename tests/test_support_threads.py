@@ -13,6 +13,8 @@ from types import SimpleNamespace
 import pytest
 
 from bot import db as botdb
+from core.repos import base as repos_base
+from core.repos.schema import init_db
 from bot.handlers import support
 
 SUPPORT_CHAT = 129462784
@@ -21,8 +23,8 @@ CUSTOMER = 555000111
 
 @pytest.fixture()
 def db(tmp_path, monkeypatch):
-    monkeypatch.setattr(botdb, "DB_PATH", str(tmp_path / "bot_data.db"))
-    asyncio.run(botdb.init_db())
+    monkeypatch.setattr(repos_base, "DB_PATH", str(tmp_path / "bot_data.db"))
+    asyncio.run(init_db())
     return botdb
 
 

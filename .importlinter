@@ -55,11 +55,20 @@ name = ЭТАП 0: aiosqlite живёт только в bot.db
 # Причина: единственная граница слоя, которая сегодня соблюдается полностью
 # (весь SQL в bot/db.py, вне его — ни одного вхождения). Её надо донести до
 # core.repos, а не потерять по дороге.
+#
+# Исключение тает вместе с bot/db.py: соединение и схема уже в core.repos,
+# остались запросы, и они уезжают по агрегатам. Когда уедет последний, правило
+# станет целевым «SQL живёт только в core.repos».
 type = forbidden
 source_modules =
     bot
 forbidden_modules =
     aiosqlite
+# Ровно те же грабли, что и с httpx: без этой строки контракт ломается на
+# цепочке bot.db -> core.repos.base -> aiosqlite. Правило про прямой импорт —
+# хендлеру нельзя открывать соединение, а ходить в базу через репозиторий это и
+# есть архитектура.
+allow_indirect_imports = True
 ignore_imports =
     bot.db -> aiosqlite
 
@@ -164,6 +173,30 @@ source_modules =
     core.adapters.novaposhta
 forbidden_modules =
     aiogram
+
+[importlinter:contract:repos-do-not-know-their-callers]
+name = core.repos не знает ни точек входа, ни сети
+# Причина: репозиторий обслуживает бота, воркер и веб одновременно, поэтому
+# зависимость от любого из них его к одному процессу приколачивает. А
+# репозиторий, ходящий во внешний API, делает время транзакции равным времени
+# сетевого вызова — на SQLite это блокировка базы на десять секунд таймаута.
+type = forbidden
+source_modules =
+    core.repos
+forbidden_modules =
+    bot
+    httpx
+    aiogram
+
+[importlinter:contract:core-siblings-are-independent]
+name = core: adapters и repos не видят друг друга
+# Причина: адаптер, знающий репозиторий, делает запись невидимой для транзакции
+# сценария; репозиторий, знающий адаптер, — см. правило выше. Пока сиблингов
+# двое; core.usecases добавляется сюда вместе со своим переносом.
+type = independence
+modules =
+    core.adapters
+    core.repos
 
 [importlinter:contract:domain-does-not-know-its-callers]
 name = core.domain не знает про точки входа

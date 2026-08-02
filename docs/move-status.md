@@ -15,6 +15,7 @@
 | `bot/services/keycrm.py` | `core/adapters/keycrm/{client,parse}.py` | `parsers-are-pure`, `adapters-do-not-know-their-callers`, `api-clients-know-no-telegram` |
 | `bot/services/shopify.py` | `core/adapters/shopify/{client,parse}.py` + `shopify_external_id` в `core/domain/order.py` | те же три |
 | `bot/services/novaposhta.py` | `core/adapters/novaposhta/{client,parse}.py` | те же три |
+| `bot/db.py`: соединение и схема | `core/repos/base.py`, `core/repos/schema.py` | `repos-do-not-know-their-callers`, `core-siblings-are-independent` |
 
 Девять контрактов в `.importlinter`, 138 тестов, всё в продакшене. Каталога
 `bot/services/` больше нет; из границ ЭТАП 0 осталась одна — `aiosqlite` в
@@ -28,11 +29,18 @@ Nova Poshta 83% → 85%; по трём клиентам вместе 61% → 73%
 
 ## Осталось, в этом порядке
 
-1. **`db.py` → `core/repos/` по агрегатам.** Самый крупный: 855 строк, сорок
-   запросов. Одним коммитом неревьюемо, резать по агрегатам (users, orders,
-   broadcast, events, stock, support, fsm). Он же делает переход на Postgres
-   подменой за интерфейсом вместо переписывания 855 строк одновременно со
-   сменой движка.
+1. **Остаток `db.py` → `core/repos/` по агрегатам.** Фундамент уже уехал:
+   соединение в `base.py`, схема и шесть миграций в `schema.py`, в `bot/db.py`
+   осталось 689 строк одних запросов. Дальше по одному агрегату на коммит:
+   users, orders, broadcast, events, stock, support, fsm. Он же делает переход
+   на Postgres подменой за интерфейсом вместо переписывания всего файла
+   одновременно со сменой движка.
+
+   **Читать `DB_PATH` только как `base.DB_PATH`.** `configure()` переприсваивает
+   имя в своём модуле, поэтому `from core.repos.base import DB_PATH` замораживает
+   значение по умолчанию, и модуль тихо уходит работать не с той базой.
+   `connect()` читает его в момент вызова — эту функцию импортировать по имени
+   безопасно.
 2. **Логика из хендлеров → `core/usecases/`.**
 
 ## Что уже наступало на грабли — не наступать снова

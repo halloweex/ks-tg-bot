@@ -15,7 +15,8 @@ import sys
 
 import pytest
 
-from bot import db as botdb
+from core.repos import base as repos_base
+from core.repos import schema
 from tests.conftest import REPO_ROOT
 
 # The pre-migration shape: unique key without chat_id, no external_id.
@@ -55,7 +56,7 @@ async def execute(self, sql, *a, **kw):
         os._exit(9)
     return await _orig(self, sql, *a, **kw)
 aiosqlite.Connection.execute = execute
-from bot.db import init_db
+from core.repos.schema import init_db
 asyncio.run(init_db())
 """
 
@@ -129,11 +130,11 @@ def test_restart_after_crash_migrates_unattended(v1_db):
         capture_output=True,
         text=True,
     )
-    botdb.DB_PATH = v1_db
-    asyncio.run(botdb.init_db())
+    repos_base.DB_PATH = v1_db
+    asyncio.run(schema.init_db())
 
     after = _probe(v1_db)
-    assert after["user_version"] == botdb.SCHEMA_VERSION
+    assert after["user_version"] == schema.SCHEMA_VERSION
     assert after["orders"] == 25
     assert not after["leftover"]
     assert "chat_id" in after["unique_sql"]
@@ -148,16 +149,16 @@ def test_wal_survives_the_transactional_block(v1_db):
     disables WAL with no error anywhere — the regression this pins is a silent
     one.
     """
-    botdb.DB_PATH = v1_db
-    asyncio.run(botdb.init_db())
+    repos_base.DB_PATH = v1_db
+    asyncio.run(schema.init_db())
     assert _probe(v1_db)["journal_mode"] == "wal"
 
 
 def test_init_db_is_idempotent(v1_db):
-    botdb.DB_PATH = v1_db
-    asyncio.run(botdb.init_db())
-    asyncio.run(botdb.init_db())
+    repos_base.DB_PATH = v1_db
+    asyncio.run(schema.init_db())
+    asyncio.run(schema.init_db())
     after = _probe(v1_db)
-    assert after["user_version"] == botdb.SCHEMA_VERSION
+    assert after["user_version"] == schema.SCHEMA_VERSION
     assert after["orders"] == 25
     assert after["journal_mode"] == "wal"

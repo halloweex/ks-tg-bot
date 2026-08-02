@@ -13,6 +13,8 @@ import pytest
 from aiogram.fsm.storage.base import StorageKey
 
 from bot import db as botdb
+from core.repos import base as repos_base
+from core.repos.schema import init_db
 from bot.fsm_storage import SQLiteStorage
 from bot.states import SupportStates
 
@@ -22,8 +24,8 @@ OTHER = StorageKey(bot_id=1, chat_id=666, user_id=666)
 
 @pytest.fixture()
 def db(tmp_path, monkeypatch):
-    monkeypatch.setattr(botdb, "DB_PATH", str(tmp_path / "bot_data.db"))
-    asyncio.run(botdb.init_db())
+    monkeypatch.setattr(repos_base, "DB_PATH", str(tmp_path / "bot_data.db"))
+    asyncio.run(init_db())
     return botdb
 
 
@@ -105,7 +107,7 @@ def test_abandoned_conversations_are_swept(db):
     import sqlite3
 
     asyncio.run(_restart().set_state(KEY, SupportStates.waiting_message))
-    conn = sqlite3.connect(botdb.DB_PATH)
+    conn = sqlite3.connect(repos_base.DB_PATH)
     conn.execute("UPDATE fsm_state SET updated_at = datetime('now', '-30 days')")
     conn.commit()
     conn.close()
