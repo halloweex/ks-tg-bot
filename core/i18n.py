@@ -11,7 +11,7 @@ breaking the handler that uses it.
 """
 from __future__ import annotations
 
-from bot import texts
+from core import texts
 
 DEFAULT_LANG = "uk"
 

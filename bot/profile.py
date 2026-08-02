@@ -15,7 +15,7 @@ from aiogram.types import (BotCommand, BotCommandScopeAllPrivateChats,
                            BotCommandScopeChat, MenuButtonCommands)
 from loguru import logger
 
-from bot.i18n import DEFAULT_LANG
+from core.i18n import DEFAULT_LANG
 
 # Telegram matches these against the user's language_code; the entry without a
 # language is the fallback for everyone else.

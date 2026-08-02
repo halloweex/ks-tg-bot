@@ -5,7 +5,7 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from bot.i18n import Texts, normalize
+from core.i18n import Texts, normalize
 from bot.callbacks import SettingsAction
 from bot.analytics import track
 from bot.config import AppConfig

@@ -16,7 +16,7 @@ from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from bot.i18n import Texts, variants
+from core.i18n import Texts, variants
 from bot.callbacks import InfoAction, MenuAction
 from bot.analytics import track
 from bot.config import AppConfig

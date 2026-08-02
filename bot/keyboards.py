@@ -7,7 +7,7 @@ from aiogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMar
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
 from bot.callbacks import BroadcastAction, InfoAction, SettingsAction
-from bot.i18n import LANGUAGE_NAMES, SUPPORTED, Texts
+from core.i18n import LANGUAGE_NAMES, SUPPORTED, Texts
 
 
 def tagged_website_url(url: str) -> str:

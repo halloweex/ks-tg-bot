@@ -11,8 +11,8 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from loguru import logger
 
-from bot import texts
-from bot.i18n import Texts, operator_texts
+from core import texts
+from core.i18n import Texts, operator_texts
 from bot.callbacks import DiscountAction, MenuAction, OrderAction, StockAction
 from bot.analytics import track
 from bot.config import AppConfig

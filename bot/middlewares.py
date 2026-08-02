@@ -12,7 +12,7 @@ from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, User
 
 from bot.db import get_user_language
-from bot.i18n import DEFAULT_LANG, Texts, normalize
+from core.i18n import DEFAULT_LANG, Texts, normalize
 
 
 class LanguageMiddleware(BaseMiddleware):

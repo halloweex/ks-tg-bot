@@ -83,6 +83,22 @@ forbidden_modules =
     asyncpg
     fastapi
 
+[importlinter:contract:i18n-is-a-leaf]
+name = core.i18n и core.texts ничего не импортируют из проекта
+# Причина: их импортирует почти всё дерево (14 модулей на момент переноса), и
+# любая их зависимость немедленно становится зависимостью всего дерева. Тексты
+# нужны и боту, и кабинету — §9 документа, — поэтому они внизу, а не в боте.
+type = forbidden
+source_modules =
+    core.i18n
+    core.texts
+forbidden_modules =
+    bot
+    core.domain
+    aiogram
+    httpx
+    aiosqlite
+
 [importlinter:contract:domain-does-not-know-its-callers]
 name = core.domain не знает про точки входа
 # Причина: домен обслуживает бота, воркер и веб одновременно. Импорт любого из

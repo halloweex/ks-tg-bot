@@ -21,10 +21,10 @@ from loguru import logger
 from bot.analytics import track
 from bot.db import (clear_subscriptions, get_stock_levels, get_user_language,
                     save_stock_levels, subscribers_for)
-from bot.i18n import customer_texts
+from core.i18n import customer_texts
 from core.domain.quiet import is_quiet_now
 from bot.services.keycrm import KeyCRMClient
-from bot.texts import shorten_name
+from core.texts import shorten_name
 
 # A full sweep costs ~14s and 18 requests. Every 15 minutes is far inside the
 # rate limit and well below the resolution anyone cares about for a restock.

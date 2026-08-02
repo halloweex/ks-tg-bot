@@ -7,8 +7,8 @@ from html import escape
 
 from aiogram.types import Message
 
-from bot import texts
-from bot.i18n import Texts
+from core import texts
+from core.i18n import Texts
 from bot.analytics import track
 from bot.db import get_orders_with_tracking, get_user_phone, get_cached_orders
 from bot.screen import typing

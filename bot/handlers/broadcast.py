@@ -10,7 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from loguru import logger
 
-from bot.i18n import Texts, admin_texts
+from core.i18n import Texts, admin_texts
 from bot.callbacks import BroadcastAction
 from bot.analytics import track
 from bot.config import AppConfig

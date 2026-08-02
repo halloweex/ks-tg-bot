@@ -5,7 +5,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot.i18n import Texts
+from core.i18n import Texts
 from bot.callbacks import InfoAction, MenuAction
 from bot.analytics import track
 from bot.config import AppConfig

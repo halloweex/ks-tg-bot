@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from loguru import logger
 
-from bot.i18n import Texts, customer_texts, operator_texts
+from core.i18n import Texts, customer_texts, operator_texts
 from bot.analytics import track
 from bot.config import AppConfig
 from bot.db import (album_in_progress, get_user_language, remember_support_thread,

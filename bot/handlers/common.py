@@ -6,7 +6,7 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
-from bot.i18n import LANGUAGE_NAMES, Texts
+from core.i18n import LANGUAGE_NAMES, Texts
 from bot.analytics import track
 from bot.config import AppConfig
 from bot.db import get_user, get_user_language, is_opted_out, opt_in_user

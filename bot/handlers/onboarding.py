@@ -9,7 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from loguru import logger
 
-from bot.i18n import Texts
+from core.i18n import Texts
 from bot.analytics import track
 from bot.config import AppConfig
 from bot.db import save_user, upsert_orders
