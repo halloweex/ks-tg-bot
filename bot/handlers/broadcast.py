@@ -14,10 +14,10 @@ from core.i18n import Texts, admin_texts
 from bot.callbacks import BroadcastAction
 from bot.analytics import track
 from core.config import AppConfig
-from bot.db import (broadcast_job_stats, create_broadcast_job, event_counts,
-                    finish_broadcast_job, funnel_counts, get_pending_targets,
-                    get_unfinished_broadcasts, lookup_miss_rate, mark_target,
-                    returning_users)
+from bot.db import event_counts, funnel_counts, lookup_miss_rate, returning_users
+from core.repos.broadcast import (broadcast_job_stats, create_broadcast_job,
+                                  finish_broadcast_job, get_pending_targets,
+                                  get_unfinished_broadcasts, mark_target)
 from core.repos.users import get_broadcast_recipients, get_user_language, opt_out_user
 from bot.keyboards import broadcast_confirm_kb
 from core.domain.quiet import is_quiet_now
