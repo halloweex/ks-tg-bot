@@ -46,6 +46,13 @@ CREATE TABLE orders (
 """
 
 # Runs init_db in a child process and hard-kills it the moment the copy starts.
+#
+# configure() is not optional. BOT_DB_PATH is read by core.config and applied by
+# bot/__main__.py, and this child is neither: without the call it opened
+# `bot_data.db` relative to its working directory — the developer's own database
+# in the repository root — and crashed a migration in the middle of that instead
+# of the fixture. The assertions then inspected a fixture nobody had touched and
+# passed for it. See docs/found-during-move.md §11.
 CRASHER = r"""
 import asyncio, os, sys
 sys.path.insert(0, %r)
@@ -56,7 +63,9 @@ async def execute(self, sql, *a, **kw):
         os._exit(9)
     return await _orig(self, sql, *a, **kw)
 aiosqlite.Connection.execute = execute
+from core.repos.base import configure
 from core.repos.schema import init_db
+configure(os.environ["BOT_DB_PATH"])
 asyncio.run(init_db())
 """
 
@@ -107,6 +116,7 @@ def v1_db(tmp_path):
 def test_kill_mid_copy_rolls_back_completely(v1_db):
     before = _probe(v1_db)
     assert (before["user_version"], before["orders"]) == (1, 25)
+    assert before["journal_mode"] == "delete"
 
     result = subprocess.run(
         [sys.executable, "-c", CRASHER % str(REPO_ROOT)],
@@ -117,6 +127,11 @@ def test_kill_mid_copy_rolls_back_completely(v1_db):
     assert result.returncode in (9, -9), result.stderr
 
     after = _probe(v1_db)
+    # The assertion that was missing, and the reason the whole test could pass
+    # while migrating a different database entirely: init_db switches the file
+    # to WAL on its own connection before the transactional block, and WAL is a
+    # persistent property. So this is proof the child opened *this* file.
+    assert after["journal_mode"] == "wal", "the child process never opened the fixture"
     assert after["user_version"] == 1, "version moved despite the crash"
     assert after["orders"] == 25
     assert after["ids"] == before["ids"], "row ids are what expand buttons carry"
