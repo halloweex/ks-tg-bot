@@ -19,8 +19,8 @@ from aiogram.exceptions import (TelegramBadRequest, TelegramForbiddenError,
 from loguru import logger
 
 from bot.analytics import track
-from bot.db import (clear_subscriptions, get_stock_levels, save_stock_levels,
-                    subscribers_for)
+from core.repos.stock import (clear_subscriptions, get_stock_levels, save_stock_levels,
+                              subscribers_for)
 from core.repos.users import get_user_language
 from core.i18n import customer_texts
 from core.domain.quiet import is_quiet_now
