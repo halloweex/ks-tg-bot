@@ -145,6 +145,24 @@ def last_page(body: dict) -> int:
     return int(body.get("last_page") or 1)
 
 
+def retry_after_seconds(header: str | None) -> float | None:
+    """The Retry-After header as seconds, or None if it does not say.
+
+    Only the delta-seconds form is read. RFC 9110 also allows an HTTP date, and
+    honouring it would mean parsing a date, trusting the client's clock and
+    handling a value in the past — for a header KeyCRM sends as a plain number.
+    An unreadable value returns None, and the caller backs off on its own
+    schedule rather than guessing.
+    """
+    if header is None:
+        return None
+    try:
+        seconds = float(header.strip())
+    except (AttributeError, ValueError):
+        return None
+    return seconds if seconds >= 0 else None
+
+
 def keycrm_order_to_dict(order: KeyCRMOrder, chat_id: int) -> dict:
     """Convert a KeyCRMOrder dataclass to a dict for upsert_orders().
 

@@ -16,7 +16,7 @@ import pytest
 
 from core.adapters.keycrm.parse import (_parse_order, keycrm_order_to_dict,
                                         last_page, parse_buyer, parse_orders,
-                                        parse_stock_page)
+                                        parse_stock_page, retry_after_seconds)
 from core.adapters.shopify.parse import (_parse_shopify_order,
                                          parse_orders as parse_shopify_orders,
                                          shopify_order_to_dict)
@@ -172,6 +172,28 @@ def test_shopify_parser_output_is_unchanged(order_name):
 )
 def test_shopify_external_id_edge_cases(gid, expected):
     assert shopify_external_id(gid) == expected
+
+
+@pytest.mark.parametrize(
+    "header,expected",
+    [
+        ("5", 5.0),
+        ("0", 0.0),
+        ("2.5", 2.5),
+        ("  7 ", 7.0),
+        (None, None),
+        ("", None),
+        ("-1", None),
+        ("Wed, 21 Oct 2026 07:28:00 GMT", None),
+    ],
+    ids=["seconds", "zero", "fractional", "padded", "absent", "empty", "negative",
+         "http-date"],
+)
+def test_retry_after_is_read_as_seconds_or_not_at_all(header, expected):
+    """None means "it did not say", and the caller backs off on its own
+    schedule. The HTTP-date form is deliberately not honoured: it would mean
+    trusting our clock against theirs for a header KeyCRM sends as a number."""
+    assert retry_after_seconds(header) == expected
 
 
 def _shopify(fixture: str) -> dict:
