@@ -14,13 +14,12 @@ from dataclasses import asdict
 
 import pytest
 
-from core.adapters.keycrm.parse import (_parse_order, keycrm_order_to_dict,
-                                        last_page, parse_buyer, parse_orders,
-                                        parse_stock_page, retry_after_seconds)
-from core.adapters.shopify.parse import (_parse_shopify_order,
-                                         parse_orders as parse_shopify_orders,
-                                         shopify_order_to_dict)
-from core.domain.order import shopify_external_id
+from core.adapters.keycrm.parse import (last_page, parse_buyer, parse_order,
+                                        parse_orders, parse_stock_page,
+                                        retry_after_seconds)
+from core.adapters.shopify.parse import (parse_orders as parse_shopify_orders,
+                                         parse_shopify_order)
+from core.domain.order import order_row, shopify_external_id
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 SNAPSHOTS = pathlib.Path(__file__).parent / "snapshots"
@@ -35,9 +34,9 @@ def _snapshot(name: str) -> dict:
 @pytest.mark.parametrize("path", KEYCRM_ORDERS, ids=lambda p: p.stem)
 def test_keycrm_parser_output_is_unchanged(path):
     expected = _snapshot("keycrm_parser.json")[path.stem]
-    order = _parse_order(json.loads(path.read_text()))
+    order = parse_order(json.loads(path.read_text()))
     assert asdict(order) == expected["parsed"]
-    assert keycrm_order_to_dict(order, chat_id=777) == expected["as_row"]
+    assert order_row(order, chat_id=777) == expected["as_row"]
 
 
 def test_every_keycrm_edge_case_has_a_fixture():
@@ -64,12 +63,9 @@ def test_keycrm_fixtures_keep_the_fields_the_parser_ignores():
         assert ignored in raw
 
 
-def test_keycrm_list_envelope_carries_pagination_the_client_ignores():
-    """get_orders_by_phone sends no `page` and reads no `last_page`.
-
-    Orders past the first 50 are dropped silently. Pinned here so the day the
-    client starts paginating, this test is what changes.
-    """
+def test_the_keycrm_list_envelope_carries_its_pagination():
+    """These are the fields the client pages on — see docs/found-during-move.md
+    §4 for the version that asked for fifty and read none of them."""
     env = json.loads((FIXTURES / "keycrm" / "list_envelope.json").read_text())
     assert {"last_page", "total", "next_page_url", "per_page"} <= set(env)
 
@@ -85,7 +81,8 @@ def test_keycrm_envelope_unpacks_into_the_orders_it_carries():
     httpx.AsyncClient` and could only be exercised through a mock transport.
     """
     env = _envelope()
-    assert [o.id for o in parse_orders(env)] == [raw["id"] for raw in env["data"]]
+    assert ([o.source_order_id for o in parse_orders(env)]
+            == [str(raw["id"]) for raw in env["data"]])
 
 
 def test_an_envelope_without_data_parses_to_nothing():
@@ -155,10 +152,10 @@ def test_shopify_parser_output_is_unchanged(order_name):
     raw = json.loads((FIXTURES / "shopify" / "customer_with_orders.json").read_text())
     nodes = {e["node"]["name"]: e["node"]
              for e in raw["data"]["customers"]["edges"][0]["node"]["orders"]["edges"]}
-    order = _parse_shopify_order(nodes[order_name])
+    order = parse_shopify_order(nodes[order_name])
     assert asdict(order) == expected["parsed"]
-    assert shopify_order_to_dict(order, chat_id=777) == expected["as_row"]
-    assert shopify_external_id(order.id) == expected["external_id"]
+    assert order_row(order, chat_id=777) == expected["as_row"]
+    assert order.external_id == expected["external_id"]
 
 
 @pytest.mark.parametrize(
@@ -203,7 +200,7 @@ def _shopify(fixture: str) -> dict:
 def test_the_shopify_envelope_unpacks_into_the_customers_orders():
     """Newest first, as the query asks (sortKey: CREATED_AT, reverse: true)."""
     orders = parse_shopify_orders(_shopify("customer_with_orders.json"))
-    assert [o.name for o in orders] == ["#19966", "#19801"]
+    assert [o.order_name for o in orders] == ["#19966", "#19801"]
 
 
 def test_a_phone_matching_no_customer_parses_to_nothing():

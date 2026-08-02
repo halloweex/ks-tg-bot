@@ -10,10 +10,10 @@ import asyncio
 import httpx
 from loguru import logger
 
-from core.adapters.keycrm.parse import (KeyCRMOrder, last_page,
-                                        normalize_phone_for_keycrm,
+from core.adapters.keycrm.parse import (last_page, normalize_phone_for_keycrm,
                                         parse_buyer, parse_orders,
                                         parse_stock_page, retry_after_seconds)
+from core.domain.order import Order
 
 BASE_URL = "https://openapi.keycrm.app/v1"
 
@@ -72,7 +72,7 @@ class KeyCRMClient:
             logger.error("KeyCRM still rate-limiting after {} attempts", _MAX_ATTEMPTS)
         return response
 
-    async def get_orders_by_phone(self, phone: str) -> list[KeyCRMOrder]:
+    async def get_orders_by_phone(self, phone: str) -> list[Order]:
         """Every order this phone has, oldest page last.
 
         Phone is normalized before querying: '+' prefix and formatting chars are stripped.
@@ -95,7 +95,7 @@ class KeyCRMClient:
             "filter[buyer_phone]": normalized,
             "limit": 50,
         }
-        orders: list[KeyCRMOrder] = []
+        orders: list[Order] = []
 
         try:
             async with httpx.AsyncClient(headers=self._headers, timeout=10.0) as client:

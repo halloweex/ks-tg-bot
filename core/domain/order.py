@@ -1,11 +1,14 @@
-"""Order identity: one rule for deciding that two rows are the same order.
+"""What an order is, and the one rule for deciding that two of them are the same.
 
-Pure, no imports from the rest of the bot — this is the piece docs/components.md
-puts in core.domain, and keeping it dependency-free is what makes that move a
-rename rather than a rewrite.
+Pure, no imports from the rest of the bot. `Order` is what every source reports
+and what the cache stores: KeyCRM and Shopify each parse into it, so nothing
+above the adapters has to know which system an order came from — that is the
+whole point of it living here rather than in two adapter-shaped dataclasses.
 """
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass, field
 from typing import Final, Mapping
 
 # Which source wins when both describe the same order. KeyCRM is the operational
@@ -34,6 +37,71 @@ def merge_key(source: str, source_order_id: str, external_id: str | None) -> str
     if external_id:
         return f"shopify:{external_id}"
     return f"{source}:{source_order_id}"
+
+
+@dataclass
+class Order:
+    """One order as a source reported it, before it becomes a cached row.
+
+    Every field is already in the vocabulary of this business rather than of
+    whichever API delivered it: an adapter that calls a status `financial_status`
+    and one that calls it `payment_status` both fill `payment_status` here, and
+    the screens above stopped needing to know the difference.
+
+    `items` stays a list of plain dicts rather than an OrderItem type, which is
+    what docs/architecture.md §3 asks for. The reason is on disk: KeyCRM items
+    carry a sku and Shopify items do not, and `products_json` is stored, so a
+    uniform item type would rewrite the JSON of every cached Shopify order. That
+    is a migration, and it belongs with one.
+    """
+
+    source: str
+    source_order_id: str
+    external_id: str = ""
+    order_name: str = ""
+    status_name: str = ""
+    status_group_id: int = 0
+    grand_total: float = 0.0
+    currency: str = ""
+    ordered_at: str = ""
+    items: list[dict] = field(default_factory=list)
+    buyer_name: str = ""
+    buyer_email: str = ""
+    payment_status: str = ""
+    tracking_code: str = ""
+    shipping_status: str = ""
+    delivery_city: str = ""
+    receive_point: str = ""
+    recipient_name: str = ""
+
+
+def order_row(order: Order, chat_id: int) -> dict:
+    """The order as the cache stores it, for one customer's chat.
+
+    merge_key and source_rank are deliberately absent: they are derived by the
+    repository on the way in, and letting a caller supply them is how unrelated
+    orders once collapsed onto one row (see upsert_orders).
+    """
+    return {
+        "chat_id": chat_id,
+        "source": order.source,
+        "source_order_id": order.source_order_id,
+        "external_id": order.external_id,
+        "order_name": order.order_name,
+        "status_name": order.status_name,
+        "status_group_id": order.status_group_id,
+        "grand_total": order.grand_total,
+        "currency": order.currency,
+        "ordered_at": order.ordered_at,
+        "products_json": json.dumps(order.items, ensure_ascii=False),
+        "buyer_name": order.buyer_name,
+        "payment_status": order.payment_status,
+        "tracking_code": order.tracking_code,
+        "shipping_status": order.shipping_status,
+        "delivery_city": order.delivery_city,
+        "receive_point": order.receive_point,
+        "recipient_name": order.recipient_name,
+    }
 
 
 def shopify_external_id(gid: str) -> str:

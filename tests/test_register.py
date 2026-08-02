@@ -10,7 +10,7 @@ import asyncio
 
 import pytest
 
-from core.adapters.keycrm.parse import KeyCRMOrder
+from core.domain.order import Order
 from core.usecases import register as module
 from core.usecases.register import register_customer
 
@@ -81,9 +81,10 @@ def test_no_buyer_in_the_crm_leaves_the_bare_registration(writes):
 
 
 def test_the_orders_are_cached_during_registration(writes):
-    order = KeyCRMOrder(
-        id=900001, status_name="delivered", status_group_id=1,
-        grand_total=1450.0, ordered_at="2026-07-14T09:12:33",
+    order = Order(
+        source="keycrm", source_order_id="900001",
+        status_name="delivered", status_group_id=1,
+        grand_total=1450.0, currency="грн", ordered_at="2026-07-14T09:12:33",
     )
     asyncio.run(register_customer(CHAT, PHONE, FakeKeyCRM(orders=[order]), None))
     assert [r["source_order_id"] for _c, rows in writes["orders"] for r in rows] == ["900001"]

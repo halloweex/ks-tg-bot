@@ -43,6 +43,7 @@ source_modules =
     core.i18n
     core.texts
     core.usecases
+    core.ports
 forbidden_modules =
     httpx
 # Правило про прямой импорт: хендлеру нельзя открывать сокет, а дотянуться до
@@ -68,6 +69,7 @@ source_modules =
     core.texts
     core.adapters
     core.usecases
+    core.ports
 forbidden_modules =
     aiosqlite
     sqlalchemy
@@ -199,18 +201,48 @@ name = core.usecases не знает ни бота, ни его фреймвор
 # Причина: сценарий существует ровно затем, чтобы его можно было вызвать и из
 # воркера, и из кабинета, и проверить без Telegram. Первый импорт aiogram здесь
 # возвращает его туда, откуда его вынули, — в хендлер.
-#
-# Чего здесь пока НЕТ и почему: v4 требует, чтобы сценарии работали через
-# core.ports, а не с реализациями. Сегодня core.usecases импортирует адаптеры и
-# репозитории напрямую, поэтому в контракт core-siblings-are-independent он не
-# добавлен. Порты — следующий шаг, вместе с типом Order в домене; см.
-# docs/move-status.md.
 type = forbidden
 source_modules =
     core.usecases
 forbidden_modules =
     bot
     aiogram
+
+[importlinter:contract:usecases-see-ports-not-implementations]
+name = core.usecases не видит конкретных адаптеров
+# Причина: порт, знающий свою реализацию, перестаёт быть точкой подмены, и
+# тесты сценариев потянут за собой httpx. Сегодня это уже не теория: тесты
+# sync_orders и register подставляют объект с двумя методами и не знают слова
+# «KeyCRM».
+#
+# Репозитории пока НЕ запрещены, и это записанное отступление: порт репозитория
+# — это UnitOfWork, а он вопрос постгресовый (`SET LOCAL app.user_id`,
+# транзакция на несколько репозиториев), и отвечать на него надо против
+# настоящего движка. Поэтому core.usecases в core-siblings-are-independent пока
+# не входит; см. docs/move-status.md.
+type = forbidden
+source_modules =
+    core.usecases
+forbidden_modules =
+    core.adapters
+
+[importlinter:contract:ports-are-only-signatures]
+name = core.ports не знает ничего, кроме домена
+# Причина: порт — это Protocol и ничего больше. Любой его импорт немедленно
+# становится импортом всех, кто через него разговаривает, а разговаривают через
+# него оба конца: и сценарий, и адаптер.
+type = forbidden
+source_modules =
+    core.ports
+forbidden_modules =
+    bot
+    aiogram
+    httpx
+    aiosqlite
+    core.adapters
+    core.repos
+    core.usecases
+    core.config
 
 [importlinter:contract:core-siblings-are-independent]
 name = core: adapters и repos не видят друг друга

@@ -7,38 +7,12 @@ mock transport, and the parts nobody mocked stayed uncovered.
 """
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, field
+from core.domain.order import Order
 
-
-@dataclass
-class KeyCRMOrder:
-    """Typed representation of a KeyCRM order."""
-
-    id: int
-    status_name: str
-    # KeyCRM groups statuses; group 6 is the cancelled/returned/unavailable
-    # family. Filtering on that is stable, while status names can be renamed in
-    # the CRM at any time.
-    status_group_id: int
-    grand_total: float
-    ordered_at: str
-    # Identity of the same order in the upstream store, for orders KeyCRM pulled
-    # in through an integration. For the Shopify source these are, respectively,
-    # the Shopify numeric order id (matches the tail of the GraphQL gid) and the
-    # human order number ('19966' -> Shopify calls the order '#19966').
-    # Both are null for manually created orders (Instagram, Telegram, expo).
-    external_id: str = ""
-    external_number: str = ""
-    products: list[dict] = field(default_factory=list)
-    buyer_name: str = ""
-    buyer_email: str = ""
-    payment_status: str = ""
-    tracking_code: str = ""
-    shipping_status: str = ""
-    delivery_city: str = ""
-    receive_point: str = ""
-    recipient_name: str = ""
+# The currency KeyCRM orders are in. The API does not send one — every order in
+# this account is in hryvnia — so the adapter supplies it rather than leaving
+# the cache to guess.
+_CURRENCY = "грн"
 
 
 def normalize_phone_for_keycrm(phone: str) -> str:
@@ -52,8 +26,15 @@ def normalize_phone_for_keycrm(phone: str) -> str:
     )
 
 
-def _parse_order(raw: dict) -> KeyCRMOrder:
-    """Parse a raw KeyCRM order dict into a typed KeyCRMOrder dataclass."""
+def parse_order(raw: dict) -> Order:
+    """One raw KeyCRM order into the domain's Order.
+
+    This is where KeyCRM's vocabulary stops. `status_group_id` keeps its name
+    because the business uses it — group 6 is the cancelled/returned family, and
+    filtering on it is stable while status names can be renamed in the CRM at
+    any time — but `global_source_uuid` becomes `external_id` and `source_uuid`
+    becomes the order name, because that is what they mean.
+    """
     # sku is kept so favourites group by the product itself: names get edited in
     # the CRM, and grouping on them would split one product into several.
     products = [
@@ -79,15 +60,25 @@ def _parse_order(raw: dict) -> KeyCRMOrder:
                      or shipping.get("receive_point") or "")
     recipient_name = shipping.get("recipient_full_name", "") or ""
 
-    return KeyCRMOrder(
-        id=raw["id"],
+    # The human order number, and only for orders KeyCRM pulled in through an
+    # integration: '19966' is what Shopify calls '#19966'. Null for anything
+    # created by hand (Instagram, Telegram, expo), which then renders under its
+    # own label rather than as a web order.
+    external_number = str(raw.get("source_uuid") or "")
+
+    return Order(
+        source="keycrm",
+        source_order_id=str(raw["id"]),
+        # The same physical order in the upstream store. Matches the tail of the
+        # Shopify gid, which is what lets the two systems' copies merge.
+        external_id=str(raw.get("global_source_uuid") or ""),
+        order_name=f"#{external_number}" if external_number else "",
         status_name=status_name,
         status_group_id=status_group_id,
         grand_total=float(raw.get("grand_total", 0)),
+        currency=_CURRENCY,
         ordered_at=raw.get("created_at", ""),
-        external_id=str(raw.get("global_source_uuid") or ""),
-        external_number=str(raw.get("source_uuid") or ""),
-        products=products,
+        items=products,
         buyer_name=buyer_name,
         buyer_email=buyer_email,
         payment_status=raw.get("payment_status", ""),
@@ -99,14 +90,13 @@ def _parse_order(raw: dict) -> KeyCRMOrder:
     )
 
 
-def parse_orders(body: dict) -> list[KeyCRMOrder]:
-    """Orders out of a list response.
+def parse_orders(body: dict) -> list[Order]:
+    """Orders out of one page of a list response.
 
-    `last_page`, `total` and `next_page_url` sit in the same envelope and are
-    still ignored — see docs/found-during-move.md §4. Reading them is a change
-    in behaviour, so it does not happen in a move; this is where it will happen.
+    The envelope's `last_page` is read by the client, which pages until it runs
+    out — see docs/found-during-move.md §4 for the day it did not.
     """
-    return [_parse_order(order) for order in body.get("data", [])]
+    return [parse_order(order) for order in body.get("data", [])]
 
 
 def parse_buyer(body: dict) -> dict | None:
@@ -163,31 +153,5 @@ def retry_after_seconds(header: str | None) -> float | None:
     return seconds if seconds >= 0 else None
 
 
-def keycrm_order_to_dict(order: KeyCRMOrder, chat_id: int) -> dict:
-    """Convert a KeyCRMOrder dataclass to a dict for upsert_orders().
-
-    Orders that came from the Shopify integration carry the store's order
-    number, so they render as web orders ('🌐 Сайт #19966') rather than falling
-    back to the Instagram label — and their external_id lets the merge step drop
-    the Shopify copy of the same order.
-    """
-    return {
-        "chat_id": chat_id,
-        "source": "keycrm",
-        "source_order_id": str(order.id),
-        "external_id": order.external_id,
-        "order_name": f"#{order.external_number}" if order.external_number else "",
-        "status_name": order.status_name,
-        "status_group_id": order.status_group_id,
-        "grand_total": order.grand_total,
-        "currency": "грн",
-        "ordered_at": order.ordered_at,
-        "products_json": json.dumps(order.products, ensure_ascii=False),
-        "buyer_name": order.buyer_name,
-        "payment_status": order.payment_status,
-        "tracking_code": order.tracking_code,
-        "shipping_status": order.shipping_status,
-        "delivery_city": order.delivery_city,
-        "receive_point": order.receive_point,
-        "recipient_name": order.recipient_name,
-    }
+# keycrm_order_to_dict lived here and is gone: turning an order into a cache row
+# is the same job whichever system reported it, so it is core.domain.order_row.

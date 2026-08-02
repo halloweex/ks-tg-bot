@@ -7,28 +7,18 @@ cannot catch a field the store sends that nobody thought to include.
 """
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, field
-
-from core.domain.order import shopify_external_id
+from core.domain.order import Order, shopify_external_id
 
 
-@dataclass
-class ShopifyOrder:
-    """Typed representation of a Shopify order."""
+def parse_shopify_order(node: dict) -> Order:
+    """One raw Shopify GraphQL order node into the domain's Order.
 
-    id: str
-    name: str
-    financial_status: str
-    fulfillment_status: str
-    total_price: str
-    currency: str
-    created_at: str
-    line_items: list[dict] = field(default_factory=list)
-
-
-def _parse_shopify_order(node: dict) -> ShopifyOrder:
-    """Parse a raw Shopify GraphQL order node into a typed ShopifyOrder dataclass."""
+    Shopify keeps two statuses where the rest of the system has one: an order is
+    paid or not, and fulfilled or not. `status_name` takes fulfilment first
+    because that is the one a customer is waiting on, and falls back to payment
+    for an order that has not shipped yet — both are kept in their own fields
+    besides, so nothing is lost by choosing.
+    """
     price_set = node.get("totalPriceSet", {}).get("shopMoney", {})
     total_price = price_set.get("amount", "0")
     currency = price_set.get("currencyCode", "")
@@ -38,19 +28,29 @@ def _parse_shopify_order(node: dict) -> ShopifyOrder:
         for e in node.get("lineItems", {}).get("edges", [])
     ]
 
-    return ShopifyOrder(
-        id=node["id"],
-        name=node.get("name", ""),
-        financial_status=node.get("displayFinancialStatus", ""),
-        fulfillment_status=node.get("displayFulfillmentStatus", ""),
-        total_price=total_price,
+    financial_status = node.get("displayFinancialStatus", "")
+    fulfillment_status = node.get("displayFulfillmentStatus", "")
+    gid = node["id"]
+
+    return Order(
+        source="shopify",
+        # The whole gid, not its tail: it is this system's own id for the order,
+        # and the numeric tail is what the two systems share (external_id).
+        source_order_id=gid,
+        external_id=shopify_external_id(gid),
+        order_name=node.get("name", ""),
+        status_name=fulfillment_status or financial_status or "",
+        status_group_id=0,   # not a KeyCRM order, so it has no status group
+        grand_total=float(total_price),
         currency=currency,
-        created_at=node.get("createdAt", ""),
-        line_items=line_items,
+        ordered_at=node.get("createdAt", ""),
+        items=line_items,
+        payment_status=financial_status,
+        shipping_status=fulfillment_status,
     )
 
 
-def parse_orders(body: dict) -> list[ShopifyOrder]:
+def parse_orders(body: dict) -> list[Order]:
     """Orders of the first matching customer; empty list if there is no match.
 
     Call this only after the caller has checked for a GraphQL `errors` block: a
@@ -63,28 +63,9 @@ def parse_orders(body: dict) -> list[ShopifyOrder]:
 
     customer_node = customers_edges[0]["node"]
     order_edges = customer_node.get("orders", {}).get("edges", [])
-    return [_parse_shopify_order(e["node"]) for e in order_edges]
+    return [parse_shopify_order(e["node"]) for e in order_edges]
 
 
-def shopify_order_to_dict(order: ShopifyOrder, chat_id: int) -> dict:
-    """Convert a ShopifyOrder dataclass to a dict for upsert_orders()."""
-    return {
-        "chat_id": chat_id,
-        "source": "shopify",
-        "source_order_id": order.id,
-        "external_id": shopify_external_id(order.id),
-        "order_name": order.name,
-        "status_name": order.fulfillment_status or order.financial_status or "",
-        "status_group_id": 0,   # not a KeyCRM order, so it has no status group
-        "grand_total": float(order.total_price),
-        "currency": order.currency,
-        "ordered_at": order.created_at,
-        "products_json": json.dumps(order.line_items, ensure_ascii=False),
-        "buyer_name": "",
-        "payment_status": order.financial_status,
-        "tracking_code": "",
-        "shipping_status": order.fulfillment_status,
-        "delivery_city": "",
-        "receive_point": "",
-        "recipient_name": "",
-    }
+# shopify_order_to_dict lived here and is gone, for the same reason its KeyCRM
+# twin did: the cache row is core.domain.order_row now, one function instead of
+# two that had to be kept in step by hand.

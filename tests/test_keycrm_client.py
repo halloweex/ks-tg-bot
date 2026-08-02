@@ -81,7 +81,9 @@ def test_all_pages_are_read(transport):
         lambda r: httpx.Response(200, json=_page(int(dict(r.url.params)["page"]), last=3))
     )
     orders = _fetch()
-    assert [o.id for o in orders] == [1000, 1001, 1002, 1003, 1004, 1005]
+    assert [o.source_order_id for o in orders] == [
+        "1000", "1001", "1002", "1003", "1004", "1005",
+    ]
     assert transport["pages"]() == [1, 2, 3]
 
 
@@ -114,7 +116,7 @@ def test_a_failure_halfway_keeps_the_pages_already_read(transport):
 
     transport["install"](handler)
     orders = _fetch()
-    assert [o.id for o in orders] == [1000, 1001, 1002, 1003]
+    assert [o.source_order_id for o in orders] == ["1000", "1001", "1002", "1003"]
 
 
 def test_an_empty_result_is_not_an_error(transport):

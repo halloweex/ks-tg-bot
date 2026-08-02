@@ -7,7 +7,8 @@ from __future__ import annotations
 import httpx
 from loguru import logger
 
-from core.adapters.shopify.parse import ShopifyOrder, parse_orders
+from core.adapters.shopify.parse import parse_orders
+from core.domain.order import Order
 
 GRAPHQL_QUERY = """
 query GetCustomerByPhone($phone: String!) {
@@ -56,7 +57,7 @@ class ShopifyClient:
             "Content-Type": "application/json",
         }
 
-    async def get_orders_by_phone(self, phone: str) -> list[ShopifyOrder]:
+    async def get_orders_by_phone(self, phone: str) -> list[Order]:
         """Look up orders for a customer by phone number.
 
         Phone must include the '+' prefix (opposite of KeyCRM).

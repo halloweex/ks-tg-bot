@@ -6,23 +6,32 @@ that is where it broke: for a day it raised TypeError before reaching the
 network and nothing noticed, because there was nothing that could test it
 without also building a Telegram message (docs/found-during-move.md §13).
 
-Deliberate deviation from docs/architecture.md §3, recorded in
-docs/move-status.md: this imports adapters and repositories directly instead of
-talking to `core.ports`. Introducing the ports means a domain Order type and
-moving both row builders into it — a redesign, not a move — and it is the next
-step rather than this one.
+It no longer names a shop system. Both sources arrive as `OrderSource`, both
+answer with domain `Order`s, and the row they become is built once in the
+domain — so adding a third source is an adapter and a line at the entry point,
+not an edit here.
+
+What is still direct is the database: repositories are imported rather than
+passed in. A repository port means a UnitOfWork, and that is a Postgres-shaped
+question (`SET LOCAL app.user_id`, transactions spanning several repos) worth
+answering against the real engine — docs/move-status.md.
 """
 from __future__ import annotations
 
 import asyncio
 
-from core.adapters.keycrm.parse import keycrm_order_to_dict
-from core.adapters.shopify.parse import shopify_order_to_dict
+from core.domain.order import order_row
+from core.ports.crm import OrderSource
 from core.repos.orders import upsert_orders
 from core.repos.users import save_user
 
 
-async def sync_orders(chat_id: int, phone: str, keycrm, shopify) -> None:
+async def sync_orders(
+    chat_id: int,
+    phone: str,
+    keycrm: OrderSource,
+    shopify: OrderSource | None,
+) -> None:
     """Ask both sources at once, write whatever came back.
 
     Neither source is allowed to cost the other: they are gathered with
@@ -45,7 +54,7 @@ async def sync_orders(chat_id: int, phone: str, keycrm, shopify) -> None:
     db_rows: list[dict] = []
 
     if not isinstance(keycrm_result, Exception):
-        db_rows.extend(keycrm_order_to_dict(o, chat_id) for o in keycrm_result)
+        db_rows.extend(order_row(o, chat_id) for o in keycrm_result)
         # Silent buyer profile refresh
         if keycrm_result:
             first = keycrm_result[0]
@@ -63,7 +72,7 @@ async def sync_orders(chat_id: int, phone: str, keycrm, shopify) -> None:
         # No filtering against the KeyCRM ids any more: both sources write the
         # same merge_key for the same physical order, so the unique index keeps
         # one row and the priority in the upsert decides whose values it holds.
-        db_rows.extend(shopify_order_to_dict(o, chat_id) for o in shopify_result)
+        db_rows.extend(order_row(o, chat_id) for o in shopify_result)
 
     if db_rows:
         await upsert_orders(chat_id, db_rows)

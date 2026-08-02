@@ -11,8 +11,7 @@ import asyncio
 
 import pytest
 
-from core.adapters.keycrm.parse import KeyCRMOrder
-from core.adapters.shopify.parse import ShopifyOrder
+from core.domain.order import Order
 from core.usecases import sync_orders as module
 from core.usecases.sync_orders import sync_orders
 
@@ -37,18 +36,23 @@ class BrokenSource:
         raise RuntimeError("the CRM is down")
 
 
-def _keycrm_order(order_id: int = 900001, **kw) -> KeyCRMOrder:
-    return KeyCRMOrder(
-        id=order_id, status_name="delivered", status_group_id=1,
-        grand_total=1450.0, ordered_at="2026-07-14T09:12:33", **kw,
+def _keycrm_order(order_id: int = 900001, **kw) -> Order:
+    """An order as the KeyCRM adapter would have parsed it — the scenario never
+    learns which adapter that was."""
+    return Order(
+        source="keycrm", source_order_id=str(order_id),
+        status_name="delivered", status_group_id=1,
+        grand_total=1450.0, currency="грн", ordered_at="2026-07-14T09:12:33", **kw,
     )
 
 
-def _shopify_order() -> ShopifyOrder:
-    return ShopifyOrder(
-        id="gid://shopify/Order/13025577828684", name="#19966",
-        financial_status="PAID", fulfillment_status="FULFILLED",
-        total_price="1450.00", currency="UAH", created_at="2026-07-14T09:12:33Z",
+def _shopify_order() -> Order:
+    return Order(
+        source="shopify", source_order_id="gid://shopify/Order/13025577828684",
+        external_id="13025577828684", order_name="#19966",
+        status_name="FULFILLED", grand_total=1450.0, currency="UAH",
+        ordered_at="2026-07-14T09:12:33Z",
+        payment_status="PAID", shipping_status="FULFILLED",
     )
 
 

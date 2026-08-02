@@ -22,14 +22,24 @@
     },
     "external_id": "13025577828111",
     "parsed": {
-      "created_at": "2026-06-02T17:40:01Z",
+      "buyer_email": "",
+      "buyer_name": "",
       "currency": "UAH",
-      "financial_status": "REFUNDED",
-      "fulfillment_status": "UNFULFILLED",
-      "id": "gid://shopify/Order/13025577828111",
-      "line_items": [],
-      "name": "#19801",
-      "total_price": "0"
+      "delivery_city": "",
+      "external_id": "13025577828111",
+      "grand_total": 0.0,
+      "items": [],
+      "order_name": "#19801",
+      "ordered_at": "2026-06-02T17:40:01Z",
+      "payment_status": "REFUNDED",
+      "receive_point": "",
+      "recipient_name": "",
+      "shipping_status": "UNFULFILLED",
+      "source": "shopify",
+      "source_order_id": "gid://shopify/Order/13025577828111",
+      "status_group_id": 0,
+      "status_name": "UNFULFILLED",
+      "tracking_code": ""
     }
   },
   "#19966": {
@@ -55,12 +65,13 @@
     },
     "external_id": "13025577828684",
     "parsed": {
-      "created_at": "2026-07-14T09:12:33Z",
+      "buyer_email": "",
+      "buyer_name": "",
       "currency": "UAH",
-      "financial_status": "PAID",
-      "fulfillment_status": "FULFILLED",
-      "id": "gid://shopify/Order/13025577828684",
-      "line_items": [
+      "delivery_city": "",
+      "external_id": "13025577828684",
+      "grand_total": 1450.0,
+      "items": [
         {
           "name": "Пінка для вмивання 150 мл",
           "qty": 1
@@ -70,8 +81,17 @@
           "qty": 2
         }
       ],
-      "name": "#19966",
-      "total_price": "1450.00"
+      "order_name": "#19966",
+      "ordered_at": "2026-07-14T09:12:33Z",
+      "payment_status": "PAID",
+      "receive_point": "",
+      "recipient_name": "",
+      "shipping_status": "FULFILLED",
+      "source": "shopify",
+      "source_order_id": "gid://shopify/Order/13025577828684",
+      "status_group_id": 0,
+      "status_name": "FULFILLED",
+      "tracking_code": ""
     }
   }
 }

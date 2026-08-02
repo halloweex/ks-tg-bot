@@ -17,13 +17,18 @@ import asyncio
 
 from loguru import logger
 
-from core.adapters.keycrm.parse import keycrm_order_to_dict
-from core.adapters.shopify.parse import shopify_order_to_dict
+from core.domain.order import order_row
+from core.ports.crm import BuyerLookup, OrderSource
 from core.repos.orders import upsert_orders
 from core.repos.users import save_user
 
 
-async def _sync_orders(chat_id: int, phone: str, keycrm, shopify) -> None:
+async def _sync_orders(
+    chat_id: int,
+    phone: str,
+    keycrm: OrderSource | None,
+    shopify: OrderSource | None,
+) -> None:
     """Fetch orders from APIs and cache locally (best-effort).
 
     Deliberately not core.usecases.sync_orders, which is the same scenario plus
@@ -47,17 +52,22 @@ async def _sync_orders(chat_id: int, phone: str, keycrm, shopify) -> None:
     idx = 0
     if keycrm:
         if not isinstance(results[idx], Exception):
-            db_rows.extend(keycrm_order_to_dict(o, chat_id) for o in results[idx])
+            db_rows.extend(order_row(o, chat_id) for o in results[idx])
         idx += 1
     if shopify:
         if not isinstance(results[idx], Exception):
-            db_rows.extend(shopify_order_to_dict(o, chat_id) for o in results[idx])
+            db_rows.extend(order_row(o, chat_id) for o in results[idx])
 
     if db_rows:
         await upsert_orders(chat_id, db_rows)
 
 
-async def register_customer(chat_id: int, phone: str, keycrm, shopify) -> None:
+async def register_customer(
+    chat_id: int,
+    phone: str,
+    keycrm: (OrderSource | BuyerLookup) | None,
+    shopify: OrderSource | None,
+) -> None:
     """Bind the verified number to the chat, then fill the cache behind it."""
     await save_user(chat_id, phone)
 
