@@ -17,6 +17,7 @@ import pytest
 
 import bot as bot_pkg
 from bot import db as botdb
+from tests.conftest import REPO_ROOT
 
 
 def test_every_module_imports():
@@ -135,3 +136,42 @@ def test_fresh_database_has_every_column_the_code_uses(tmp_path, monkeypatch):
     for table, column, _decl in botdb._LATE_COLUMNS:
         present = users if table == "users" else orders
         assert column in present, f"{table}.{column} missing from a fresh database"
+
+
+def test_the_database_path_still_comes_from_the_environment(monkeypatch):
+    """Production passes BOT_DB_PATH; getting this wrong points the bot at an
+    empty database on the volume and every customer sees no orders.
+
+    Pinned because the read moved out of bot/db.py into Settings, and the field
+    name is what maps it to the variable — rename the field and the mapping
+    disappears silently, with a working default underneath it.
+    """
+    from core.config import EnvSettings
+
+    monkeypatch.setenv("BOT_DB_PATH", "/app/data/bot_data.db")
+    assert EnvSettings().bot_db_path == "/app/data/bot_data.db"
+
+    monkeypatch.delenv("BOT_DB_PATH", raising=False)
+    assert EnvSettings().bot_db_path == "bot_data.db"
+
+
+def test_configure_points_the_module_at_a_file():
+    original = botdb.DB_PATH
+    try:
+        botdb.configure("/tmp/somewhere.db")
+        assert str(botdb.DB_PATH) == "/tmp/somewhere.db"
+    finally:
+        botdb.DB_PATH = original
+
+
+def test_the_environment_has_exactly_one_reader():
+    """The half of the rule import-linter cannot express (components.md §12.7)."""
+    import subprocess
+
+    found = subprocess.run(
+        ["grep", "-rn", "--include=*.py", "-e", r"os\.getenv", "-e", r"os\.environ",
+         "core", "bot"],
+        capture_output=True, text=True, cwd=REPO_ROOT,
+    ).stdout.splitlines()
+    outside = [line for line in found if not line.startswith("core/config.py:")]
+    assert not outside, outside

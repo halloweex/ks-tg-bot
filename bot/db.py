@@ -1,7 +1,6 @@
 """SQLite database initialization and connection management."""
 from __future__ import annotations
 
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
@@ -11,9 +10,17 @@ from loguru import logger
 
 from core.domain.order import merge_key, source_rank
 
-# Configurable so the DB can live on a mounted volume in Docker.
-# Defaults to a file in the working directory for local runs.
-DB_PATH = Path(os.getenv("BOT_DB_PATH", "bot_data.db"))
+# Where the database lives. The default is for local runs; production passes a
+# path on the mounted volume. Set once at startup from Settings — see
+# configure() — rather than read from the environment here, so that the
+# environment has exactly one reader in the whole tree.
+DB_PATH = Path("bot_data.db")
+
+
+def configure(path: str | Path) -> None:
+    """Point the module at a database file. Call before init_db()."""
+    global DB_PATH
+    DB_PATH = Path(path)
 
 # How long a connection waits on a locked DB before erroring (ms).
 _BUSY_TIMEOUT_MS = 5000

@@ -28,6 +28,12 @@ class EnvSettings(BaseSettings):
     novaposhta_api_keys: str | None = None
     # INFO in production. DEBUG prints, among other things, the buyer-profile
     # sync failures — see bot/logs.py for what happens to numbers on the way out.
+    # Path to the SQLite file. Read here rather than in bot/db.py, which took it
+    # from os.getenv at import time — the one place outside this module that
+    # touched the environment. The practical symptom was that BOT_DB_PATH set in
+    # .env worked in Docker and did nothing locally: compose injects env_file as
+    # real variables, while pydantic-settings reads .env and never exports it.
+    bot_db_path: str = "bot_data.db"
     log_level: str = "INFO"
     # Key for the phone digests in the log. Without it the mask is reversible:
     # the Ukrainian mobile space is ~10^9 numbers and the digest is 24 bits, so

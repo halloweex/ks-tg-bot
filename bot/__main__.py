@@ -9,7 +9,7 @@ from aiogram.enums import ParseMode
 from loguru import logger
 
 from core.config import load_config
-from bot.db import init_db
+from bot.db import configure as configure_db, init_db
 from bot.fsm_storage import SQLiteStorage
 from bot.logs import setup_logging
 from bot.handlers.broadcast import resume_broadcasts, router as broadcast_router
@@ -44,6 +44,7 @@ async def main() -> None:
             "LOG_PHONE_SALT is not set — phone digests in the log are "
             "brute-forceable and must not leave this machine"
         )
+    configure_db(config.env.bot_db_path)
     logger.info("Config loaded. Brand: {}", config.brand_name)
 
     # Create Bot instance with HTML parse mode
