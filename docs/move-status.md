@@ -12,16 +12,17 @@
 | `bot/texts.py` | `core/texts.py` | `i18n-is-a-leaf` |
 | `bot/i18n.py` | `core/i18n.py` | тот же |
 | `bot/config.py` | `core/config.py` | `config-is-a-leaf` |
+| `bot/services/keycrm.py` | `core/adapters/keycrm/{client,parse}.py` | `parsers-are-pure`, `adapters-do-not-know-their-callers`, `api-clients-know-no-telegram` |
 
-Семь контрактов в `.importlinter`, 116 тестов, всё в продакшене.
+Десять контрактов в `.importlinter`, 129 тестов, всё в продакшене.
 
 ## Осталось, в этом порядке
 
-1. **Три клиента → `core/adapters/`**, по одному на коммит, с выделением `parse()`
-   из `fetch()`. Даёт измеримое: покрытие клиентов сейчас 61%, и непокрыты ровно
-   сетевые методы, потому что распаковка конверта заперта внутри
-   `async with httpx.AsyncClient`. У Nova Poshta чистого парсера нет вовсе — его
-   придётся выделять, а не переносить.
+1. **Два клиента → `core/adapters/`**, по одному на коммит, с выделением `parse()`
+   из `fetch()`. Даёт измеримое: на KeyCRM покрытие клиента поднялось с 47% до
+   65%, и это честные 65% — `parse.py` покрыт целиком, непокрыт ровно транспорт.
+   Общее по трём клиентам 61% → 69%. У Nova Poshta чистого парсера нет вовсе —
+   его придётся выделять, а не переносить.
 2. **`db.py` → `core/repos/` по агрегатам.** Самый крупный: 855 строк, сорок
    запросов. Одним коммитом неревьюемо, резать по агрегатам (users, orders,
    broadcast, events, stock, support, fsm). Он же делает переход на Postgres
@@ -58,6 +59,14 @@
 - v4 кладёт `CampaignKey` в `core/domain/campaign.py`, тихие часы в
   `core/domain/quiet.py`; `quiet.py` уже там, `campaign.py` ещё не существует.
 - v4 кладёт демо в `bot/demo.py`; в коде `bot/handlers/demo.py`.
+- v4 §3 рисует адаптеры плоскими файлами (`core/adapters/keycrm.py`); в коде
+  пакет с `client.py` и `parse.py`, как в `components.md` §6. Плоский файл не
+  даёт выразить контракт «парсер не знает про httpx» — он про модуль, а не про
+  функцию.
+- `components.md` отправляет `keycrm_order_to_dict` в домен; функция осталась в
+  адаптере. Она принимает `KeyCRMOrder`, а домену импортировать адаптеры
+  запрещено, так что переезд возможен только вместе с появлением
+  `core.domain.Order` — это изменение, а не перенос.
 
 ## Не проверено живьём
 

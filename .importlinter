@@ -29,13 +29,21 @@ include_external_packages = True
 name = ЭТАП 0: httpx живёт только в bot.services
 # Причина: пока сеть заперта в трёх файлах, её можно вынести в core.adapters
 # одним движением. Первый httpx в хендлере превращает переезд в раскопки.
+#
+# Список исключений тает по одному на коммит переноса: keycrm уже в
+# core.adapters. Когда уедут оставшиеся два, исключений не останется вовсе, и
+# контракт станет целевым «httpx живёт только в core.adapters».
 type = forbidden
 source_modules =
     bot
 forbidden_modules =
     httpx
+# Правило про прямой импорт: хендлеру нельзя открывать сокет, а дотянуться до
+# сети через адаптер — это и есть архитектура. Без этой строки контракт ломается
+# на цепочке bot.stock -> core.adapters.keycrm.client -> httpx, то есть ровно на
+# том, ради чего затевался перенос.
+allow_indirect_imports = True
 ignore_imports =
-    bot.services.keycrm -> httpx
     bot.services.shopify -> httpx
     bot.services.novaposhta -> httpx
 
@@ -115,6 +123,47 @@ forbidden_modules =
     aiogram
     httpx
     aiosqlite
+
+[importlinter:contract:parsers-are-pure]
+name = разборщики ответов не знают про транспорт
+# Причина: вся ценность отделения parse от client в том, что тесты парсеров
+# идут на сохранённых фикстурах и не требуют мока сети. До разделения разбор
+# конверта сидел внутри `async with httpx.AsyncClient`, и покрыт был только
+# тот кусок, ради которого кто-то написал мок транспорта.
+#
+# Модули добавляются сюда по одному, вместе со своим коммитом переноса.
+type = forbidden
+source_modules =
+    core.adapters.keycrm.parse
+forbidden_modules =
+    httpx
+
+[importlinter:contract:adapters-do-not-know-their-callers]
+name = core.adapters не знает ни точек входа, ни базы
+# Причина: один и тот же адаптер обслуживает бота, воркер и веб. Зависимость от
+# любого из них приколачивает его к одному процессу. База — не его зона: адаптер,
+# который сам пишет в базу, делает запись невидимой для транзакции сценария.
+type = forbidden
+source_modules =
+    core.adapters
+forbidden_modules =
+    bot
+    aiosqlite
+
+[importlinter:contract:api-clients-know-no-telegram]
+name = клиенты внешних API ничего не знают про aiogram
+# Причина: наследник контракта ЭТАП 0 «bot.services ничего не знает про
+# aiogram» — тот умрёт вместе с каталогом bot/services. Импорт aiogram здесь
+# означает, что клиент внешнего API начал знать про транспорт бота.
+#
+# Правило перечисляет клиентов поимённо, а не весь core.adapters: адаптер
+# Telegram (v4 §3, core/adapters/telegram/) обязан импортировать aiogram, и
+# запрет на весь пакет пришлось бы снимать в тот же день, когда он появится.
+type = forbidden
+source_modules =
+    core.adapters.keycrm
+forbidden_modules =
+    aiogram
 
 [importlinter:contract:domain-does-not-know-its-callers]
 name = core.domain не знает про точки входа

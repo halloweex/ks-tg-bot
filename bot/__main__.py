@@ -21,7 +21,7 @@ from bot.handlers.onboarding import router as onboarding_router
 from bot.handlers.orders import router as orders_router
 from bot.handlers.settings import router as settings_router
 from bot.handlers.support import router as support_router
-from bot.services.keycrm import KeyCRMClient
+from core.adapters.keycrm.client import KeyCRMClient
 from bot.services.novaposhta import NovaPoshtaClient
 from bot.services.shopify import ShopifyClient
 from bot.middlewares import LanguageMiddleware

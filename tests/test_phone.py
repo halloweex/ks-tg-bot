@@ -110,6 +110,6 @@ def test_phone_is_rejected(message, why):
     ids=["e164", "no-plus", "formatted", "local-stays-local", "empty"],
 )
 def test_normalize_phone_for_keycrm(raw, expected):
-    from bot.services.keycrm import normalize_phone_for_keycrm
+    from core.adapters.keycrm.parse import normalize_phone_for_keycrm
 
     assert normalize_phone_for_keycrm(raw) == expected

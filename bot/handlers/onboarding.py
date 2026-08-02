@@ -15,7 +15,8 @@ from core.config import AppConfig
 from bot.db import save_user, upsert_orders
 from bot.keyboards import main_menu_kb, share_phone_kb
 from bot.screen import typing
-from bot.services.keycrm import KeyCRMClient, keycrm_order_to_dict
+from core.adapters.keycrm.client import KeyCRMClient
+from core.adapters.keycrm.parse import keycrm_order_to_dict
 from bot.services.shopify import ShopifyClient, shopify_order_to_dict
 from bot.states import OnboardingStates
 

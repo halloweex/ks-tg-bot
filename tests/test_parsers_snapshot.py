@@ -14,9 +14,11 @@ from dataclasses import asdict
 
 import pytest
 
-from bot.services.keycrm import _parse_order, keycrm_order_to_dict
 from bot.services.shopify import (_parse_shopify_order, shopify_external_id,
                                   shopify_order_to_dict)
+from core.adapters.keycrm.parse import (_parse_order, keycrm_order_to_dict,
+                                        last_page, parse_buyer, parse_orders,
+                                        parse_stock_page)
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 SNAPSHOTS = pathlib.Path(__file__).parent / "snapshots"
@@ -68,6 +70,81 @@ def test_keycrm_list_envelope_carries_pagination_the_client_ignores():
     """
     env = json.loads((FIXTURES / "keycrm" / "list_envelope.json").read_text())
     assert {"last_page", "total", "next_page_url", "per_page"} <= set(env)
+
+
+def _envelope() -> dict:
+    return json.loads((FIXTURES / "keycrm" / "list_envelope.json").read_text())
+
+
+def test_keycrm_envelope_unpacks_into_the_orders_it_carries():
+    """Reachable without a network for the first time.
+
+    Until the client was split, this line lived inside `async with
+    httpx.AsyncClient` and could only be exercised through a mock transport.
+    """
+    env = _envelope()
+    assert [o.id for o in parse_orders(env)] == [raw["id"] for raw in env["data"]]
+
+
+def test_an_envelope_without_data_parses_to_nothing():
+    """The shape of a phone with no orders — the common case, not an error."""
+    assert parse_orders({}) == []
+    assert parse_orders({"data": []}) == []
+
+
+def test_the_buyer_comes_from_the_first_order():
+    buyer = _envelope()["data"][0]["buyer"]
+    assert parse_buyer(_envelope()) == {
+        "full_name": buyer["full_name"],
+        "email": buyer["email"],
+    }
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"data": []},
+        {"data": [{"buyer": None}]},
+        {"data": [{"buyer": {"full_name": "", "email": ""}}]},
+    ],
+    ids=["no-envelope", "no-orders", "no-buyer", "empty-buyer"],
+)
+def test_a_buyer_with_nothing_in_it_is_no_buyer(body):
+    """None, not an empty profile: the caller writes whatever it gets to the
+    user record, and a blank name would overwrite a real one."""
+    assert parse_buyer(body) is None
+
+
+def test_stock_page_is_quantity_minus_reserve():
+    """Constructed, not recorded — /offers/stocks needs a live key, and the
+    field names here are the ones the client reads (docs/found-during-move.md
+    §6 makes the same distinction for the Shopify fixtures)."""
+    body = {"data": [
+        {"sku": "KS-001", "quantity": 10, "reserve": 3},
+        {"sku": "KS-002", "quantity": 5, "reserve": 0},
+        {"sku": "KS-003", "quantity": 2, "reserve": 4},
+    ]}
+    assert parse_stock_page(body) == {"KS-001": 7, "KS-002": 5, "KS-003": -2}
+
+
+@pytest.mark.parametrize(
+    "offer",
+    [{"quantity": 1}, {"sku": None}, {"sku": ""}, {"sku": "   "}],
+    ids=["missing", "null", "empty", "whitespace"],
+)
+def test_an_offer_without_a_sku_is_skipped(offer):
+    """The sku is the only name the rest of the system knows a product by, so an
+    offer without one cannot be matched to a subscription."""
+    assert parse_stock_page({"data": [offer]}) == {}
+
+
+def test_last_page_defaults_to_one_when_the_field_is_missing():
+    """A missing last_page must stop the sweep, not loop it: get_stock breaks on
+    `page >= last_page(body)`."""
+    assert last_page(_envelope()) == 1814
+    assert last_page({}) == 1
+    assert last_page({"last_page": None}) == 1
 
 
 @pytest.mark.parametrize("order_name", ["#19966", "#19801"])

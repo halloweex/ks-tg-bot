@@ -23,7 +23,8 @@ from bot.db import (CANCELLED_STATUS_GROUP, add_discount_request, add_stock_subs
                     remember_support_thread, remove_stock_subscription,
                     save_user, upsert_orders)
 from bot.screen import render, typing
-from bot.services.keycrm import KeyCRMClient, keycrm_order_to_dict
+from core.adapters.keycrm.client import KeyCRMClient
+from core.adapters.keycrm.parse import keycrm_order_to_dict
 from bot.services.shopify import ShopifyClient, shopify_order_to_dict
 from bot.tasks import spawn
 

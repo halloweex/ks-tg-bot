@@ -34,7 +34,7 @@ def logging_configured():
 
 
 async def _scenario() -> None:
-    # 1. logged on purpose — bot/services/keycrm.py:168
+    # 1. logged on purpose — core/adapters/keycrm/client.py
     logger.warning("KeyCRM rate limit hit (429) for phone {}", PHONE)
     # 2. inside an exception message together with the URL — httpx does this
     logger.error(

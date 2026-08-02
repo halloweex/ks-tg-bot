@@ -46,3 +46,4 @@ build/
 # Tooling caches
 .import_linter_cache/
 .pytest_cache/
+.coverage
