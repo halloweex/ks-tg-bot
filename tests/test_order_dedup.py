@@ -1,9 +1,9 @@
 """One physical order seen in both systems must end up as one row.
 
-There is no merge_key in the code yet; today the same job is done by
-_DELETE_SHADOWED (bot/db.py) plus the filter in _do_refresh_orders. These tests
-pin the observable outcome, so the merge_key rewrite in stage 1 has something to
-be checked against rather than being trusted.
+Written before merge_key existed, when the same job was done by a sweep that
+deleted the Shopify copy after every refresh. The tests pin the observable
+outcome rather than the mechanism, which is why they survived that rewrite —
+and the move of the queries into core/repos/orders.py — unchanged.
 """
 from __future__ import annotations
 
