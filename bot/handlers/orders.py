@@ -15,7 +15,7 @@ from core import texts
 from core.i18n import Texts, operator_texts
 from bot.callbacks import DiscountAction, MenuAction, OrderAction, StockAction
 from bot.analytics import track
-from bot.config import AppConfig
+from core.config import AppConfig
 from bot.db import (CANCELLED_STATUS_GROUP, add_discount_request, add_stock_subscription,
                     get_cached_orders,
                     get_last_sync_time, get_stock_levels, get_subscribed_skus,

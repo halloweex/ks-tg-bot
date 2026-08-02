@@ -83,6 +83,23 @@ forbidden_modules =
     asyncpg
     fastapi
 
+[importlinter:contract:config-is-a-leaf]
+name = core.config ничего не импортирует из проекта
+# Причина: конфиг читают все три точки входа, поэтому он внизу. И это
+# единственное место, где разрешено читать окружение — вторая половина правила
+# грепом в CI, потому что os.environ линтеру не выразить (§12.7 components.md).
+type = forbidden
+source_modules =
+    core.config
+forbidden_modules =
+    bot
+    core.domain
+    core.i18n
+    core.texts
+    aiogram
+    httpx
+    aiosqlite
+
 [importlinter:contract:i18n-is-a-leaf]
 name = core.i18n и core.texts ничего не импортируют из проекта
 # Причина: их импортирует почти всё дерево (14 модулей на момент переноса), и

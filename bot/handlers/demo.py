@@ -20,7 +20,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 from loguru import logger
 
-from bot.config import AppConfig
+from core.config import AppConfig
 from bot.db import (DEMO_SOURCE, count_demo_orders, delete_demo_orders,
                     get_user_phone, upsert_orders)
 router = Router()

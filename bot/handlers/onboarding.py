@@ -11,7 +11,7 @@ from loguru import logger
 
 from core.i18n import Texts
 from bot.analytics import track
-from bot.config import AppConfig
+from core.config import AppConfig
 from bot.db import save_user, upsert_orders
 from bot.keyboards import main_menu_kb, share_phone_kb
 from bot.screen import typing

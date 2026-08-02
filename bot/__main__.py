@@ -8,7 +8,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from loguru import logger
 
-from bot.config import load_config
+from core.config import load_config
 from bot.db import init_db
 from bot.fsm_storage import SQLiteStorage
 from bot.logs import setup_logging

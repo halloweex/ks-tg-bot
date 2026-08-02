@@ -9,7 +9,7 @@ from loguru import logger
 
 from core.i18n import Texts, customer_texts, operator_texts
 from bot.analytics import track
-from bot.config import AppConfig
+from core.config import AppConfig
 from bot.db import (album_in_progress, get_user_language, remember_support_thread,
                     start_album, support_thread_owner)
 from bot.states import SupportStates

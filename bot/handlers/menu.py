@@ -19,7 +19,7 @@ from aiogram.types import CallbackQuery, Message
 from core.i18n import Texts, variants
 from bot.callbacks import InfoAction, MenuAction
 from bot.analytics import track
-from bot.config import AppConfig
+from core.config import AppConfig
 from bot.handlers.delivery import delivery_screen
 from bot.handlers.orders import favourites_screen, orders_screen
 from bot.keyboards import (info_menu_kb, main_menu_kb, settings_menu_kb,

@@ -8,7 +8,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from core.i18n import Texts
 from bot.callbacks import InfoAction, MenuAction
 from bot.analytics import track
-from bot.config import AppConfig
+from core.config import AppConfig
 from bot.screen import render
 
 router = Router()

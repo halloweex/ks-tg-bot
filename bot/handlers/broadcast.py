@@ -13,7 +13,7 @@ from loguru import logger
 from core.i18n import Texts, admin_texts
 from bot.callbacks import BroadcastAction
 from bot.analytics import track
-from bot.config import AppConfig
+from core.config import AppConfig
 from bot.db import (
     broadcast_job_stats,
     event_counts,

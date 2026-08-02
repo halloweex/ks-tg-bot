@@ -8,7 +8,7 @@ from aiogram.types import Message
 
 from core.i18n import LANGUAGE_NAMES, Texts
 from bot.analytics import track
-from bot.config import AppConfig
+from core.config import AppConfig
 from bot.db import get_user, get_user_language, is_opted_out, opt_in_user
 from bot.keyboards import language_kb, main_menu_kb, share_phone_kb
 from bot.profile import ensure_menu_button

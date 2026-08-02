@@ -8,7 +8,7 @@ from aiogram.types import CallbackQuery, Message
 from core.i18n import Texts, normalize
 from bot.callbacks import SettingsAction
 from bot.analytics import track
-from bot.config import AppConfig
+from core.config import AppConfig
 from bot.db import save_user, set_user_language
 from bot.handlers.onboarding import own_contact_phone
 from bot.keyboards import language_kb, main_menu_kb, share_phone_kb
