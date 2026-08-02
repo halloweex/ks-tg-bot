@@ -117,7 +117,7 @@ deploy/backup.sh                # run it now — must end with "Backup done"
 ```bash
 ( crontab -l 2>/dev/null
   echo "30 3 * * * /opt/ks-tg-bot/deploy/backup.sh"
-  echo "0 4 1 * * /opt/ks-tg-bot/deploy/restore-test.sh"   # monthly drill
+  echo "0 4 * * 1 /opt/ks-tg-bot/deploy/restore-test.sh"   # weekly drill, Mondays
 ) | crontab -
 ```
 
@@ -138,8 +138,10 @@ deploy/restore-test.sh
 It pulls the **newest off-site archive** (not the local copy — the point is to
 exercise what survives losing this server), restores it to a throwaway file,
 and checks integrity, table presence, and that the data is actually populated.
-Nothing the bot uses is touched. Run it after setup and monthly thereafter;
-it also warns if the newest archive is over 48h old.
+Nothing the bot uses is touched. Run it after setup; the cron above then runs it
+weekly, which is what `docs/architecture.md` §10 asks for and costs a download of
+a few megabytes. It also warns if the newest archive is over 48h old — the case
+where backups stopped and nobody noticed because the old ones are still there.
 
 To confirm the alerting path itself works, run the backup with a deliberately
 wrong target — `BACKUP_REMOTE=nobody@invalid deploy/backup.sh` — and check the
