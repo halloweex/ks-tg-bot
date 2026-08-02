@@ -7,8 +7,8 @@ from __future__ import annotations
 import httpx
 from loguru import logger
 
-from core.adapters.novaposhta.parse import (TrackingStatus, parse_tracking,
-                                            tracking_document)
+from core.adapters.novaposhta.parse import (TrackingStatus, is_not_found,
+                                            parse_tracking, tracking_document)
 
 API_URL = "https://api.novaposhta.ua/v2.0/json/"
 
@@ -98,6 +98,18 @@ class NovaPoshtaClient:
                         )
                     else:
                         logger.warning("Nova Poshta: no data for TTN {}", ttn)
+                    return None
+
+                # Checked once, after the loop, rather than inside it: this is
+                # an answer about the number and not about the key, so trying
+                # the remaining keys would spend a request each to be told the
+                # same thing.
+                if is_not_found(doc):
+                    logger.warning(
+                        "Nova Poshta does not know TTN {} (StatusCode {}) — "
+                        "most likely a typo in the CRM",
+                        ttn, doc.get("StatusCode"),
+                    )
                     return None
 
                 return parse_tracking(ttn, doc)

@@ -90,6 +90,20 @@ def test_unreachable_host_stops_at_the_first_key(asked):
     assert asked["calls"] == ["k1"]
 
 
+def test_an_unknown_number_stops_at_the_first_key(asked):
+    """"This key cannot see it" and "there is no such parcel" are different answers.
+
+    The first is about our credentials and the next key is worth a request; the
+    second is about the number, and every key will say the same. Asking them all
+    would spend a request each to be told so — inside a screen that already
+    loops over every parcel in the order list.
+    """
+    unknown = {"success": True, "data": [{"StatusCode": "3", "Status": "Номер не знайдено"}]}
+    asked["install"](lambda r: httpx.Response(200, json=unknown))
+    assert _track() is None
+    assert asked["calls"] == ["k1"]
+
+
 def test_key_that_cannot_see_the_parcel_is_skipped(asked):
     """200 with an empty StatusCode means "not this key", not "no parcel"."""
     asked["install"](
