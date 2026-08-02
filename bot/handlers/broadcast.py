@@ -14,8 +14,7 @@ from core.i18n import Texts, admin_texts
 from bot.callbacks import BroadcastAction
 from bot.analytics import track
 from core.config import AppConfig
-from core.repos.events import (event_counts, funnel_counts, lookup_miss_rate,
-                               returning_users)
+from core.usecases.analytics import usage_report
 from core.repos.broadcast import (broadcast_job_stats, create_broadcast_job,
                                   finish_broadcast_job, get_pending_targets,
                                   get_unfinished_broadcasts, mark_target)
@@ -265,40 +264,37 @@ async def cmd_stats(message: Message, config: AppConfig) -> None:
     if not _is_admin(message.from_user.id, config):
         return
 
-    funnel = await funnel_counts(30)
-    misses, lookups = await lookup_miss_rate(30)
-    returning, active = await returning_users(30)
-    counts = await event_counts(7)
+    report = await usage_report()
 
-    lines = ["\U0001f4ca <b>Last 30 days</b>", "", "<b>Funnel (unique users)</b>"]
+    lines = [f"\U0001f4ca <b>Last {report.days} days</b>", "",
+             "<b>Funnel (unique users)</b>"]
     labels = {
         "start": "/start",
         "contact_shared": "shared contact",
         "registered": "registered",
         "orders_viewed": "viewed orders",
     }
-    top = funnel.get("start", 0)
-    for key, label in labels.items():
-        n = funnel.get(key, 0)
-        share = f"  {100 * n / top:.0f}%" if top else ""
-        lines.append(f"  {label}: {n}{share}")
+    for step in report.funnel:
+        share = f"  {step.share:.0f}%" if step.share is not None else ""
+        lines.append(f"  {labels.get(step.key, step.key)}: {step.users}{share}")
 
     lines += ["", "<b>Order lookups</b>"]
-    if lookups:
+    if report.miss_rate is not None:
         lines.append(
-            f"  found nothing: {misses} of {lookups} "
-            f"({100 * misses / lookups:.0f}%)"
+            f"  found nothing: {report.lookups_without_orders} of {report.lookups} "
+            f"({report.miss_rate:.0f}%)"
         )
         lines.append("  ^ Telegram phone did not match the one in the CRM")
     else:
         lines.append("  no lookups yet")
 
     lines += ["", "<b>Retention</b>",
-              f"  active: {active}, of them on more than one day: {returning}"]
+              f"  active: {report.active_users}, of them on more than one day: "
+              f"{report.returning_users}"]
 
-    lines += ["", "<b>Events, last 7 days</b>"]
-    if counts:
-        for event, total, users in counts:
+    lines += ["", f"<b>Events, last {report.event_days} days</b>"]
+    if report.events:
+        for event, total, users in report.events:
             lines.append(f"  {event}: {total} ({users} users)")
     else:
         lines.append("  no events yet")

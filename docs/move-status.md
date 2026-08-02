@@ -21,6 +21,7 @@
 | `_register_user`/`_sync_orders` из `bot/handlers/onboarding.py` | `core/usecases/register.py` | тот же |
 | `KeyCRMOrder` + `ShopifyOrder` + оба `*_order_to_dict` | `Order` и `order_row` в `core/domain/order.py`, `core/ports/crm.py` | `usecases-see-ports-not-implementations`, `ports-are-only-signatures` |
 | `normalize_phone` + правило владения из `own_contact_phone` | `core/domain/phone.py`, теперь типом `VerifiedPhone` (§11 v4) | `domain-is-pure` |
+| Админские отчёты из `bot/handlers/broadcast.py` | `core/usecases/analytics.py` | `usecases-do-not-know-their-callers` |
 
 Одиннадцать контрактов в `.importlinter`, 138 тестов, всё в продакшене. Ни
 `bot/services/`, ни `bot/db.py` больше не существует: в `bot/` осталась одна
@@ -46,11 +47,9 @@ Nova Poshta 83% → 85%; по трём клиентам вместе 61% → 73%
 2. **Остальные сценарии из хендлеров.** Карта — `components.md`, строки
    1048–1051. Но половина написанного там ждёт не переноса, а этапов 6–7:
    рассылка уезжает в outbox, доставка начинает читать `shipments` из базы,
-   `_refresh_semaphore` удаляется вместе с уходом синка в воркер. То, что было
-   переносимо сегодня, перенесено: синк заказов, регистрация и телефон.
-   Осталось переносимого мало — админские отчёты из хендлера рассылки в
-   `core/usecases/analytics.py`, и это единственное, что мешает разделу 7
-   документа быть правдой дословно.
+   `_refresh_semaphore` удаляется вместе с уходом синка в воркер. **Всё, что
+   было переносимо сегодня, перенесено:** синк заказов, регистрация, телефон и
+   админские отчёты. Дальше — только то, что ждёт своих этапов.
 
 **Читать `DB_PATH` только как `base.DB_PATH`.** `configure()` переприсваивает имя
 в своём модуле, поэтому `from core.repos.base import DB_PATH` замораживает
