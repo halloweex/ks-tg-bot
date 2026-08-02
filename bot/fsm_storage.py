@@ -20,7 +20,7 @@ from aiogram.fsm.state import State
 from aiogram.fsm.storage.base import BaseStorage, StorageKey
 from loguru import logger
 
-from bot.db import (fsm_delete, fsm_load, fsm_save)
+from core.repos.fsm import fsm_delete, fsm_load, fsm_save
 
 
 def _key(key: StorageKey) -> str:

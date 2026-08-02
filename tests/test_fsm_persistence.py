@@ -12,7 +12,7 @@ import asyncio
 import pytest
 from aiogram.fsm.storage.base import StorageKey
 
-from bot import db as botdb
+from core.repos import fsm as fsm_repo
 from core.repos import base as repos_base
 from core.repos.schema import init_db
 from bot.fsm_storage import SQLiteStorage
@@ -26,7 +26,7 @@ OTHER = StorageKey(bot_id=1, chat_id=666, user_id=666)
 def db(tmp_path, monkeypatch):
     monkeypatch.setattr(repos_base, "DB_PATH", str(tmp_path / "bot_data.db"))
     asyncio.run(init_db())
-    return botdb
+    return fsm_repo
 
 
 def _restart() -> SQLiteStorage:
@@ -98,7 +98,7 @@ def test_every_field_of_the_key_separates_conversations(db):
 
 def test_unreadable_data_does_not_break_the_conversation(db):
     """The state still routes the user; the flow re-asks rather than crashing."""
-    asyncio.run(botdb.fsm_save("1|555|555|||default", state="x", data="{not json"))
+    asyncio.run(fsm_repo.fsm_save("1|555|555|||default", state="x", data="{not json"))
     assert asyncio.run(_restart().get_data(KEY)) == {}
     assert asyncio.run(_restart().get_state(KEY)) == "x"
 

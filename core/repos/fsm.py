@@ -1,12 +1,11 @@
-"""Queries the bot runs against SQLite.
+"""Conversation state, so a deploy does not drop everyone mid-flow.
 
-Being taken apart aggregate by aggregate into core/repos/ — see
-docs/move-status.md. The connection lives in core/repos/base.py and the schema
-in core/repos/schema.py; what is left here is the queries themselves.
+One row per conversation; the key is built in bot/fsm_storage.py from every
+field aiogram uses to tell conversations apart. Not Redis:
+docs/architecture.md keeps it out of the system until the web cabinet runs more
+than one instance.
 """
 from __future__ import annotations
-
-import aiosqlite
 
 from core.repos.base import connect
 
