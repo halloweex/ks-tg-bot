@@ -58,6 +58,16 @@ jobs:
             ${{ env.IMAGE }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          load: true
+
+      # The image, not the source tree. A module that moved without being added
+      # to the Dockerfile imports fine in CI and dies inside the container, and
+      # the only thing that catches it is running the image itself.
+      - name: Import the entrypoint inside the built image
+        run: |
+          docker run --rm --entrypoint python \
+            "${{ env.IMAGE }}:${{ steps.meta.outputs.tag }}" \
+            -c "import bot.__main__; print('entrypoint imports')"
 
   deploy:
     needs: build

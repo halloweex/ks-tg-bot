@@ -12,6 +12,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Application code and non-secret config.
+# Both packages, and this list is the thing to update when a module moves.
+# core/ was added the day the first module left bot/ — the image built fine
+# without it and the container then died on import, because locally the repo
+# root is on sys.path and inside the image it is not.
+COPY core/ ./core/
 COPY bot/ ./bot/
 COPY config.yaml ./config.yaml
 
