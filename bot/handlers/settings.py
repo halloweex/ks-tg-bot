@@ -50,7 +50,7 @@ async def process_new_contact(
         await message.answer(t.ERR_INVALID_PHONE, reply_markup=share_phone_kb(t))
         return
 
-    await save_user(message.chat.id, phone)
+    await save_user(message.chat.id, phone.e164)
     await state.clear()
     # Sending the menu keyboard replaces the share-phone one it is answering.
     await message.answer(

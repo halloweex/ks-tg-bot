@@ -1,10 +1,11 @@
 """Everything registration does to the data, and nothing it does to the screen.
 
-The phone arriving here is already ownership-verified. That check reads a
-Telegram contact — `contact.user_id` against `from_user.id` — so it stays in the
-handler, and it is the one invariant this project cannot afford to lose: without
-it anyone could bind a stranger's number to their own chat and read that
-person's orders and delivery address.
+The phone arrives as a `VerifiedPhone`, which is the one invariant this project
+cannot afford to lose: without ownership verification anyone could bind a
+stranger's number to their own chat and read that person's orders and delivery
+address. The type is what enforces it now — a caller holding a plain string
+cannot reach this function, and the check that mints the type lives in
+core.domain.phone, not in whoever remembered to call it.
 
 Both steps are best-effort by design. A customer who shared their contact is
 registered even if KeyCRM is down; they will see an empty list and the next
@@ -18,6 +19,7 @@ import asyncio
 from loguru import logger
 
 from core.domain.order import order_row
+from core.domain.phone import VerifiedPhone
 from core.ports.crm import BuyerLookup, OrderSource
 from core.repos.orders import upsert_orders
 from core.repos.users import save_user
@@ -64,20 +66,25 @@ async def _sync_orders(
 
 async def register_customer(
     chat_id: int,
-    phone: str,
+    phone: VerifiedPhone,
     keycrm: (OrderSource | BuyerLookup) | None,
     shopify: OrderSource | None,
 ) -> None:
     """Bind the verified number to the chat, then fill the cache behind it."""
-    await save_user(chat_id, phone)
+    # Unwrapped once, here: everything below stores or queries a number, and
+    # neither the database nor an HTTP client has any use for the proof. The
+    # guarantee has already done its work by the time the call is made.
+    number = phone.e164
+
+    await save_user(chat_id, number)
 
     # Enrich profile with KeyCRM buyer data (best-effort)
     if keycrm:
         try:
-            buyer = await keycrm.get_buyer_by_phone(phone)
+            buyer = await keycrm.get_buyer_by_phone(number)
             if buyer:
                 await save_user(
-                    chat_id, phone,
+                    chat_id, number,
                     full_name=buyer["full_name"], email=buyer["email"],
                 )
         except Exception:
@@ -85,6 +92,6 @@ async def register_customer(
 
     # Sync orders into local cache (best-effort, don't block onboarding)
     try:
-        await _sync_orders(chat_id, phone, keycrm, shopify)
+        await _sync_orders(chat_id, number, keycrm, shopify)
     except Exception:
         logger.debug("Order sync on registration failed for {}", phone)

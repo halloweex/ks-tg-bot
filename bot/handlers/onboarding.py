@@ -1,6 +1,5 @@
 """Onboarding handler — phone input, validation, and registration."""
 
-import re
 from typing import Optional
 
 from aiogram import F, Router
@@ -15,58 +14,34 @@ from bot.keyboards import main_menu_kb, share_phone_kb
 from bot.screen import typing
 from core.adapters.keycrm.client import KeyCRMClient
 from core.adapters.shopify.client import ShopifyClient
+from core.domain.phone import VerifiedPhone, verified_phone
 from core.usecases.register import register_customer
 from bot.states import OnboardingStates
 
 router = Router()
 
-# E.164: + followed by 7-15 digits (covers all international numbers)
-PHONE_PATTERN = re.compile(r"^\+\d{7,15}$")
 
+def own_contact_phone(message: Message) -> VerifiedPhone | None:
+    """The sender's own verified phone from a shared contact, else None.
 
-def normalize_phone(raw: str | None) -> str | None:
-    """Normalize any input to an E.164 number (+digits). Accepts all countries.
-
-    Ukrainian local formats are handled for convenience:
-      380XXXXXXXXX (12 digits) -> +380XXXXXXXXX
-      0XXXXXXXXX   (10 digits) -> +380XXXXXXXXX
-    Anything else becomes '+' + digits (so a US/UK/DE/etc. number typed with or
-    without a leading '+' is accepted). Returns None if the result isn't a valid
-    E.164 number.
-    """
-    digits = re.sub(r"\D", "", raw or "")
-    if not digits:
-        return None
-    if digits.startswith("380") and len(digits) == 12:
-        phone = "+" + digits
-    elif digits.startswith("0") and len(digits) == 10:
-        phone = "+38" + digits
-    else:
-        phone = "+" + digits
-    return phone if PHONE_PATTERN.match(phone) else None
-
-
-def own_contact_phone(message: Message) -> str | None:
-    """Return the sender's *own* verified phone from a shared contact, else None.
-
-    Security boundary: Telegram sets ``contact.user_id`` to the sharer's own id
-    only when they tap the request_contact button to share THEIR number. A
-    forwarded or address-book contact of another person has a different (or
-    missing) user_id and is rejected — otherwise anyone could bind a victim's
-    phone to their chat and read that person's orders + delivery address (IDOR).
+    Three lines of Telegram and no rule: the rule is core.domain.phone, which
+    takes the three facts this pulls out of the message. What used to be a
+    convention — "everyone downstream trusts that this function was the one that
+    produced the string" — is now the type, and a bare string does not become a
+    VerifiedPhone anywhere in the tree.
     """
     contact = message.contact
-    if not contact or not contact.phone_number:
-        return None
-    if not message.from_user or contact.user_id != message.from_user.id:
-        return None
-    return normalize_phone(contact.phone_number)
+    return verified_phone(
+        raw_number=contact.phone_number if contact else None,
+        contact_user_id=contact.user_id if contact else None,
+        sender_user_id=message.from_user.id if message.from_user else None,
+    )
 
 
 async def _register_user(
     message: Message,
     state: FSMContext,
-    phone: str,
+    phone: VerifiedPhone,
     config: AppConfig,
     t: Texts,
     keycrm: KeyCRMClient | None = None,

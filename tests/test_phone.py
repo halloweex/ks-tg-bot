@@ -11,7 +11,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from bot.handlers.onboarding import normalize_phone, own_contact_phone
+from bot.handlers.onboarding import own_contact_phone
+from core.domain.phone import normalize_phone
 
 SENDER_ID = 424242
 E164 = "+380671234567"
@@ -67,7 +68,9 @@ def _message(*, phone: str | None, contact_user_id: int | None,
 
 
 def test_own_contact_is_accepted():
-    assert own_contact_phone(_message(phone="0671234567", contact_user_id=SENDER_ID)) == E164
+    phone = own_contact_phone(_message(phone="0671234567", contact_user_id=SENDER_ID))
+    assert phone is not None
+    assert phone.e164 == E164
 
 
 @pytest.mark.parametrize(

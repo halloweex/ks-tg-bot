@@ -11,11 +11,17 @@ import asyncio
 import pytest
 
 from core.domain.order import Order
+from core.domain.phone import verified_phone
 from core.usecases import register as module
 from core.usecases.register import register_customer
 
 CHAT = 555
-PHONE = "+380670000000"
+NUMBER = "+380670000000"
+
+# Built through the real constructor rather than by reaching for the module
+# private: the test then exercises the same path the handler does, and a
+# VerifiedPhone that only tests can make would prove nothing about it.
+PHONE = verified_phone(raw_number=NUMBER, contact_user_id=1, sender_user_id=1)
 
 
 class FakeKeyCRM:
@@ -56,14 +62,14 @@ def writes(monkeypatch):
 def test_the_number_is_bound_to_the_chat_first(writes):
     """Before anything that can fail: the binding is the point of the flow."""
     asyncio.run(register_customer(CHAT, PHONE, None, None))
-    assert writes["users"] == [(CHAT, PHONE, {})]
+    assert writes["users"] == [(CHAT, NUMBER, {})]
 
 
 def test_a_crm_that_is_down_still_leaves_the_customer_registered(writes):
     """Otherwise the flow would ask for the number again — the one thing it
     must never do, because a typed number cannot prove ownership."""
     asyncio.run(register_customer(CHAT, PHONE, Broken(), Broken()))
-    assert writes["users"] == [(CHAT, PHONE, {})]
+    assert writes["users"] == [(CHAT, NUMBER, {})]
     assert writes["orders"] == []
 
 
@@ -71,13 +77,13 @@ def test_the_profile_is_filled_from_the_crm_when_it_answers(writes):
     keycrm = FakeKeyCRM(buyer={"full_name": "Тесто-Клієнт", "email": "t@example.com"})
     asyncio.run(register_customer(CHAT, PHONE, keycrm, None))
     assert writes["users"][-1] == (
-        CHAT, PHONE, {"full_name": "Тесто-Клієнт", "email": "t@example.com"}
+        CHAT, NUMBER, {"full_name": "Тесто-Клієнт", "email": "t@example.com"}
     )
 
 
 def test_no_buyer_in_the_crm_leaves_the_bare_registration(writes):
     asyncio.run(register_customer(CHAT, PHONE, FakeKeyCRM(buyer=None), None))
-    assert writes["users"] == [(CHAT, PHONE, {})]
+    assert writes["users"] == [(CHAT, NUMBER, {})]
 
 
 def test_the_orders_are_cached_during_registration(writes):
