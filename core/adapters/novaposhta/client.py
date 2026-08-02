@@ -1,26 +1,16 @@
-"""Nova Poshta Tracking API client for delivery status lookup."""
-from __future__ import annotations
+"""Nova Poshta Tracking API client for delivery status lookup.
 
-from dataclasses import dataclass
+Transport and key failover; what a response means lives in parse.py.
+"""
+from __future__ import annotations
 
 import httpx
 from loguru import logger
 
+from core.adapters.novaposhta.parse import (TrackingStatus, parse_tracking,
+                                            tracking_document)
+
 API_URL = "https://api.novaposhta.ua/v2.0/json/"
-
-
-@dataclass
-class TrackingStatus:
-    """Parsed tracking result from Nova Poshta."""
-
-    ttn: str
-    status: str
-    status_code: int
-    city_recipient: str
-    warehouse_recipient: str
-    scheduled_delivery: str
-    actual_delivery: str
-    date_created: str
 
 
 class NovaPoshtaClient:
@@ -67,15 +57,7 @@ class NovaPoshtaClient:
         }
         response = await client.post(API_URL, json=payload, timeout=10.0)
         response.raise_for_status()
-        data = response.json()
-        if not data.get("success") or not data.get("data"):
-            return None
-        doc = data["data"][0]
-        # A key without access still answers 200 with a row that carries no
-        # status, so an empty StatusCode means "not this key", not "no parcel".
-        if not str(doc.get("StatusCode") or "").strip():
-            return None
-        return doc
+        return tracking_document(response.json())
 
     async def track(self, ttn: str, phone: str = "") -> TrackingStatus | None:
         """Get tracking status for a single TTN.
@@ -118,16 +100,7 @@ class NovaPoshtaClient:
                         logger.warning("Nova Poshta: no data for TTN {}", ttn)
                     return None
 
-                return TrackingStatus(
-                    ttn=ttn,
-                    status=doc.get("Status", ""),
-                    status_code=int(doc.get("StatusCode", 0)),
-                    city_recipient=doc.get("CityRecipient", ""),
-                    warehouse_recipient=doc.get("WarehouseRecipient", ""),
-                    scheduled_delivery=doc.get("ScheduledDeliveryDate", ""),
-                    actual_delivery=doc.get("ActualDeliveryDate", ""),
-                    date_created=doc.get("DateCreated", ""),
-                )
+                return parse_tracking(ttn, doc)
 
         except httpx.HTTPError as exc:
             logger.error("Nova Poshta HTTP error for TTN {}: {}", ttn, exc)

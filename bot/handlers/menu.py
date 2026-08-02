@@ -26,7 +26,7 @@ from bot.keyboards import (info_menu_kb, main_menu_kb, settings_menu_kb,
                            website_kb)
 from bot.screen import render
 from core.adapters.keycrm.client import KeyCRMClient
-from bot.services.novaposhta import NovaPoshtaClient
+from core.adapters.novaposhta.client import NovaPoshtaClient
 from core.adapters.shopify.client import ShopifyClient
 from bot.states import OnboardingStates, SettingsStates, SupportStates
 

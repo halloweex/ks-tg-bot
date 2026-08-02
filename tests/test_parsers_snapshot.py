@@ -227,6 +227,6 @@ def test_keycrm_reports_one_shipment_per_order():
         )
         if shipping:
             # None on an order that has not shipped, a string once it has —
-            # never a list. bot/services/keycrm.py absorbs the None with `or ""`.
+            # never a list. The KeyCRM parser absorbs the None with `or ""`.
             tracking = shipping.get("tracking_code")
             assert tracking is None or isinstance(tracking, str)

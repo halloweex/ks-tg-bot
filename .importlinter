@@ -6,11 +6,13 @@
 # Каждый контракт снабжён строкой причины. Контракт без причины — кандидат на
 # удаление: значит никто уже не помнит, что он защищает.
 #
-# Файл написан на целевую структуру из docs/components.md, но запускается прямо
-# сейчас: секция ЭТАП 0 проверяет три границы, которые в текущем дереве уже
-# соблюдаются (docs/current-state.md, §2), и не даёт им сломаться во время
-# переезда. Секции ЭТАП 1+ закомментированы до появления пакетов `core`, `web`,
-# `worker` — import-linter падает на несуществующем модуле, а не пропускает его.
+# Файл написан на целевую структуру из docs/components.md и переезжает в неё
+# вместе с кодом: контракт раскомментируется в том же коммите, что и модуль под
+# ним. Из трёх границ ЭТАП 0 (docs/current-state.md, §2) две уже стали
+# целевыми — httpx заперт в core.adapters, а третья умерла вместе с
+# bot/services/. Осталась одна: aiosqlite в bot.db, до переезда в core.repos.
+# Остальное закомментировано до появления пакетов `web` и `worker` —
+# import-linter падает на несуществующем модуле, а не пропускает его.
 
 [importlinter]
 root_packages =
@@ -22,20 +24,24 @@ include_external_packages = True
 
 
 # ============================================================================
-# ЭТАП 0 — границы, которые держатся в текущем дереве. Работает сегодня.
+# Границы, которые держатся в текущем дереве. Работает сегодня.
 # ============================================================================
 
-[importlinter:contract:phase0-http-only-in-services]
-name = ЭТАП 0: httpx живёт только в bot.services
-# Причина: пока сеть заперта в трёх файлах, её можно вынести в core.adapters
-# одним движением. Первый httpx в хендлере превращает переезд в раскопки.
+[importlinter:contract:only-adapters-speak-http]
+name = httpx живёт только в core.adapters
+# Причина: §2 документа — «ни bot, ни web, ни worker не импортируют httpx».
+# Сеть должна быть подменяема в тестах одной заменой реализации порта.
 #
-# Список исключений тает по одному на коммит переноса: keycrm уже в
-# core.adapters. Когда уедут оставшиеся два, исключений не останется вовсе, и
-# контракт станет целевым «httpx живёт только в core.adapters».
+# Целевая формулировка, достигнутая переносом: список исключений таял по одному
+# на коммит и закончился вместе с каталогом bot/services. Раньше правило
+# называлось «httpx живёт только в bot.services».
 type = forbidden
 source_modules =
     bot
+    core.domain
+    core.config
+    core.i18n
+    core.texts
 forbidden_modules =
     httpx
 # Правило про прямой импорт: хендлеру нельзя открывать сокет, а дотянуться до
@@ -43,8 +49,6 @@ forbidden_modules =
 # на цепочке bot.stock -> core.adapters.keycrm.client -> httpx, то есть ровно на
 # том, ради чего затевался перенос.
 allow_indirect_imports = True
-ignore_imports =
-    bot.services.novaposhta -> httpx
 
 [importlinter:contract:phase0-sql-only-in-db]
 name = ЭТАП 0: aiosqlite живёт только в bot.db
@@ -59,15 +63,8 @@ forbidden_modules =
 ignore_imports =
     bot.db -> aiosqlite
 
-[importlinter:contract:phase0-services-know-no-telegram]
-name = ЭТАП 0: bot.services ничего не знает про aiogram
-# Причина: клиенты внешних API уже переносимы в core.adapters как есть. Первый
-# импорт aiogram здесь означает, что адаптер начал знать про свой транспорт.
-type = forbidden
-source_modules =
-    bot.services
-forbidden_modules =
-    aiogram
+# Третий контракт ЭТАП 0 — «bot.services ничего не знает про aiogram» — умер
+# вместе с каталогом bot/services/. Его наследник ниже: api-clients-know-no-telegram.
 
 
 # ============================================================================
@@ -135,6 +132,7 @@ type = forbidden
 source_modules =
     core.adapters.keycrm.parse
     core.adapters.shopify.parse
+    core.adapters.novaposhta.parse
 forbidden_modules =
     httpx
 
@@ -163,6 +161,7 @@ type = forbidden
 source_modules =
     core.adapters.keycrm
     core.adapters.shopify
+    core.adapters.novaposhta
 forbidden_modules =
     aiogram
 
@@ -252,35 +251,9 @@ forbidden_modules =
 #     web
 #     worker
 
-# [importlinter:contract:only-adapters-speak-http]
-# name = httpx живёт только в core.adapters
-# # Причина: §2 документа — «ни bot, ни web, ни worker не импортируют httpx».
-# # Сеть должна быть подменяема в тестах одной заменой реализации порта.
-# type = forbidden
-# source_modules =
-#     core.domain
-#     core.ports
-#     core.repos
-#     core.usecases
-#     core.config
-#     core.i18n
-#     bot
-#     web
-#     worker
-# forbidden_modules =
-#     httpx
-
-# [importlinter:contract:parsers-are-pure]
-# name = разборщики ответов не знают про транспорт
-# # Причина: вся ценность отделения parse от client в том, что тесты парсеров
-# # идут на сохранённых фикстурах и не требуют мока сети.
-# type = forbidden
-# source_modules =
-#     core.adapters.keycrm.parse
-#     core.adapters.shopify.parse
-#     core.adapters.novaposhta.parse
-# forbidden_modules =
-#     httpx
+# only-adapters-speak-http и parsers-are-pure отсюда уехали наверх: они больше
+# не целевые, а действующие. Когда появятся web и worker, их надо будет дописать
+# в source_modules первого — здесь этот список полным уже не найти.
 
 # [importlinter:contract:only-repos-touch-db]
 # name = SQL и драйвер БД живут только в core.repos

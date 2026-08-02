@@ -12,7 +12,7 @@ import json
 import httpx
 import pytest
 
-from bot.services.novaposhta import NovaPoshtaClient
+from core.adapters.novaposhta.client import NovaPoshtaClient
 
 TTN = "20450000000001"
 KEYS = ["k1", "k2", "k3"]

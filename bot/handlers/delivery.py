@@ -12,7 +12,7 @@ from core.i18n import Texts
 from bot.analytics import track
 from bot.db import get_orders_with_tracking, get_user_phone, get_cached_orders
 from bot.screen import typing
-from bot.services.novaposhta import NovaPoshtaClient
+from core.adapters.novaposhta.client import NovaPoshtaClient
 
 
 def _format_order_label(row: dict, t: Texts) -> str:

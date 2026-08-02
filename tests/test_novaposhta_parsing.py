@@ -1,40 +1,41 @@
-"""Nova Poshta responses through the client, because there is no parser to call.
+"""Nova Poshta response mapping, read straight off the recordings.
 
-Unlike KeyCRM and Shopify, this client has no pure parse function: building the
-TrackingStatus happens inside `async with httpx.AsyncClient` (bot/services/
-novaposhta.py). So these go through a mock transport. Extracting a parser is
-part of the move; until then this is what pins the mapping.
+Until the client was split there was no parser to call: the envelope check and
+the field mapping both happened inside `async with httpx.AsyncClient`, so these
+tests had to stand up a mock transport to reach one line of assignment. The
+parser exists now and they read the fixture. What the client does with several
+keys is a different question, pinned in test_np_failover.py.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import pathlib
 
-import httpx
 import pytest
 
-from bot.services.novaposhta import NovaPoshtaClient
+from core.adapters.novaposhta.parse import parse_tracking, tracking_document
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "novaposhta"
 
-
-def _client(monkeypatch, fixture: str):
-    body = json.loads((FIXTURES / fixture).read_text())
-    transport = httpx.MockTransport(lambda r: httpx.Response(200, json=body))
-    real = httpx.AsyncClient
-    monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **kw: real(transport=transport))
-    return NovaPoshtaClient(["k1"])
+# What the recordings were made with; the client passes the asked-for TTN
+# through, so it is an argument rather than something read from the response.
+TTN = "20450000000001"
 
 
-def _track(monkeypatch, fixture: str):
-    return asyncio.run(_client(monkeypatch, fixture).track("20450000000001", "+380670000000"))
+def _body(fixture: str) -> dict:
+    return json.loads((FIXTURES / fixture).read_text())
 
 
-def test_in_transit_maps_every_field_the_screen_shows(monkeypatch):
-    status = _track(monkeypatch, "tracking_in_transit.json")
-    raw = json.loads((FIXTURES / "tracking_in_transit.json").read_text())["data"][0]
+def _track(fixture: str):
+    doc = tracking_document(_body(fixture))
+    return None if doc is None else parse_tracking(TTN, doc)
+
+
+def test_in_transit_maps_every_field_the_screen_shows():
+    status = _track("tracking_in_transit.json")
+    raw = _body("tracking_in_transit.json")["data"][0]
     assert status is not None
+    assert status.ttn == TTN
     assert status.status_code == int(raw["StatusCode"])
     assert status.status == raw["Status"]
     assert status.city_recipient == raw["CityRecipient"]
@@ -46,31 +47,51 @@ def test_in_transit_maps_every_field_the_screen_shows(monkeypatch):
 
 def test_the_fixture_keeps_the_fields_the_client_ignores():
     """123 fields come back; seven are read. A trimmed fixture would prove nothing."""
-    raw = json.loads((FIXTURES / "tracking_in_transit.json").read_text())["data"][0]
+    raw = _body("tracking_in_transit.json")["data"][0]
     assert len(raw) > 100
     for ignored in ("RecipientDateTime", "CargoDescriptionString", "DocumentWeight",
                     "AnnouncedPrice", "PaymentMethod"):
         assert ignored in raw
 
 
-def test_a_lookup_without_the_phone_still_returns_a_status(monkeypatch):
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"success": False, "data": [{"StatusCode": "7"}]},
+        {"success": True, "data": []},
+        {"success": True, "data": [{"StatusCode": ""}]},
+        {"success": True, "data": [{"StatusCode": "   "}]},
+        {"success": True, "data": [{"StatusCode": None}]},
+    ],
+    ids=["empty", "success-false", "no-rows", "blank-code", "spaces", "null-code"],
+)
+def test_a_response_this_key_cannot_read_yields_no_document(body):
+    """The guard the failover stands on: a key without access to the parcel
+    answers 200 with a row carrying no status, and that must read as "try the
+    next key", not as "the parcel does not exist"."""
+    assert tracking_document(body) is None
+
+
+def test_a_lookup_without_the_phone_still_returns_a_status():
     """Measured, and worth knowing: the phone is not what authorises tracking here.
 
-    The client always sends it (bot/services/novaposhta.py), and the class
-    docstring says it is the phone that authorises the lookup. Against the live
-    API the same TTN resolved with an empty phone as well.
+    The client always sends it (core/adapters/novaposhta/client.py), and the
+    class docstring says it is the phone that authorises the lookup. Against the
+    live API the same TTN resolved with an empty phone as well, and this fixture
+    is that response.
     """
-    assert _track(monkeypatch, "tracking_without_phone.json") is not None
+    assert _track("tracking_without_phone.json") is not None
 
 
-def test_unknown_ttn_is_reported_as_a_real_status(monkeypatch):
+def test_unknown_ttn_is_reported_as_a_real_status():
     """Pins a defect — see docs/found-during-move.md.
 
     A TTN that does not exist answers success=true with StatusCode 3, not with
     an empty status, so the "empty StatusCode means this key cannot see it"
-    guard never fires. The client hands the screen a TrackingStatus for a parcel
+    guard never fires. The parser hands the screen a TrackingStatus for a parcel
     that was never created.
     """
-    status = _track(monkeypatch, "tracking_unknown_ttn.json")
+    status = _track("tracking_unknown_ttn.json")
     assert status is not None, "today a nonexistent TTN produces a status object"
     assert status.status_code == 3
