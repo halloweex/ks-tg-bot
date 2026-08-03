@@ -22,7 +22,7 @@ from types import TracebackType
 
 from core.domain.phone import VerifiedPhone
 from core.repos.orders import upsert_orders
-from core.repos.users import save_user
+from core.repos.users import get_user_phone, save_user
 
 
 class SqliteOrderCache:
@@ -31,15 +31,28 @@ class SqliteOrderCache:
 
 
 class SqliteUserProfiles:
-    async def save(
+    async def bind_phone(self, user_id: int, phone: VerifiedPhone) -> None:
+        await save_user(user_id, phone.e164)
+
+    async def update_profile(
         self,
         user_id: int,
-        phone: VerifiedPhone,
         *,
         full_name: str | None = None,
         email: str | None = None,
     ) -> None:
-        await save_user(user_id, phone.e164, full_name=full_name, email=email)
+        """Reads the number back before writing, because the function
+        underneath is an INSERT OR REPLACE and needs the whole row.
+
+        The extra read is the price of not changing that function during an
+        engine migration; on Postgres this becomes a plain UPDATE of two
+        columns. A user who is not bound yet is left alone rather than created
+        with an empty phone — that row would be a user nobody can be.
+        """
+        phone = await get_user_phone(user_id)
+        if not phone:
+            return
+        await save_user(user_id, phone, full_name=full_name, email=email)
 
 
 class SqliteUnitOfWork:

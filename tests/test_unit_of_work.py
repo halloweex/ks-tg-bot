@@ -50,14 +50,38 @@ def test_the_service_context_is_spelled_out_rather_than_defaulted_into():
 def test_a_profile_written_through_the_unit_comes_back(db):
     async def scenario():
         async with SqliteUnitOfWork(user_id=USER) as uow:
-            await uow.users.save(USER, PHONE, full_name="Тесто-Клієнт",
-                                 email="t@example.com")
+            await uow.users.bind_phone(USER, PHONE)
+            await uow.users.update_profile(USER, full_name="Тесто-Клієнт",
+                                           email="t@example.com")
             await uow.commit()
         return await get_user(USER)
 
     assert asyncio.run(scenario()) == {
         "phone": PHONE.e164, "full_name": "Тесто-Клієнт", "email": "t@example.com",
     }
+
+
+def test_enriching_a_user_who_is_not_bound_yet_creates_nobody(db):
+    """The row it would otherwise write is a user with no phone — a person
+    nobody can be, and one that would then occupy the chat id."""
+    async def scenario():
+        async with SqliteUnitOfWork(user_id=USER) as uow:
+            await uow.users.update_profile(USER, full_name="Тесто-Клієнт")
+        return await get_user(USER)
+
+    assert asyncio.run(scenario()) is None
+
+
+def test_enrichment_cannot_change_the_number(db):
+    """The phone is not a parameter of update_profile rather than an optional
+    one nobody passes: the write that changes who a chat is has its own method
+    and its own type."""
+    import inspect
+
+    from core.repos.uow import SqliteUserProfiles
+
+    params = inspect.signature(SqliteUserProfiles.update_profile).parameters
+    assert "phone" not in params
 
 
 def test_orders_written_through_the_unit_come_back(db):
@@ -68,7 +92,7 @@ def test_orders_written_through_the_unit_come_back(db):
 
     async def scenario():
         async with SqliteUnitOfWork(user_id=USER) as uow:
-            await uow.users.save(USER, PHONE)
+            await uow.users.bind_phone(USER, PHONE)
             await uow.orders.upsert(USER, [order_row(order, USER)])
             await uow.commit()
         return await get_cached_orders(USER)
@@ -87,7 +111,7 @@ def test_leaving_the_block_early_does_not_roll_back_yet(db):
     async def scenario():
         with pytest.raises(RuntimeError):
             async with SqliteUnitOfWork(user_id=USER) as uow:
-                await uow.users.save(USER, PHONE)
+                await uow.users.bind_phone(USER, PHONE)
                 raise RuntimeError("died before commit")
         return await get_user(USER)
 

@@ -44,21 +44,40 @@ class OrderCache(Protocol):
 
 @runtime_checkable
 class UserProfiles(Protocol):
-    """The people the bot knows about."""
+    """The people the bot knows about.
 
-    async def save(
+    Two operations, not one, and the split is the point. Binding a number
+    decides whose orders a chat can see; filling in a name does not. Merging
+    them into one `save(user_id, phone, name, email)` was the first shape of
+    this port, and it forced the caller that only had a name to produce a phone
+    — which, since the phone must be a VerifiedPhone, meant either wrapping a
+    string from the database back into a proof it no longer had, or weakening
+    the type for everybody. Two methods cost one line and keep the guarantee
+    where it means something.
+    """
+
+    async def bind_phone(self, user_id: int, phone: VerifiedPhone) -> None:
+        """Attach an ownership-verified number to a user.
+
+        The only write that changes who a chat is. VerifiedPhone all the way
+        down to the repository on purpose: this is the last place the proof
+        still exists, and the write it guards is the one that would hand a
+        stranger somebody else's order history.
+        """
+        ...
+
+    async def update_profile(
         self,
         user_id: int,
-        phone: VerifiedPhone,
         *,
         full_name: str | None = None,
         email: str | None = None,
     ) -> None:
-        """Bind a verified number to a user, optionally with profile fields.
+        """Fill in what the CRM knows about an already-bound user.
 
-        The phone is a VerifiedPhone rather than a string all the way down to
-        the repository on purpose: this is the write that decides whose orders
-        a chat can see, and it is the last place where the proof still exists.
+        Best-effort enrichment, and it must never be able to change the phone —
+        which is why the phone is not a parameter rather than being an optional
+        one nobody passes.
         """
         ...
 
