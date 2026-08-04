@@ -23,7 +23,7 @@ import asyncio
 from core.domain.order import order_row
 from core.ports.crm import OrderSource
 from core.repos.orders import upsert_orders
-from core.repos.users import save_user
+from core.repos.users import remember_crm_buyers, save_user
 
 
 async def sync_orders(
@@ -55,6 +55,11 @@ async def sync_orders(
 
     if not isinstance(keycrm_result, Exception):
         db_rows.extend(order_row(o, chat_id) for o in keycrm_result)
+        # This request is the only place that knows which CRM buyer cards this
+        # number resolves to — the CRM matched them, we did not. Recording it
+        # here is what lets the window sweep, which sees orders by card and
+        # never by number, route them to this chat.
+        await remember_crm_buyers(chat_id, {o.buyer_id for o in keycrm_result})
         # Silent buyer profile refresh
         if keycrm_result:
             first = keycrm_result[0]

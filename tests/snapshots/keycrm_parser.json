@@ -22,6 +22,7 @@
     },
     "parsed": {
       "buyer_email": null,
+      "buyer_id": "18420",
       "buyer_name": "Тесто-Клієнт 7947",
       "buyer_phone": "+380674514927",
       "currency": "грн",
@@ -86,6 +87,7 @@
     },
     "parsed": {
       "buyer_email": "customer11315@example.com",
+      "buyer_id": "6546",
       "buyer_name": "Тесто-Клієнт 8012",
       "buyer_phone": "+380677425879",
       "currency": "грн",
@@ -145,6 +147,7 @@
     },
     "parsed": {
       "buyer_email": "customer12257@example.com",
+      "buyer_id": "21908",
       "buyer_name": "Тесто-Клієнт 0604",
       "buyer_phone": "+380675179554",
       "currency": "грн",
@@ -194,6 +197,7 @@
     },
     "parsed": {
       "buyer_email": "customer65003@example.com",
+      "buyer_id": "6150",
       "buyer_name": "Тесто-Клієнт 7594",
       "buyer_phone": "+380670874378",
       "currency": "грн",
@@ -253,6 +257,7 @@
     },
     "parsed": {
       "buyer_email": "customer78973@example.com",
+      "buyer_id": "21568",
       "buyer_name": "Тесто-Клієнт 4995",
       "buyer_phone": "+380679257805",
       "currency": "грн",
@@ -307,6 +312,7 @@
     },
     "parsed": {
       "buyer_email": "customer78973@example.com",
+      "buyer_id": "21568",
       "buyer_name": "Тесто-Клієнт 4995",
       "buyer_phone": "+380679257805",
       "currency": "грн",

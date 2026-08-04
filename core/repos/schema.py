@@ -218,6 +218,23 @@ CREATE TABLE IF NOT EXISTS discount_requests (
 """
 
 
+# Which CRM buyer cards a chat is. Written by the paths that ask the CRM for one
+# customer's orders by number, read by the sweep, which gets orders the other way
+# round and has to work out whose they are.
+#
+# A set and not a column on `users`, because a number can belong to several buyer
+# cards — 203 of them in this CRM — and the by-number search returns all of their
+# orders. Storing one id would show the customer less than they see today.
+_CREATE_USER_CRM_BUYERS = """
+CREATE TABLE IF NOT EXISTS user_crm_buyers (
+    chat_id  INTEGER NOT NULL,
+    buyer_id TEXT NOT NULL,
+    seen_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (chat_id, buyer_id)
+);
+"""
+
+
 # How far the incremental sync has read, and whether it is still reading. One
 # row per source. See core/repos/sync_state.py for what each column means and
 # why the alert reads last_success_at rather than last_error.
@@ -258,7 +275,7 @@ CREATE TABLE IF NOT EXISTS sync_state (
 # It could not express this change (SQLite cannot alter a UNIQUE constraint),
 # and it silently swallowed real failures — a full disk logged success.
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 async def _columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -404,6 +421,17 @@ async def _migration_6_support_albums(db: aiosqlite.Connection) -> None:
     await db.execute(_CREATE_SUPPORT_ALBUMS)
 
 
+async def _migration_8_user_crm_buyers(db: aiosqlite.Connection) -> None:
+    """Add the chat-to-buyer-card map the sweep routes on.
+
+    Nothing to backfill from here — the mapping lives in the CRM, not in this
+    database. It fills in from the paths that already ask by number: a
+    registration, an orders screen, and the sweep's own resolution of a chat it
+    does not recognise yet.
+    """
+    await db.execute(_CREATE_USER_CRM_BUYERS)
+
+
 async def _migration_7_sync_state(db: aiosqlite.Connection) -> None:
     """Add the row the incremental sync keeps its cursor in.
 
@@ -423,6 +451,7 @@ _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (5, "persistent fsm state", _migration_5_fsm_state),
     (6, "support albums", _migration_6_support_albums),
     (7, "sync state", _migration_7_sync_state),
+    (8, "chat to crm buyer map", _migration_8_user_crm_buyers),
 )
 
 
@@ -478,6 +507,7 @@ async def init_db() -> None:
         await db.execute(_CREATE_FSM_STATE)
         await db.execute(_CREATE_SUPPORT_ALBUMS)
         await db.execute(_CREATE_SYNC_STATE)
+        await db.execute(_CREATE_USER_CRM_BUYERS)
 
         if fresh:
             # The CREATE statements above deliberately keep their original

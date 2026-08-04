@@ -29,7 +29,7 @@ from datetime import datetime, timedelta, timezone
 from aiogram import Bot
 from loguru import logger
 
-from core.ports.crm import ChangedOrderFeed
+from core.ports.crm import CrmOrders
 from core.repos.orders import get_last_sync_time
 from core.repos.sync_state import get_state
 from core.usecases.sync_incremental import (SOURCE, read_stamp,
@@ -60,12 +60,18 @@ REALERT_AFTER = timedelta(hours=1)
 STALE_AFTER = timedelta(hours=1)
 
 
-async def watch(keycrm: ChangedOrderFeed) -> None:
-    """Sweep the changed-orders window forever."""
+async def watch(keycrm: CrmOrders) -> None:
+    """Sweep the changed-orders window forever.
+
+    One client, passed twice on purpose: the sweep reads the window through it
+    and, for a chat whose CRM identity nothing has established yet, asks the same
+    CRM the other way round — by number. The two are separate ports because they
+    fail differently, and the same object because they are the same API.
+    """
     logger.info("Order sync started ({}s interval)", POLL_INTERVAL_SECONDS)
     while True:
         try:
-            await sync_changed_orders(keycrm)
+            await sync_changed_orders(keycrm, lookup=keycrm)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 — already recorded in sync_state

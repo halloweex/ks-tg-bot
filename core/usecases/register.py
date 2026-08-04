@@ -22,7 +22,7 @@ from core.domain.order import order_row
 from core.domain.phone import VerifiedPhone
 from core.ports.crm import BuyerLookup, OrderSource
 from core.repos.orders import upsert_orders
-from core.repos.users import save_user
+from core.repos.users import remember_crm_buyers, save_user
 
 
 async def _sync_orders(
@@ -55,6 +55,11 @@ async def _sync_orders(
     if keycrm:
         if not isinstance(results[idx], Exception):
             db_rows.extend(order_row(o, chat_id) for o in results[idx])
+            # Which CRM buyer cards this number is. Only a by-number request can
+            # answer that, and this is the first one a customer ever causes —
+            # the window sweep sees orders by card and would otherwise never
+            # recognise them.
+            await remember_crm_buyers(chat_id, {o.buyer_id for o in results[idx]})
         idx += 1
     if shopify:
         if not isinstance(results[idx], Exception):

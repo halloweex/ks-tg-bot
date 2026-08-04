@@ -50,6 +50,10 @@ def parse_order(raw: dict) -> Order:
     # asking for one customer's orders and therefore has to work out whose each
     # order is. Empty when the request did not `include=buyer`.
     buyer_phone = buyer.get("phone", "") or ""
+    # `client_id` and not `buyer.id`: the same value, but present on every order
+    # whether or not the request asked for the buyer — so the identity survives
+    # a caller that forgot the include, where the phone does not.
+    buyer_id = str(raw.get("client_id") or buyer.get("id") or "")
 
     shipping = raw.get("shipping") or {}
     tracking_code = shipping.get("tracking_code", "") or ""
@@ -86,6 +90,7 @@ def parse_order(raw: dict) -> Order:
         buyer_name=buyer_name,
         buyer_email=buyer_email,
         buyer_phone=buyer_phone,
+        buyer_id=buyer_id,
         payment_status=raw.get("payment_status", ""),
         tracking_code=tracking_code,
         shipping_status=shipping_status,

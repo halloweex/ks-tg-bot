@@ -48,6 +48,17 @@ class ChangedOrderFeed(Protocol):
 
 
 @runtime_checkable
+class CrmOrders(ChangedOrderFeed, OrderSource, Protocol):
+    """Both ways of asking one shop system for orders.
+
+    Composed rather than merged, because the sweep needs both and they are not
+    interchangeable: it reads the window through the first, and for a chat whose
+    CRM identity nothing has established yet it asks the second, by number. A
+    caller that only reads windows should keep asking for `ChangedOrderFeed`.
+    """
+
+
+@runtime_checkable
 class BuyerLookup(Protocol):
     """Somewhere a customer's profile can be read from by phone number."""
 

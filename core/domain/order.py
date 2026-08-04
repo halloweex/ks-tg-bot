@@ -67,13 +67,20 @@ class Order:
     items: list[dict] = field(default_factory=list)
     buyer_name: str = ""
     buyer_email: str = ""
-    # Who the order belongs to, as the source spells it. Not part of order_row
-    # and deliberately so: the cache row is keyed by chat, and the number is
-    # what decides *which* chat — it is read on the way in and does not survive
-    # into the table. §5.4 gives orders a phone column of their own in the stage
-    # that lets an order exist without a user; until then, storing it here would
-    # be a second copy of an answer the users table already holds.
+    # Who the order belongs to, as the source spells it. Neither is part of
+    # order_row and deliberately so: the cache row is keyed by chat, and these
+    # are what decide *which* chat — read on the way in, not stored. §5.4 gives
+    # orders a phone column of their own in the stage that lets an order exist
+    # without a user.
+    #
+    # Both, and not just the phone, because the phone alone is not enough. A
+    # buyer card can hold several numbers, the order carries only one of them,
+    # and the CRM's own search matches all of them — so the customer who shared
+    # number A with Telegram has orders whose buyer_phone reads B. Measured on
+    # production, on the only registered customer there was: 25 orders, none of
+    # them matching by number. The id does not have that problem.
     buyer_phone: str = ""
+    buyer_id: str = ""
     payment_status: str = ""
     tracking_code: str = ""
     shipping_status: str = ""

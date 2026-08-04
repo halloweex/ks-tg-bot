@@ -76,6 +76,50 @@ async def registered_phones() -> list[tuple[int, str]]:
         return [(row[0], row[1]) for row in await cursor.fetchall()]
 
 
+async def remember_crm_buyers(chat_id: int, buyer_ids: set[str]) -> None:
+    """Record which CRM buyer cards this chat turned out to be.
+
+    Written by the paths that ask the CRM by number and therefore already know
+    the answer: registration, the orders screen's refresh, and the sweep's own
+    resolution of a chat it does not recognise. Additive — a card seen once is
+    kept, because the CRM's own search keeps returning its orders and dropping
+    it here would make them disappear from the sweep alone.
+    """
+    ids = {str(buyer_id) for buyer_id in buyer_ids if str(buyer_id)}
+    if not ids:
+        return
+    async with connect() as db:
+        await db.executemany(
+            "INSERT OR IGNORE INTO user_crm_buyers (chat_id, buyer_id) VALUES (?, ?)",
+            [(chat_id, buyer_id) for buyer_id in sorted(ids)],
+        )
+        await db.commit()
+
+
+async def registered_buyers() -> list[tuple[int, str]]:
+    """Every chat and the CRM buyer cards it is known to be."""
+    async with connect() as db:
+        cursor = await db.execute("SELECT chat_id, buyer_id FROM user_crm_buyers")
+        return [(row[0], row[1]) for row in await cursor.fetchall()]
+
+
+async def chats_without_crm_buyer() -> list[tuple[int, str]]:
+    """Registered chats whose CRM identity is not known yet, and their numbers.
+
+    These are the ones the sweep cannot route: it sees orders by buyer card, and
+    for them there is no card on file. Everyone registered before the map
+    existed is on this list until something asks the CRM by their number.
+    """
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT u.chat_id, u.phone FROM users u "
+            " WHERE u.phone != '' "
+            "   AND NOT EXISTS (SELECT 1 FROM user_crm_buyers b "
+            "                    WHERE b.chat_id = u.chat_id)"
+        )
+        return [(row[0], row[1]) for row in await cursor.fetchall()]
+
+
 async def get_user_language(chat_id: int) -> str | None:
     """Return the language the user explicitly chose, or None if they never did.
 
