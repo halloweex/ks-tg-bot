@@ -53,6 +53,29 @@ async def get_user_phone(chat_id: int) -> str | None:
         return row[0] if row else None
 
 
+async def registered_phones() -> list[tuple[int, str]]:
+    """Every chat and the number bound to it, as stored.
+
+    The sweep in core.usecases.sync_incremental reads what the CRM changed and
+    then has to work out whose it is, which is the opposite direction from every
+    other query here: not "the number for this chat" but "the chats for these
+    numbers". Answered in Python rather than by a SQL join on the number,
+    because the two sides are written by different systems and only agree after
+    normalization — which is domain logic and has no business being expressed
+    twice, once here as string functions.
+
+    The whole table, deliberately. It is one row per registered customer, read
+    once every two minutes; at the twenty thousand this business would have if
+    every buyer signed up, it is still a scan of a narrow table against a
+    request that just cost a second of network.
+    """
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT chat_id, phone FROM users WHERE phone != ''"
+        )
+        return [(row[0], row[1]) for row in await cursor.fetchall()]
+
+
 async def get_user_language(chat_id: int) -> str | None:
     """Return the language the user explicitly chose, or None if they never did.
 
