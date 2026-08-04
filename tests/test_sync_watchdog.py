@@ -1,4 +1,4 @@
-"""The alert §5.5 asks for: fired by silence, not by errors.
+"""The alert §5.5 asks for, and the line the customer sees when it fires.
 
 "The bot reads only from the database" means a stopped sync is stale orders for
 everybody with no fallback to the live API — and the ways it stops are the ways
@@ -14,8 +14,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from bot.sync import (REALERT_AFTER, SILENCE_AFTER, _alert_text, silence,
-                      watch_for_silence)
+from bot.sync import (REALERT_AFTER, SILENCE_AFTER, _alert_text, data_age,
+                      silence, watch_for_silence)
+from core.i18n import customer_texts
 from core.repos import base as repos_base
 from core.repos import sync_state
 from core.repos.schema import init_db
@@ -205,3 +206,48 @@ def test_without_admins_it_says_so_and_stops(db, clock):
         await watch_for_silence(FakeBot(), [])
 
     asyncio.run(go())
+
+
+# --- the customer-facing half ----------------------------------------------
+
+def test_a_healthy_sync_shows_no_notice():
+    state = {"last_success_at": "2026-08-04 16:18:00"}
+    assert data_age(state, None, now=NOW) == timedelta(minutes=2)
+
+
+def test_a_customer_whose_orders_never_change_is_not_told_they_are_stale():
+    """The sweep writes only what changed, so somebody who last ordered in
+    January has a January synced_at while the sync is perfectly healthy. Reading
+    that alone would put a stale warning on a current list."""
+    state = {"last_success_at": "2026-08-04 16:18:00"}
+    assert data_age(state, "2026-01-04 10:00:00", now=NOW) == timedelta(minutes=2)
+
+
+def test_a_dead_sweep_is_covered_by_this_chat_s_own_refresh():
+    """And the other way round: the on-demand refresh keeps one customer current
+    while the sweep is dead, which the sweep's own timestamp cannot see."""
+    state = {"last_success_at": "2026-08-01 10:00:00"}
+    assert data_age(state, "2026-08-04 16:15:00", now=NOW) == timedelta(minutes=5)
+
+
+def test_nothing_ever_synced_is_not_a_staleness():
+    """That is the empty screen, and it says so in its own words."""
+    assert data_age(None, None, now=NOW) is None
+
+
+def test_the_notice_appears_only_past_the_threshold(db, monkeypatch):
+    from bot import sync as module
+
+    async def no_chat_sync(chat_id: int):
+        return None
+
+    monkeypatch.setattr(module, "get_last_sync_time", no_chat_sync)
+    asyncio.run(sync_state.finish_success(SOURCE, "2026-08-04 16:00:00"))
+
+    t = customer_texts("uk")
+    fresh = asyncio.run(module.stale_notice(555, t, now=datetime.now(timezone.utc)))
+    assert fresh == ""
+
+    stale_at = datetime.now(timezone.utc) + timedelta(hours=3, minutes=1)
+    warned = asyncio.run(module.stale_notice(555, t, now=stale_at))
+    assert "3" in warned

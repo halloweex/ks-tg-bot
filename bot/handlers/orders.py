@@ -24,6 +24,7 @@ from core.repos.orders import (CANCELLED_STATUS_GROUP, get_cached_orders,
                                get_last_sync_time)
 from core.repos.users import get_user_phone
 from bot.screen import render, typing
+from bot.sync import stale_notice
 from core.adapters.keycrm.client import KeyCRMClient
 from core.adapters.shopify.client import ShopifyClient
 from core.usecases.sync_orders import sync_orders
@@ -397,8 +398,13 @@ async def orders_screen(
         # that a customer shared their contact and saw nothing.
         track(chat_id, "orders_viewed", found=len(cached), cached=False)
 
+    # §5.5, the customer-facing half of the stalled-sync alert. Silent while the
+    # sync is healthy, which is nearly always, and above the list rather than
+    # below it so a long history cannot bury it.
+    notice = await stale_notice(chat_id, t)
+    text = _format_orders_from_cache(cached, t)
     return (
-        _format_orders_from_cache(cached, t),
+        f"{notice}\n\n{text}" if notice else text,
         _orders_kb(cached, t) if cached else _no_orders_kb(t),
     )
 

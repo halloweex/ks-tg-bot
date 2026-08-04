@@ -121,6 +121,10 @@ MSG_ORDER_MORE_ITEMS = "…та інші ({count})"
 BTN_SHOW_ITEMS = "🔎 {order}"
 BTN_HIDE_ITEMS = "🔼 {order}"
 MSG_ORDERS_EXPAND_HINT = "🔎 номер — усі товари цього замовлення"
+# Shown only when the sync has not confirmed the data for over an hour — see
+# bot/sync.py. "год" needs no plural form, which is the reason it is written
+# that way: 1, 2 and 5 hours all read correctly.
+MSG_ORDERS_STALE = "⏳ Дані оновлювалися понад {hours} год тому"
 MSG_ORDER_TRACKING = "🚚 ТТН: {code}"
 MSG_ORDER_LOCATION = "📍 {location}"
 

@@ -30,6 +30,7 @@ from aiogram import Bot
 from loguru import logger
 
 from core.ports.crm import ChangedOrderFeed
+from core.repos.orders import get_last_sync_time
 from core.repos.sync_state import get_state
 from core.usecases.sync_incremental import (SOURCE, read_stamp,
                                             sync_changed_orders)
@@ -51,6 +52,12 @@ WATCHDOG_INTERVAL_SECONDS = 60
 # that repeats faster than anybody can act on it is the reason alerts get muted,
 # and a muted alert is worse than none — it looks like coverage.
 REALERT_AFTER = timedelta(hours=1)
+
+# The customer-facing half of §5.5. A healthy sweep is never more than two
+# minutes behind, so an hour is far outside normal operation and the line stays
+# invisible until it means something. Saying "updated 3 minutes ago" on every
+# screen would train everyone to stop reading it.
+STALE_AFTER = timedelta(hours=1)
 
 
 async def watch(keycrm: ChangedOrderFeed) -> None:
@@ -76,6 +83,37 @@ def silence(state: dict | None, *, now: datetime, since: datetime) -> timedelta:
     """
     last = read_stamp((state or {}).get("last_success_at"))
     return now - (last or since)
+
+
+def data_age(
+    state: dict | None, chat_synced_at: str | None, *, now: datetime
+) -> timedelta | None:
+    """How long ago what this customer sees was last confirmed current.
+
+    The newer of two facts, because either one keeps their list honest: the
+    sweep succeeded, or their own orders were refreshed on demand. Neither alone
+    is enough. The sweep writes only what changed, so a customer who has not
+    ordered in a month has a month-old `synced_at` while the sync is perfectly
+    healthy — using that alone would put a stale warning on a current list. And
+    the on-demand refresh keeps one chat current while the sweep is dead, which
+    the sweep's own timestamp cannot see.
+
+    None means nothing has ever been synced for them, which is the empty screen
+    and not a staleness worth announcing.
+    """
+    stamps = [read_stamp((state or {}).get("last_success_at")),
+              read_stamp(chat_synced_at)]
+    known = [stamp for stamp in stamps if stamp is not None]
+    return now - max(known) if known else None
+
+
+async def stale_notice(chat_id: int, t, *, now: datetime | None = None) -> str:
+    """The line to put above a customer's orders, or '' when there is none."""
+    now = now or datetime.now(timezone.utc)
+    age = data_age(await get_state(SOURCE), await get_last_sync_time(chat_id), now=now)
+    if age is None or age < STALE_AFTER:
+        return ""
+    return t.MSG_ORDERS_STALE.format(hours=int(age.total_seconds() // 3600))
 
 
 def _alert_text(state: dict | None, quiet_for: timedelta) -> str:

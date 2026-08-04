@@ -86,6 +86,7 @@ EN: dict[str, str] = {
     "BTN_SHOW_ITEMS": "🔎 {order}",
     "BTN_HIDE_ITEMS": "🔼 {order}",
     "MSG_ORDERS_EXPAND_HINT": "🔎 number — every item in that order",
+    "MSG_ORDERS_STALE": "⏳ Last updated over {hours} h ago",
     "MSG_ORDER_TRACKING": "🚚 Tracking: {code}",
     "MSG_ORDER_LOCATION": "📍 {location}",
     "MSG_NO_ORDERS": (
