@@ -218,6 +218,21 @@ CREATE TABLE IF NOT EXISTS discount_requests (
 """
 
 
+# How far the incremental sync has read, and whether it is still reading. One
+# row per source. See core/repos/sync_state.py for what each column means and
+# why the alert reads last_success_at rather than last_error.
+_CREATE_SYNC_STATE = """
+CREATE TABLE IF NOT EXISTS sync_state (
+    source          TEXT PRIMARY KEY,
+    cursor          TEXT,
+    last_run_at     TEXT,
+    last_success_at TEXT,
+    last_error      TEXT,
+    last_full_at    TEXT
+);
+"""
+
+
 # --------------------------------------------------------------------------
 # Schema versions
 # --------------------------------------------------------------------------
@@ -243,7 +258,7 @@ CREATE TABLE IF NOT EXISTS discount_requests (
 # It could not express this change (SQLite cannot alter a UNIQUE constraint),
 # and it silently swallowed real failures — a full disk logged success.
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 async def _columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -389,6 +404,16 @@ async def _migration_6_support_albums(db: aiosqlite.Connection) -> None:
     await db.execute(_CREATE_SUPPORT_ALBUMS)
 
 
+async def _migration_7_sync_state(db: aiosqlite.Connection) -> None:
+    """Add the row the incremental sync keeps its cursor in.
+
+    Nothing to backfill, and deliberately no seeded cursor either: an absent one
+    means "never swept", which is what makes the first sweep read the whole
+    reconciliation window instead of the last two minutes.
+    """
+    await db.execute(_CREATE_SYNC_STATE)
+
+
 # (version, name, coroutine). Append only; never edit one that has shipped.
 _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (1, "late columns", _migration_1_late_columns),
@@ -397,6 +422,7 @@ _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (4, "support threads", _migration_4_support_threads),
     (5, "persistent fsm state", _migration_5_fsm_state),
     (6, "support albums", _migration_6_support_albums),
+    (7, "sync state", _migration_7_sync_state),
 )
 
 
@@ -451,6 +477,7 @@ async def init_db() -> None:
         await db.execute(_CREATE_SUPPORT_THREADS)
         await db.execute(_CREATE_FSM_STATE)
         await db.execute(_CREATE_SUPPORT_ALBUMS)
+        await db.execute(_CREATE_SYNC_STATE)
 
         if fresh:
             # The CREATE statements above deliberately keep their original
