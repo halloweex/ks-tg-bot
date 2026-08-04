@@ -103,21 +103,39 @@ async def registered_buyers() -> list[tuple[int, str]]:
         return [(row[0], row[1]) for row in await cursor.fetchall()]
 
 
-async def chats_without_crm_buyer() -> list[tuple[int, str]]:
+async def chats_without_crm_buyer(*, retry_after_hours: int = 24) -> list[tuple[int, str]]:
     """Registered chats whose CRM identity is not known yet, and their numbers.
 
     These are the ones the sweep cannot route: it sees orders by buyer card, and
     for them there is no card on file. Everyone registered before the map
     existed is on this list until something asks the CRM by their number.
+
+    Asked-and-found-nothing counts as asked, for a day. A customer who has never
+    ordered has no card to find, so without the timestamp they would be looked
+    up on every sweep for as long as they stay registered — two of the three
+    people in production are exactly that. A day later they are asked again,
+    because "has never ordered" is a state customers leave.
     """
     async with connect() as db:
         cursor = await db.execute(
             "SELECT u.chat_id, u.phone FROM users u "
             " WHERE u.phone != '' "
             "   AND NOT EXISTS (SELECT 1 FROM user_crm_buyers b "
-            "                    WHERE b.chat_id = u.chat_id)"
+            "                    WHERE b.chat_id = u.chat_id) "
+            f"   AND (u.crm_checked_at IS NULL "
+            f"        OR u.crm_checked_at < datetime('now', '-{int(retry_after_hours)} hours'))"
         )
         return [(row[0], row[1]) for row in await cursor.fetchall()]
+
+
+async def mark_crm_checked(chat_id: int) -> None:
+    """Record that the CRM was asked about this chat, whatever it answered."""
+    async with connect() as db:
+        await db.execute(
+            "UPDATE users SET crm_checked_at = datetime('now') WHERE chat_id = ?",
+            (chat_id,),
+        )
+        await db.commit()
 
 
 async def get_user_language(chat_id: int) -> str | None:

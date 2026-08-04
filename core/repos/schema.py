@@ -41,6 +41,10 @@ _LATE_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("users", "source", "TEXT DEFAULT ''"),
     ("orders", "external_id", "TEXT DEFAULT ''"),
     ("orders", "status_group_id", "INTEGER DEFAULT 0"),
+    # When the CRM was last asked who this chat is (user_crm_buyers). Stamped
+    # whether or not the answer was a card, so a customer the CRM has never
+    # heard of is asked about once a day instead of every two minutes.
+    ("users", "crm_checked_at", "TEXT"),
 )
 
 _CREATE_OPT_OUT = """
@@ -275,7 +279,7 @@ CREATE TABLE IF NOT EXISTS sync_state (
 # It could not express this change (SQLite cannot alter a UNIQUE constraint),
 # and it silently swallowed real failures — a full disk logged success.
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 async def _columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -421,6 +425,15 @@ async def _migration_6_support_albums(db: aiosqlite.Connection) -> None:
     await db.execute(_CREATE_SUPPORT_ALBUMS)
 
 
+async def _migration_9_crm_checked_at(db: aiosqlite.Connection) -> None:
+    """Remember that a chat was looked up, not only that it was recognised.
+
+    Without it a registered customer with no orders in the CRM has no card, is
+    therefore always "unresolved", and is looked up on every single sweep.
+    """
+    await _add_late_columns(db)
+
+
 async def _migration_8_user_crm_buyers(db: aiosqlite.Connection) -> None:
     """Add the chat-to-buyer-card map the sweep routes on.
 
@@ -452,6 +465,7 @@ _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (6, "support albums", _migration_6_support_albums),
     (7, "sync state", _migration_7_sync_state),
     (8, "chat to crm buyer map", _migration_8_user_crm_buyers),
+    (9, "crm lookup timestamp", _migration_9_crm_checked_at),
 )
 
 

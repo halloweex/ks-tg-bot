@@ -295,6 +295,45 @@ def test_a_chat_already_mapped_is_not_looked_up_again(db):
     assert lookup.asked == [PHONE]
 
 
+def test_a_customer_the_crm_has_never_heard_of_is_asked_once_a_day(db):
+    """Two of the three chats in production are this: registered, no orders in
+    the CRM, therefore no card to find. Without remembering the attempt they
+    would be looked up on every sweep, forever, and the log line would keep
+    claiming it resolved them."""
+    _register()
+    lookup = FakeLookup([])                      # the CRM knows nobody by that number
+
+    asyncio.run(sync_changed_orders(FakeCRM(), lookup=lookup, now=NOW))
+    asyncio.run(sync_changed_orders(FakeCRM(), lookup=lookup, now=NOW))
+
+    assert lookup.asked == [PHONE]
+
+
+def test_the_day_after_they_are_asked_again(db):
+    """Because "has never ordered" is a state customers leave.
+
+    The stamp is aged by hand: it is written by the database clock, and the
+    alternative to reaching for it here is a test that waits a day.
+    """
+    import aiosqlite
+
+    from core.repos import base as repos_base
+    from core.repos.users import chats_without_crm_buyer
+
+    _register()
+    asyncio.run(sync_changed_orders(FakeCRM(), lookup=FakeLookup([]), now=NOW))
+    assert asyncio.run(chats_without_crm_buyer()) == []
+
+    async def age_the_stamp() -> None:
+        async with aiosqlite.connect(repos_base.DB_PATH) as db_:
+            await db_.execute(
+                "UPDATE users SET crm_checked_at = datetime('now', '-25 hours')")
+            await db_.commit()
+
+    asyncio.run(age_the_stamp())
+    assert asyncio.run(chats_without_crm_buyer()) == [(CHAT, PHONE)]
+
+
 def test_a_failed_lookup_does_not_cost_the_sweep_its_window(db):
     """Resolution is a nicety; the window is the reason the sweep exists."""
     _register()

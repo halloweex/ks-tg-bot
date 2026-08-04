@@ -61,8 +61,8 @@ from core.ports.crm import ChangedOrderFeed, OrderSource
 from core.repos.orders import upsert_orders
 from core.repos.sync_state import (begin_run, finish_failure, finish_success,
                                    get_state)
-from core.repos.users import (chats_without_crm_buyer, registered_buyers,
-                              registered_phones)
+from core.repos.users import (chats_without_crm_buyer, mark_crm_checked,
+                              registered_buyers, registered_phones)
 
 # The name this integration keeps in sync_state. One source, one row.
 SOURCE = "keycrm"
@@ -204,21 +204,28 @@ async def resolve_unknown_buyers(lookup: OrderSource, limit: int) -> int:
 
     Bounded per sweep because each one is a paged request, and best-effort
     because it is not what the sweep is for: a customer who cannot be resolved
-    now is resolved next time, or the moment they open the bot.
+    now is resolved next time, or the moment they open the bot. Asked once a day
+    at most — the answer for somebody who has never ordered is "no card", and
+    that is an answer, not a reason to ask again in two minutes.
     """
     from core.usecases.sync_orders import sync_orders
 
-    resolved = 0
+    asked = 0
     for chat_id, phone in (await chats_without_crm_buyer())[:limit]:
         try:
             await sync_orders(chat_id, phone, lookup, None)
-            resolved += 1
+            # After the call and whatever it found. A customer the CRM has never
+            # heard of has no card to record, and without this they would be
+            # looked up again in two minutes, and again, for as long as they
+            # stay registered.
+            await mark_crm_checked(chat_id)
+            asked += 1
         except Exception as exc:  # noqa: BLE001 — never costs the sweep its window
             logger.warning("Could not resolve the CRM buyer for chat {}: {}",
                            chat_id, exc)
-    if resolved:
-        logger.info("Sync: resolved the CRM identity of {} chat(s)", resolved)
-    return resolved
+    if asked:
+        logger.info("Sync: asked the CRM about {} unrecognised chat(s)", asked)
+    return asked
 
 
 async def sync_changed_orders(
