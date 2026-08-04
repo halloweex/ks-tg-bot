@@ -27,6 +27,14 @@ _PAGE_PAUSE = 0.55
 # list silently missing its tail is exactly the defect this replaced.
 _MAX_ORDER_PAGES = 20
 
+# How many pages one sweep of the changed-orders window is allowed to cost.
+# 50 orders a page, so this is 20,000 orders in one window — against 1,456
+# created in the last 30 days (measured 2026-08-04), which is the widest window
+# the sync ever asks for. Hitting it means the window is not what anybody
+# thinks, and it raises rather than truncating: a short read that reported
+# success would move the cursor past orders it never saw.
+_MAX_WINDOW_PAGES = 400
+
 # Retries for 429 only. Everything else is either fine or not our problem.
 _MAX_ATTEMPTS = 3
 # A customer is looking at a loading screen, so an honest Retry-After of two
@@ -121,6 +129,59 @@ class KeyCRMClient:
 
         except httpx.HTTPError as exc:
             logger.error("KeyCRM HTTP error for phone {}: {}", normalized, exc)
+
+        return orders
+
+    async def get_orders_changed_between(self, start: str, end: str) -> list[Order]:
+        """Every order whose `updated_at` falls in [start, end], oldest first.
+
+        Timestamps are 'YYYY-MM-DD HH:MM:SS' and are read by the API as UTC —
+        the same clock its `updated_at` values are printed in. Verified against
+        the live CRM on 2026-08-04 with a one-minute window around a known
+        order: it matched in UTC and returned nothing three hours either side,
+        so there is no timezone conversion hiding in the filter. Both bounds are
+        inclusive, which the overlap in §5.2 already assumes.
+
+        `sort=updated_at` is ascending and makes the paging as stable as this
+        API allows: an order changed while the sweep is running moves towards
+        the end of the ordering, past the frozen upper bound, and is picked up
+        by the next window rather than shifting the pages under the cursor.
+
+        **Raises, where get_orders_by_phone above returns what it has.** The
+        difference is what the caller does with the answer: a customer's screen
+        is better filled in halfway, but a sweep that reports success moves the
+        cursor, and a cursor moved past a window that was only half read leaves
+        those orders unreachable for good.
+        """
+        params = {
+            "include": "buyer,products,status,shipping",
+            "filter[updated_between][from]": start,
+            "filter[updated_between][to]": end,
+            "sort": "updated_at",
+            "limit": 50,
+        }
+        orders: list[Order] = []
+
+        async with httpx.AsyncClient(headers=self._headers, timeout=30.0) as client:
+            page = 1
+            while True:
+                response = await self._get(
+                    client, f"{BASE_URL}/order", params={**params, "page": page}
+                )
+                response.raise_for_status()
+                body = response.json()
+                orders.extend(parse_orders(body))
+
+                pages = last_page(body)
+                if pages > _MAX_WINDOW_PAGES:
+                    raise RuntimeError(
+                        f"KeyCRM: window {start}..{end} is {pages} pages, "
+                        f"over the {_MAX_WINDOW_PAGES}-page limit"
+                    )
+                if page >= pages:
+                    break
+                page += 1
+                await asyncio.sleep(_PAGE_PAUSE)
 
         return orders
 

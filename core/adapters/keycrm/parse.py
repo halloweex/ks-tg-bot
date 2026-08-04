@@ -46,6 +46,10 @@ def parse_order(raw: dict) -> Order:
     buyer = raw.get("buyer") or {}
     buyer_name = buyer.get("full_name", "")
     buyer_email = buyer.get("email", "")
+    # Read for the window sweep, which asks the CRM what changed rather than
+    # asking for one customer's orders and therefore has to work out whose each
+    # order is. Empty when the request did not `include=buyer`.
+    buyer_phone = buyer.get("phone", "") or ""
 
     shipping = raw.get("shipping") or {}
     tracking_code = shipping.get("tracking_code", "") or ""
@@ -81,6 +85,7 @@ def parse_order(raw: dict) -> Order:
         items=products,
         buyer_name=buyer_name,
         buyer_email=buyer_email,
+        buyer_phone=buyer_phone,
         payment_status=raw.get("payment_status", ""),
         tracking_code=tracking_code,
         shipping_status=shipping_status,

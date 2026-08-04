@@ -24,6 +24,7 @@
     "parsed": {
       "buyer_email": "",
       "buyer_name": "",
+      "buyer_phone": "",
       "currency": "UAH",
       "delivery_city": "",
       "external_id": "13025577828111",
@@ -67,6 +68,7 @@
     "parsed": {
       "buyer_email": "",
       "buyer_name": "",
+      "buyer_phone": "",
       "currency": "UAH",
       "delivery_city": "",
       "external_id": "13025577828684",

@@ -100,6 +100,19 @@ def test_the_buyer_comes_from_the_first_order():
 
 
 @pytest.mark.parametrize(
+    "buyer",
+    [None, {}, {"phone": None}, {"phone": ""}],
+    ids=["no-buyer", "empty-buyer", "null-phone", "blank-phone"],
+)
+def test_an_order_whose_buyer_has_no_number_parses_to_an_empty_one(buyer):
+    """Empty string and never None: the sweep matches this against the numbers
+    it knows, and `None in {...}` would be a comparison nobody wrote on purpose.
+    The no-buyer case is what a request without include=buyer looks like."""
+    order = parse_order({"id": 1, "products": [], "buyer": buyer})
+    assert order.buyer_phone == ""
+
+
+@pytest.mark.parametrize(
     "body",
     [
         {},

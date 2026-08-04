@@ -67,6 +67,13 @@ class Order:
     items: list[dict] = field(default_factory=list)
     buyer_name: str = ""
     buyer_email: str = ""
+    # Who the order belongs to, as the source spells it. Not part of order_row
+    # and deliberately so: the cache row is keyed by chat, and the number is
+    # what decides *which* chat — it is read on the way in and does not survive
+    # into the table. §5.4 gives orders a phone column of their own in the stage
+    # that lets an order exist without a user; until then, storing it here would
+    # be a second copy of an answer the users table already holds.
+    buyer_phone: str = ""
     payment_status: str = ""
     tracking_code: str = ""
     shipping_status: str = ""

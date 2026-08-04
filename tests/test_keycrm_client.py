@@ -183,3 +183,89 @@ def test_the_phone_filter_is_normalised_on_every_page(transport):
     _fetch("+38 (067) 000-00-00")
     for request in transport["requests"]:
         assert dict(request.url.params)["filter[buyer_phone]"] == "380670000000"
+
+
+# --- §5.2: the changed-orders window ---------------------------------------
+#
+# The other half of the client, and the opposite failure policy. Everything
+# above may come back short; nothing below may, because the caller records a
+# success by moving a cursor past the window it just read.
+
+FROM, TO = "2026-08-04 16:00:00", "2026-08-04 16:20:00"
+
+
+def _sweep(start: str = FROM, end: str = TO):
+    return asyncio.run(
+        KeyCRMClient(api_key="k").get_orders_changed_between(start, end)
+    )
+
+
+def test_the_window_is_sent_as_the_two_bounds_the_api_accepts(transport):
+    """Written this way and no other. The three other spellings tried against
+    the live API on 2026-08-03 are rejected with a 400 rather than ignored,
+    which is the only reason a typo here would be noticed at all."""
+    transport["install"](lambda r: httpx.Response(200, json=_page(1, last=1)))
+    _sweep()
+    params = dict(transport["requests"][0].url.params)
+    assert params["filter[updated_between][from]"] == FROM
+    assert params["filter[updated_between][to]"] == TO
+    assert params["sort"] == "updated_at"
+
+
+def test_every_page_of_the_window_is_read(transport):
+    transport["install"](
+        lambda r: httpx.Response(200, json=_page(int(dict(r.url.params)["page"]), last=4))
+    )
+    assert len(_sweep()) == 8
+    assert transport["pages"]() == [1, 2, 3, 4]
+
+
+def test_a_failure_halfway_through_the_window_raises(transport):
+    """The one behaviour that separates this from get_orders_by_phone. Returning
+    the four orders it managed would let the caller mark the window done and
+    move the cursor past the ones on page three, which nothing would ever ask
+    for again."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        if int(dict(request.url.params)["page"]) == 3:
+            return httpx.Response(500, json={"message": "boom"})
+        return httpx.Response(200, json=_page(int(dict(request.url.params)["page"]), last=5))
+
+    transport["install"](handler)
+    with pytest.raises(httpx.HTTPStatusError):
+        _sweep()
+
+
+def test_a_rate_limit_that_never_lets_up_raises_too(transport):
+    """get_orders_by_phone returns [] here, and for a screen that is right."""
+    transport["install"](
+        lambda r: httpx.Response(429, headers={"Retry-After": "0"}, json={})
+    )
+    with pytest.raises(httpx.HTTPStatusError):
+        _sweep()
+
+
+def test_a_window_larger_than_the_limit_raises_instead_of_truncating(transport):
+    """A wholesale customer's tail is fine to cut; a time window is not. The
+    widest window the sync asks for is thirty days, which measured 1,456 orders
+    — thirty pages against a limit of four hundred."""
+    transport["install"](
+        lambda r: httpx.Response(200, json=_page(int(dict(r.url.params)["page"]), last=9999))
+    )
+    with pytest.raises(RuntimeError, match="over the"):
+        _sweep()
+
+
+def test_an_empty_window_is_not_an_error(transport):
+    """Most two-minute windows are empty — 269 orders changed in two days."""
+    transport["install"](
+        lambda r: httpx.Response(200, json={"data": [], "last_page": 1, "total": 0})
+    )
+    assert _sweep() == []
+
+
+def test_the_sweep_asks_for_the_buyer(transport):
+    """Without include=buyer there is no phone on the order, and the sweep has
+    no way to tell whose it is — it would silently write nothing at all."""
+    transport["install"](lambda r: httpx.Response(200, json=_page(1, last=1)))
+    _sweep()
+    assert "buyer" in dict(transport["requests"][0].url.params)["include"]
