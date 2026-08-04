@@ -28,6 +28,7 @@ from core.adapters.shopify.client import ShopifyClient
 from bot.middlewares import LanguageMiddleware
 from bot import profile
 from bot.stock import watch as watch_stock
+from bot.sync import watch as watch_orders, watch_for_silence
 from bot.tasks import drain, spawn
 
 
@@ -91,27 +92,33 @@ async def main() -> None:
         )
 
     # Startup hook: initialize the SQLite database
-    stock_watcher: asyncio.Task | None = None
+    loops: list[asyncio.Task] = []
 
     @dp.startup()
     async def on_startup() -> None:
-        nonlocal stock_watcher
         await init_db()
         # Continue any broadcast that a previous restart/redeploy interrupted.
         await resume_broadcasts(bot)
         # Commands, menu button and the text shown before the first /start.
         await profile.apply(bot, config.env.admin_ids)
         # Poll KeyCRM for restocks and notify whoever subscribed.
-        stock_watcher = spawn(watch_stock(bot, dp["keycrm"]), name="stock_watcher")
+        loops.append(spawn(watch_stock(bot, dp["keycrm"]), name="stock_watcher"))
+        # Pull whatever changed in the CRM into the local cache, and — as a
+        # separate task, so it survives that one dying — watch that it keeps
+        # happening (docs/architecture.md §5.5).
+        loops.append(spawn(watch_orders(dp["keycrm"]), name="order_sync"))
+        loops.append(
+            spawn(watch_for_silence(bot, config.env.admin_ids), name="sync_watchdog")
+        )
         logger.info("Bot started successfully")
 
     # Shutdown hook: let outstanding background tasks finish before exit.
     @dp.shutdown()
     async def on_shutdown() -> None:
-        # The watcher loops forever; cancel it or drain() just waits out its
-        # timeout on every shutdown.
-        if stock_watcher is not None:
-            stock_watcher.cancel()
+        # These loop forever; cancel them or drain() just waits out its timeout
+        # on every shutdown.
+        for task in loops:
+            task.cancel()
         await drain()
 
     # Resolve each user's language before any handler runs, so every handler

@@ -72,6 +72,25 @@ def test_all_routers_are_registered():
     assert "delivery" not in with_router
 
 
+def test_the_background_loops_are_started_and_cancelled(tmp_path):
+    """Read out of the source, like the router count above, and for the same
+    reason: reaching the startup hook needs a Dispatcher, a token and Telegram.
+
+    Worth the crudeness because of what it guards. A sweep that is never spawned
+    raises nothing, logs nothing and looks exactly like a sweep finding no
+    changes — §5.5 is written about that failure, and the watchdog that reports
+    it would be just as unspawned.
+    """
+    from bot import __main__ as entry
+
+    source = inspect.getsource(entry.main)
+    for started in ("watch_stock(", "watch_orders(", "watch_for_silence("):
+        assert started in source, f"{started} is not started at startup"
+    # They loop forever, so drain() would sit out its whole timeout on every
+    # deploy instead of exiting.
+    assert "task.cancel()" in source
+
+
 def test_schema_builds_on_an_empty_database(tmp_path, monkeypatch):
     path = tmp_path / "fresh.db"
     monkeypatch.setattr(repos_base, "DB_PATH", str(path))
@@ -80,7 +99,8 @@ def test_schema_builds_on_an_empty_database(tmp_path, monkeypatch):
     db = sqlite3.connect(path)
     tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"users", "opt_out", "orders", "broadcast_jobs", "broadcast_targets",
-            "events", "stock_levels", "stock_subscriptions", "discount_requests"} <= tables
+            "events", "stock_levels", "stock_subscriptions", "discount_requests",
+            "sync_state"} <= tables
     assert db.execute("PRAGMA user_version").fetchone()[0] == schema.SCHEMA_VERSION
     assert db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     db.close()

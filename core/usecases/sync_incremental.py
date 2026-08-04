@@ -94,12 +94,13 @@ def _stamp(moment: datetime) -> str:
     return moment.strftime(_STAMP)
 
 
-def _read(stamp: str | None) -> datetime | None:
+def read_stamp(stamp: str | None) -> datetime | None:
     """A timestamp as stored, or None if it is missing or unreadable.
 
     Unreadable is treated as missing rather than raised on: the callers use it
     to decide how far back to read, and the safe answer to "I cannot tell" is
-    the wider window.
+    the wider window. Public because the watchdog reads the same columns, and
+    two spellings of one format is how they would eventually disagree.
     """
     if not stamp:
         return None
@@ -120,8 +121,8 @@ def plan_window(state: dict | None, now: datetime) -> tuple[datetime, datetime, 
     * a week since the last full pass — §5.3;
     * otherwise, from the cursor minus the overlap.
     """
-    cursor = _read((state or {}).get("cursor"))
-    last_full = _read((state or {}).get("last_full_at"))
+    cursor = read_stamp((state or {}).get("cursor"))
+    last_full = read_stamp((state or {}).get("last_full_at"))
     full = cursor is None or last_full is None or now - last_full >= RECONCILE_EVERY
     start = now - RECONCILE_WINDOW if full else cursor - OVERLAP
     return start, now, full
