@@ -1,9 +1,11 @@
-"""One physical order seen in both systems must end up as one row.
+"""One physical order ends up as one row, however many times it is read.
 
 Written before merge_key existed, when the same job was done by a sweep that
 deleted the Shopify copy after every refresh. The tests pin the observable
-outcome rather than the mechanism, which is why they survived that rewrite —
-and the move of the queries into core/repos/orders.py — unchanged.
+outcome rather than the mechanism, which is why they survived that rewrite, the
+move of the queries into core/repos/orders.py, and now the departure of the
+second writer — the cases about which source outranked which went with it (§4.4)
+and come back with it.
 """
 from __future__ import annotations
 
@@ -44,7 +46,9 @@ def _row(source: str, source_order_id: str, *, external_id: str = EXTERNAL,
 
 
 KEYCRM = _row("keycrm", "900001", status="delivered", name="#19966")
-SHOPIFY = _row("shopify", f"gid://shopify/Order/{EXTERNAL}", status="FULFILLED", name="#19966")
+# The Shopify-shaped row that used to sit here went with the write path (§4.4).
+# What it proved — that both systems' copies land on one merge_key — is still
+# proved by test_merge_key below, which is where the rule lives.
 
 
 @pytest.fixture()
@@ -58,31 +62,37 @@ def _cached(db):
     return asyncio.run(db.get_cached_orders(CHAT))
 
 
-@pytest.mark.parametrize(
-    "sequence,ids",
-    [([SHOPIFY, KEYCRM], "shopify-then-keycrm"), ([KEYCRM, SHOPIFY], "keycrm-then-shopify")],
-    ids=["shopify-first", "keycrm-first"],
-)
-def test_both_sources_collapse_to_one_row(db, sequence, ids):
-    for row in sequence:
-        asyncio.run(db.upsert_orders(CHAT, [row]))
-    rows = _cached(db)
-    assert len(rows) == 1, f"{ids}: {[(r['source'], r['external_id']) for r in rows]}"
-    # KeyCRM wins: it is the operational system of record, and it carries the
-    # store order number too, so nothing is lost by dropping the Shopify copy.
-    assert rows[0]["source"] == "keycrm"
-
-
-def test_both_in_one_batch_collapse_too(db):
-    asyncio.run(db.upsert_orders(CHAT, [SHOPIFY, KEYCRM]))
+def test_the_same_order_read_twice_stays_one_row(db):
+    """Which happens on every sweep: the window and the orders screen both write
+    the same order, and the unique key is what keeps that one row."""
+    asyncio.run(db.upsert_orders(CHAT, [KEYCRM]))
+    asyncio.run(db.upsert_orders(CHAT, [dict(KEYCRM, status_name="completed")]))
     rows = _cached(db)
     assert len(rows) == 1
-    assert rows[0]["source"] == "keycrm"
+    assert rows[0]["status_name"] == "completed"
+
+
+def test_the_later_read_wins(db):
+    """§4.4, since Shopify left the write path. There used to be a CASE WHEN per
+    column comparing source_rank, so a junior source could not overwrite a
+    senior one; with one writer it was always true, and unexercised conditional
+    code is what that section asks to delete rather than keep."""
+    asyncio.run(db.upsert_orders(CHAT, [dict(KEYCRM, status_name="delivered")]))
+    asyncio.run(db.upsert_orders(CHAT, [dict(KEYCRM, status_name="returned")]))
+    assert _cached(db)[0]["status_name"] == "returned"
+
+
+def test_a_field_the_newer_read_does_not_carry_is_not_erased(db):
+    """_KEEP_BEST, and it fires on real data every sweep: an Instagram order has
+    no external id and no store order number."""
+    asyncio.run(db.upsert_orders(CHAT, [KEYCRM]))
+    asyncio.run(db.upsert_orders(CHAT, [dict(KEYCRM, order_name="")]))
+    assert _cached(db)[0]["order_name"] == "#19966"
 
 
 def test_three_runs_are_identical(db):
     def run_once():
-        asyncio.run(db.upsert_orders(CHAT, [KEYCRM, SHOPIFY]))
+        asyncio.run(db.upsert_orders(CHAT, [KEYCRM]))
         return [
             {k: v for k, v in r.items() if k not in ("id", "synced_at")}
             for r in _cached(db)
@@ -158,7 +168,10 @@ def test_merge_key_is_always_namespaced():
     assert not merge_key("keycrm", "1", "1").isdigit()
 
 
-def test_keycrm_outranks_shopify():
+def test_the_source_ranking_is_still_written_down():
+    """Nothing branches on it since §4.4 — the column is a mark of provenance
+    now. The order is kept because the branch returns with a second writer, and
+    reconstructing which source outranks which afterwards is guesswork."""
     from core.domain.order import source_rank
 
     assert source_rank("keycrm") > source_rank("shopify") > source_rank("demo")

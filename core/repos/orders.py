@@ -21,14 +21,19 @@ _ORDER_COLUMNS = (
 )
 
 # On conflict, whose value wins.
-#   _PRIORITY  — the reporting system's own view of the order. Overwritten only
-#                by a source at least as authoritative (KeyCRM over Shopify).
-#   _KEEP_BEST — a value one source has and the other does not; a non-empty
-#                incoming value fills a gap, an empty one never erases.
-_PRIORITY = ("source", "source_order_id", "status_name", "status_group_id",
-             "grand_total", "currency", "ordered_at", "products_json",
-             "buyer_name", "payment_status", "tracking_code", "shipping_status",
-             "delivery_city", "receive_point", "recipient_name")
+#   _OVERWRITE — the order as the CRM currently reports it. The newer read wins,
+#                full stop. This used to be conditional on source_rank, so that
+#                a Shopify copy could not overwrite KeyCRM's; §4.4 removed the
+#                branch with the second writer it existed for. While one source
+#                writes, the two forms are identical — an incoming rank always
+#                equals the stored one, so the condition was always true.
+#   _KEEP_BEST — a value a read may not carry; a non-empty incoming value fills
+#                a gap, an empty one never erases. Still exercised every sweep:
+#                an Instagram order has no external_id and no order_name.
+_OVERWRITE = ("source", "source_order_id", "status_name", "status_group_id",
+              "grand_total", "currency", "ordered_at", "products_json",
+              "buyer_name", "payment_status", "tracking_code", "shipping_status",
+              "delivery_city", "receive_point", "recipient_name")
 _KEEP_BEST = ("external_id", "order_name")
 
 # Seeded by the /demo admin command, never by a sync. Kept out of the real
@@ -44,23 +49,23 @@ CANCELLED_STATUS_GROUP = 6
 def _build_upsert() -> str:
     """INSERT ... ON CONFLICT, assembled from the column policy above.
 
-    Written out rather than hand-typed because it is twenty near-identical CASE
-    expressions and a single wrong column name would silently stop one field
+    Written out rather than hand-typed because it is twenty near-identical
+    assignments and a single wrong column name would silently stop one field
     from ever updating.
 
-    GREATEST is not used: SQLite has no such function and PostgreSQL's max() is
-    an aggregate, so CASE WHEN is the only form that survives the move to
-    Postgres unchanged. Verified on sqlite 3.51.2.
+    It used to carry a CASE WHEN per column, comparing source_rank so that the
+    junior source could not overwrite the senior one. §4.4 asked for that to go
+    once Shopify stopped writing, and the reason is worth keeping: conditional
+    code nothing exercises is worse than deleted code, because in a year it is
+    needed and does not work. The column stays as a mark of provenance, and the
+    branch comes back with the second writer and with its test.
     """
     cols = ", ".join(_ORDER_COLUMNS)
     placeholders = ", ".join("?" for _ in _ORDER_COLUMNS)
-    wins = "excluded.source_rank >= orders.source_rank"
-    sets = [f"{c} = CASE WHEN {wins} THEN excluded.{c} ELSE orders.{c} END"
-            for c in _PRIORITY]
+    sets = [f"{c} = excluded.{c}" for c in _OVERWRITE]
     sets += [f"{c} = CASE WHEN excluded.{c} != '' THEN excluded.{c} ELSE orders.{c} END"
              for c in _KEEP_BEST]
-    sets.append("source_rank = CASE WHEN excluded.source_rank > orders.source_rank "
-                "THEN excluded.source_rank ELSE orders.source_rank END")
+    sets.append("source_rank = excluded.source_rank")
     sets.append("synced_at = datetime('now')")
     return (
         f"INSERT INTO orders ({cols}, synced_at) "
