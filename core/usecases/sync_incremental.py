@@ -213,7 +213,7 @@ async def resolve_unknown_buyers(lookup: OrderSource, limit: int) -> int:
     asked = 0
     for chat_id, phone in (await chats_without_crm_buyer())[:limit]:
         try:
-            await sync_orders(chat_id, phone, lookup, None)
+            await sync_orders(chat_id, phone, lookup)
             # After the call and whatever it found. A customer the CRM has never
             # heard of has no card to record, and without this they would be
             # looked up again in two minutes, and again, for as long as they

@@ -1,6 +1,5 @@
 """Onboarding handler — phone input, validation, and registration."""
 
-from typing import Optional
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -13,7 +12,6 @@ from core.config import AppConfig
 from bot.keyboards import main_menu_kb, share_phone_kb
 from bot.screen import typing
 from core.adapters.keycrm.client import KeyCRMClient
-from core.adapters.shopify.client import ShopifyClient
 from core.domain.phone import VerifiedPhone, verified_phone
 from core.usecases.register import register_customer
 from bot.states import OnboardingStates
@@ -45,14 +43,13 @@ async def _register_user(
     config: AppConfig,
     t: Texts,
     keycrm: KeyCRMClient | None = None,
-    shopify: ShopifyClient | None = None,
 ) -> None:
     """Register the customer, then show them the menu.
 
     The phone is ownership-verified before this is called — see
     own_contact_phone above, which is the whole security boundary of the flow.
     """
-    await register_customer(message.chat.id, phone, keycrm, shopify)
+    await register_customer(message.chat.id, phone, keycrm)
 
     await state.clear()
     track(message.chat.id, "registered")
@@ -69,7 +66,6 @@ async def process_contact(
     state: FSMContext,
     config: AppConfig,
     keycrm: KeyCRMClient,
-    shopify: Optional[ShopifyClient],
     t: Texts,
 ) -> None:
     """Register the user from their OWN shared contact (ownership-verified)."""
@@ -91,7 +87,7 @@ async def process_contact(
     # "typing…" covers it without leaving a "Номер прийнято!" message behind to
     # be read minutes later as if it were news.
     await typing(message)
-    await _register_user(message, state, phone, config, t, keycrm=keycrm, shopify=shopify)
+    await _register_user(message, state, phone, config, t, keycrm=keycrm)
 
 
 @router.message(OnboardingStates.waiting_phone)

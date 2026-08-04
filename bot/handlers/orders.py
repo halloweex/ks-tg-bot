@@ -26,7 +26,6 @@ from core.repos.users import get_user_phone
 from bot.screen import render, typing
 from bot.sync import stale_notice
 from core.adapters.keycrm.client import KeyCRMClient
-from core.adapters.shopify.client import ShopifyClient
 from core.usecases.sync_orders import sync_orders
 from bot.tasks import spawn
 
@@ -36,8 +35,8 @@ router = Router()
 # Prevents a broadcast burst from firing thousands of redundant API fetches.
 _REFRESH_TTL_SECONDS = 300
 
-# Caps how many background refreshes hit the external APIs at once, so a burst
-# of users after a promo push can't trigger KeyCRM/Shopify rate limits.
+# Caps how many background refreshes hit the CRM at once, so a burst of users
+# after a promo push can't trigger its rate limit.
 _refresh_semaphore = asyncio.Semaphore(10)
 
 # 78% of orders have 4 items or fewer (measured over 43,374 orders), so at this
@@ -339,11 +338,7 @@ async def _is_cache_fresh(chat_id: int) -> bool:
     return (datetime.utcnow() - synced).total_seconds() < _REFRESH_TTL_SECONDS
 
 
-async def _refresh_orders(
-    chat_id: int,
-    keycrm: KeyCRMClient,
-    shopify: ShopifyClient | None,
-) -> None:
+async def _refresh_orders(chat_id: int, keycrm: KeyCRMClient) -> None:
     """Fetch fresh orders from APIs and upsert into cache.
 
     Takes chat_id rather than the phone number and looks the number up here,
@@ -358,7 +353,7 @@ async def _refresh_orders(
     if not phone:
         return
     async with _refresh_semaphore:
-        await sync_orders(chat_id, phone, keycrm, shopify)
+        await sync_orders(chat_id, phone, keycrm)
 
 
 # ---------------------------------------------------------------------------
@@ -370,7 +365,6 @@ async def orders_screen(
     chat_id: int,
     t: Texts,
     keycrm: KeyCRMClient,
-    shopify: ShopifyClient | None,
     anchor: Message,
 ) -> tuple[str, InlineKeyboardMarkup | None]:
     """The orders screen, ready to be sent or edited into place.
@@ -388,10 +382,10 @@ async def orders_screen(
         # Fire-and-forget background refresh — but only if the cache is stale,
         # so repeated taps and post-broadcast bursts don't re-hit the APIs.
         if not await _is_cache_fresh(chat_id):
-            spawn(_refresh_orders(chat_id, keycrm, shopify), name="refresh_orders")
+            spawn(_refresh_orders(chat_id, keycrm), name="refresh_orders")
     else:
         await typing(anchor)
-        await _refresh_orders(chat_id, keycrm, shopify)
+        await _refresh_orders(chat_id, keycrm)
         cached = await get_cached_orders(chat_id)
         # Tracked after the fetch, not before: an empty cache says nothing about
         # whether the phone matched, and `found=0` here is exactly the signal
@@ -413,7 +407,6 @@ async def favourites_screen(
     chat_id: int,
     t: Texts,
     keycrm: KeyCRMClient,
-    shopify: ShopifyClient | None,
     anchor: Message,
 ) -> tuple[str, InlineKeyboardMarkup | None]:
     """The favourites screen.
@@ -429,7 +422,7 @@ async def favourites_screen(
     cached = await get_cached_orders(chat_id)
     if not cached:
         await typing(anchor)
-        await _refresh_orders(chat_id, keycrm, shopify)
+        await _refresh_orders(chat_id, keycrm)
         cached = await get_cached_orders(chat_id)
 
     text, markup, found = await _favourites_view(chat_id, t, cached)

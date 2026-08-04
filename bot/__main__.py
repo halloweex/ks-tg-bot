@@ -24,7 +24,6 @@ from bot.handlers.settings import router as settings_router
 from bot.handlers.support import router as support_router
 from core.adapters.keycrm.client import KeyCRMClient
 from core.adapters.novaposhta.client import NovaPoshtaClient
-from core.adapters.shopify.client import ShopifyClient
 from bot.middlewares import LanguageMiddleware
 from bot import profile
 from bot.stock import watch as watch_stock
@@ -77,19 +76,6 @@ async def main() -> None:
     else:
         dp["novaposhta"] = None
         logger.warning("Nova Poshta API key not configured — delivery tracking will use CRM data only")
-
-    # Conditional Shopify client (graceful degradation)
-    if config.env.shopify_api_token and config.env.shopify_store_url:
-        dp["shopify"] = ShopifyClient(
-            store_url=config.env.shopify_store_url,
-            api_token=config.env.shopify_api_token,
-        )
-        logger.info("Shopify client initialized")
-    else:
-        dp["shopify"] = None
-        logger.warning(
-            "Shopify credentials not configured — running in KeyCRM-only mode"
-        )
 
     # Startup hook: initialize the SQLite database
     loops: list[asyncio.Task] = []

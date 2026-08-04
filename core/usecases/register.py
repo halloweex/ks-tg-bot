@@ -14,8 +14,6 @@ number again, which is the one thing the flow must never do.
 """
 from __future__ import annotations
 
-import asyncio
-
 from loguru import logger
 
 from core.domain.order import order_row
@@ -25,13 +23,8 @@ from core.repos.orders import upsert_orders
 from core.repos.users import remember_crm_buyers, save_user
 
 
-async def _sync_orders(
-    chat_id: int,
-    phone: str,
-    keycrm: OrderSource | None,
-    shopify: OrderSource | None,
-) -> None:
-    """Fetch orders from APIs and cache locally (best-effort).
+async def _sync_orders(chat_id: int, phone: str, keycrm: OrderSource | None) -> None:
+    """Fetch this number's orders and cache them (best-effort).
 
     Deliberately not core.usecases.sync_orders, which is the same scenario plus
     a buyer-profile write. Registration already fetches the profile separately
@@ -39,41 +32,29 @@ async def _sync_orders(
     flow a second write it does not currently do. Merging the two is a change in
     behaviour and waits for someone to decide it is the right one — see
     docs/move-status.md.
+
+    Shopify used to be asked here too, in parallel. It left the write path with
+    §4.4: KeyCRM already mirrors its orders, and the second writer only bought a
+    conflict rule that could not be exercised.
     """
-    coros = []
-    if keycrm:
-        coros.append(keycrm.get_orders_by_phone(phone))
-    if shopify:
-        coros.append(shopify.get_orders_by_phone(phone))
-    if not coros:
+    if not keycrm:
         return
 
-    results = await asyncio.gather(*coros, return_exceptions=True)
+    orders = await keycrm.get_orders_by_phone(phone)
+    if not orders:
+        return
 
-    db_rows: list[dict] = []
-    idx = 0
-    if keycrm:
-        if not isinstance(results[idx], Exception):
-            db_rows.extend(order_row(o, chat_id) for o in results[idx])
-            # Which CRM buyer cards this number is. Only a by-number request can
-            # answer that, and this is the first one a customer ever causes —
-            # the window sweep sees orders by card and would otherwise never
-            # recognise them.
-            await remember_crm_buyers(chat_id, {o.buyer_id for o in results[idx]})
-        idx += 1
-    if shopify:
-        if not isinstance(results[idx], Exception):
-            db_rows.extend(order_row(o, chat_id) for o in results[idx])
-
-    if db_rows:
-        await upsert_orders(chat_id, db_rows)
+    # Which CRM buyer cards this number is. Only a by-number request can answer
+    # that, and this is the first one a customer ever causes — the window sweep
+    # sees orders by card and would otherwise never recognise them.
+    await remember_crm_buyers(chat_id, {o.buyer_id for o in orders})
+    await upsert_orders(chat_id, [order_row(o, chat_id) for o in orders])
 
 
 async def register_customer(
     chat_id: int,
     phone: VerifiedPhone,
     keycrm: (OrderSource | BuyerLookup) | None,
-    shopify: OrderSource | None,
 ) -> None:
     """Bind the verified number to the chat, then fill the cache behind it."""
     # Unwrapped once, here: everything below stores or queries a number, and
@@ -97,6 +78,6 @@ async def register_customer(
 
     # Sync orders into local cache (best-effort, don't block onboarding)
     try:
-        await _sync_orders(chat_id, number, keycrm, shopify)
+        await _sync_orders(chat_id, number, keycrm)
     except Exception:
         logger.debug("Order sync on registration failed for {}", phone)

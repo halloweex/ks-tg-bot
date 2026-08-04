@@ -27,7 +27,6 @@ from bot.keyboards import (info_menu_kb, main_menu_kb, settings_menu_kb,
 from bot.screen import render
 from core.adapters.keycrm.client import KeyCRMClient
 from core.adapters.novaposhta.client import NovaPoshtaClient
-from core.adapters.shopify.client import ShopifyClient
 from bot.states import OnboardingStates, SettingsStates, SupportStates
 
 router = Router()
@@ -51,12 +50,11 @@ async def open_orders(
     message: Message,
     state: FSMContext,
     keycrm: KeyCRMClient,
-    shopify: ShopifyClient | None,
     t: Texts,
 ) -> None:
     """📦 — the order history, newest first."""
     await state.clear()
-    text, markup = await orders_screen(message.chat.id, t, keycrm, shopify, message)
+    text, markup = await orders_screen(message.chat.id, t, keycrm, message)
     await message.answer(text, reply_markup=markup)
 
 
@@ -78,12 +76,11 @@ async def open_favourites(
     message: Message,
     state: FSMContext,
     keycrm: KeyCRMClient,
-    shopify: ShopifyClient | None,
     t: Texts,
 ) -> None:
     """⭐ — what this customer buys most, and what of it is out of stock."""
     await state.clear()
-    text, markup = await favourites_screen(message.chat.id, t, keycrm, shopify, message)
+    text, markup = await favourites_screen(message.chat.id, t, keycrm, message)
     await message.answer(text, reply_markup=markup)
 
 

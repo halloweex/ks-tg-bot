@@ -14,6 +14,12 @@ class EnvSettings(BaseSettings):
     bot_token: str
     bot_username: str = "koreanstory_bot"
     keycrm_api_key: str
+    # Read by nothing since stage 4, and kept anyway: this class forbids extra
+    # inputs, so removing a field turns a leftover SHOPIFY_API_TOKEN in somebody's
+    # .env from a harmless line into a bot that refuses to start (verified —
+    # pydantic raises extra_forbidden on unknown keys in the dotenv file, though
+    # not on unknown OS environment variables). They come back into use with the
+    # webhook of §4.4, and cost two lines until then.
     shopify_api_token: str | None = None
     shopify_store_url: str | None = None
     admin_user_ids: str = ""
