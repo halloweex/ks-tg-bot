@@ -133,6 +133,28 @@ Note what `pwd` returns: `/home`. The sub-account sees its own directory as the
 root, which is why `BACKUP_REMOTE_DIR` is `.` — naming `ks-tg-bot` again would
 nest it inside itself.
 
+Finally, take the key back off the **main** account. It was needed only to reach
+into the sub-account's directory, and while it stays there the confinement is
+decorative: whoever takes the server logs in as the main account and deletes
+every backup on the box.
+
+```bash
+: > /tmp/empty
+printf 'put /tmp/empty /home/.ssh/authorized_keys\n' \
+  | sftp -b - -P 23 -i /root/.ssh/storagebox_ed25519 -o BatchMode=yes \
+        u123456@u123456.your-storagebox.de
+```
+
+**Do this last, and only once every project sharing the box has its own
+sub-account** — installing a sub-account's `authorized_keys` requires main
+account access, so removing it first means going back through the console. This
+box is shared with `key-api-bot`, which had its own `backup.env` pointing at the
+main account; removing the key before moving it would have stopped its backups
+silently.
+
+Confirm it took: the main-account login must now answer `Permission denied`,
+while both sub-accounts keep working.
+
 ### 6.2 Configure and schedule
 
 ```bash
@@ -218,8 +240,14 @@ sftp> get /home/.zfs/snapshot/<snap>/ks-tg-bot/bot_data-<stamp>.db.gz
 
 That path needs the **main** account: `/home/.zfs` sits above the sub-account's
 directory, so the confinement that protects the snapshots also hides them from
-the key on the server. Which is the intended trade — but it means a real restore
-starts in the console, not on the box.
+the key on the server. And per §6.1 the server holds no main-account credential
+at all — deliberately, since a key that can read the snapshots can also delete
+them.
+
+So a snapshot restore starts in the console: add a key there for the main
+account, pull the file, and take the key off again. That is a worse afternoon
+than typing one command, and it is the point — this is the copy that has to
+survive the machine being owned.
 
 BX11 allows 10 automatic snapshots and 10 manual ones, counted separately. The
 manual slots are what `README.md` means by "know which snapshot you would
