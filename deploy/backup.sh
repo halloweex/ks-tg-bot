@@ -36,6 +36,11 @@ REMOTE_DIR="${BACKUP_REMOTE_DIR:-ks-tg-bot}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 NAME="bot_data-$STAMP.db.gz"
 SSH_OPTS=(-p "$SSH_PORT" -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+# sftp takes the port as -P and uses -p for "preserve permissions", so the
+# array above is correct for ssh/rsync and wrong for sftp. Sharing one sent
+# `-p 23` to sftp, which read 23 as a hostname and exited 1 — the archive
+# shipped and the prune silently did not. Found in the sibling project.
+SFTP_OPTS=(-P "$SSH_PORT" -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
 
 # Off-site not configured: a real failure, but a different one from "the backup
 # did not happen", and the alert wording depends on telling them apart.
@@ -180,13 +185,13 @@ run_backup() {
     # deliberately NOT `rsync --delete`, which would mirror a wiped local
     # directory onto the off-site copy and erase the whole history.
     REMOTE_FILES="$(printf 'cd %s\nls -1\n' "$REMOTE_DIR" \
-        | sftp -b - "${SSH_OPTS[@]}" "$REMOTE" 2>/dev/null \
+        | sftp -b - "${SFTP_OPTS[@]}" "$REMOTE" 2>/dev/null \
         | grep -o 'bot_data-[0-9]\{8\}-[0-9]\{6\}\.db\.gz' | sort -r)"
 
     OLD="$(printf '%s\n' "$REMOTE_FILES" | tail -n +$((RETAIN + 1)))"
     if [ -n "$OLD" ]; then
         { printf 'cd %s\n' "$REMOTE_DIR"; printf 'rm %s\n' $OLD; } \
-            | sftp -b - "${SSH_OPTS[@]}" "$REMOTE" >/dev/null
+            | sftp -b - "${SFTP_OPTS[@]}" "$REMOTE" >/dev/null
     fi
 
     SEEN="$(printf '%s\n' "$REMOTE_FILES" | grep -c . || true)"

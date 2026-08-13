@@ -23,6 +23,10 @@ SSH_KEY="${BACKUP_SSH_KEY:-$HOME/.ssh/id_ed25519}"
 REMOTE="${BACKUP_REMOTE:-}"
 REMOTE_DIR="${BACKUP_REMOTE_DIR:-ks-tg-bot}"
 SSH_OPTS=(-p "$SSH_PORT" -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+# sftp takes the port as -P; -p means "preserve permissions". Every sftp call
+# here was silently returning nothing, so LATEST came back empty and the drill
+# exited 1 without a word.
+SFTP_OPTS=(-P "$SSH_PORT" -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
 
 if [ -z "$REMOTE" ]; then
   echo "BACKUP_REMOTE is not set — nothing off-site to restore from." >&2
@@ -34,7 +38,7 @@ trap 'rm -rf "$TMP"; docker compose exec -T bot rm -f /tmp/restore-test.db 2>/de
 
 # --- pick the newest off-site archive ---------------------------------------
 LATEST="$(printf 'cd %s\nls -1\n' "$REMOTE_DIR" \
-  | sftp -b - "${SSH_OPTS[@]}" "$REMOTE" 2>/dev/null \
+  | sftp -b - "${SFTP_OPTS[@]}" "$REMOTE" 2>/dev/null \
   | grep -o 'bot_data-[0-9]\{8\}-[0-9]\{6\}\.db\.gz' | sort -r | head -1)"
 
 if [ -z "$LATEST" ]; then
@@ -44,7 +48,7 @@ fi
 echo "restoring from off-site: $LATEST"
 
 printf 'cd %s\nget %s %s/\n' "$REMOTE_DIR" "$LATEST" "$TMP" \
-  | sftp -b - "${SSH_OPTS[@]}" "$REMOTE" >/dev/null
+  | sftp -b - "${SFTP_OPTS[@]}" "$REMOTE" >/dev/null
 
 # A backup that stopped happening looks exactly like a backup that works, until
 # you need it — so check how old the newest one is. (GNU date; on the server.)
