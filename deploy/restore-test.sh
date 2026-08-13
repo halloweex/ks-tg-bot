@@ -18,6 +18,9 @@ CONFIG="deploy/backup.env"
 # shellcheck source=/dev/null
 [ -f "$CONFIG" ] && . "$CONFIG"
 
+# shellcheck source=deploy/notify.sh
+. deploy/notify.sh
+
 SSH_PORT="${BACKUP_SSH_PORT:-23}"
 SSH_KEY="${BACKUP_SSH_KEY:-$HOME/.ssh/id_ed25519}"
 REMOTE="${BACKUP_REMOTE:-}"
@@ -28,15 +31,45 @@ SSH_OPTS=(-p "$SSH_PORT" -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking
 # exited 1 without a word.
 SFTP_OPTS=(-P "$SSH_PORT" -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
 
+# Deliberately above the alerting trap: backup.sh already reports an
+# unconfigured off-site target every night, and its message says what to do.
+# A second one calling it a failed restore would describe an attempt that never
+# happened, and alerts that misdescribe things teach you to skim them.
 if [ -z "$REMOTE" ]; then
   echo "BACKUP_REMOTE is not set — nothing off-site to restore from." >&2
   exit 1
 fi
 
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"; docker compose exec -T bot rm -f /tmp/restore-test.db 2>/dev/null || true' EXIT
+STEP_FILE="$(mktemp)"
+step() { printf '%s' "$1" >"$STEP_FILE"; }
+
+# On EXIT rather than ERR: this script fails both by errexit and by an explicit
+# `exit 1` after a check, and an ERR trap does not fire on the second kind.
+# Without this the drill was silent in cron — no MTA on the box, see notify.sh —
+# which is the failure mode it exists to catch, aimed at itself.
+on_exit() {
+    local rc=$?
+    set +e   # cleanup must not be able to change the outcome being reported
+    rm -rf "$TMP"
+    docker compose exec -T bot rm -f /tmp/restore-test.db 2>/dev/null || true
+    if [ "$rc" -ne 0 ]; then
+        # Careful about what this claims: the nightly backup may well still be
+        # running fine. What just failed is the proof that it comes back.
+        notify "$(printf '%s\n\n%s\n\n%s\n\n%s\n\n%s' \
+            "❌ Restore drill FAILED — the off-site backup did not come back" \
+            "Failed at: $(cat "$STEP_FILE" 2>/dev/null || echo '?')" \
+            "Backups may still be running; what is unproven is that they restore." \
+            "Run it by hand to see why:  deploy/restore-test.sh" \
+            "$(_where)")"
+    fi
+    rm -f "$STEP_FILE"
+    exit "$rc"
+}
+trap on_exit EXIT
 
 # --- pick the newest off-site archive ---------------------------------------
+step "listing archives on the off-site target"
 LATEST="$(printf 'cd %s\nls -1\n' "$REMOTE_DIR" \
   | sftp -b - "${SFTP_OPTS[@]}" "$REMOTE" 2>/dev/null \
   | grep -o 'bot_data-[0-9]\{8\}-[0-9]\{6\}\.db\.gz' | sort -r | head -1)"
@@ -47,6 +80,7 @@ if [ -z "$LATEST" ]; then
 fi
 echo "restoring from off-site: $LATEST"
 
+step "downloading $LATEST"
 printf 'cd %s\nget %s %s/\n' "$REMOTE_DIR" "$LATEST" "$TMP" \
   | sftp -b - "${SFTP_OPTS[@]}" "$REMOTE" >/dev/null
 
@@ -60,12 +94,14 @@ if TAKEN_AT="$(date -d "$HUMAN" +%s 2>/dev/null)"; then
     || echo "WARNING: newest off-site backup is over 48h old — is cron still running it?" >&2
 fi
 
+step "unpacking $LATEST"
 gunzip -c "$TMP/$LATEST" > "$TMP/restored.db"
 
 # --- verify it inside the container (that's where sqlite3 lives) ------------
 # Piped in rather than `docker compose cp`, which writes as root: sqlite needs
 # to create a -shm sidecar next to a WAL database, so the file has to belong to
 # the container's unprivileged user.
+step "restoring and checking the database"
 docker compose exec -T bot sh -c 'cat > /tmp/restore-test.db' < "$TMP/restored.db"
 
 docker compose exec -T bot sh -c '
