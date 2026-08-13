@@ -51,7 +51,10 @@ is not.
 
 So: before deploying anything that adds a migration, take a backup and know
 which snapshot you would restore. `deploy/backup.sh` runs nightly and
-`deploy/restore-test.sh` is the rehearsal.
+`deploy/restore-test.sh` is the rehearsal. For "which snapshot" to have an
+answer that a later night cannot rotate away, take a **manual** Storage Box
+snapshot first — those slots are separate from the automatic ones, see
+[DEPLOY.md](DEPLOY.md) §6.4.
 
 ## Check what is running
 

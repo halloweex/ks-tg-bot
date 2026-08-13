@@ -86,21 +86,52 @@ cannot sit there unnoticed.
 ### 6.1 Create the Storage Box target
 
 In the Hetzner console: **Storage Box** (BX11, ~1 EUR/month) → **Sub-accounts**
-→ create one with **SSH enabled**, access **Read/Write**, its own directory.
+→ create one with **SSH enabled**, **readonly off**, and its own base directory
+(`ks-tg-bot`).
 
-On the server, make a passphrase-less key for cron and upload the public half to
-that sub-account:
+The sub-account is not ceremony. The key has to be passphrase-less because cron
+uses it unattended, and it sits on the machine the backups exist to survive — so
+whoever takes that machine gets the key. A sub-account confines them to one
+directory. The main account hands them every backup on the box, including those
+of any other project sharing it.
+
+Two things the console does not tell you:
+
+- **The sub-account has its own hostname.** `u123456-sub1` answers at
+  `u123456-sub1.your-storagebox.de`. The main account's hostname is not a
+  synonym for it and will refuse the login.
+- **There is no SSH-key field for a sub-account.** That field exists only for
+  the main account. A sub-account reads its keys from `authorized_keys` inside
+  its own directory, on the box.
+
+So: make the key on the server, put the public half on the **main** account in
+the console, then use the main account to drop the same public half into the
+sub-account's directory. No sub-account password is needed for any of it.
 
 ```bash
-ssh-keygen -t ed25519 -N "" -f /root/.ssh/storagebox_ed25519
-cat /root/.ssh/storagebox_ed25519.pub     # paste into the sub-account's SSH keys
+ssh-keygen -t ed25519 -N "" -C "ks-backup@$(hostname)" -f /root/.ssh/storagebox_ed25519
+cat /root/.ssh/storagebox_ed25519.pub    # paste into the MAIN account's SSH keys
+
+printf -- '-mkdir ks-tg-bot/.ssh\nput /root/.ssh/storagebox_ed25519.pub ks-tg-bot/.ssh/authorized_keys\nchmod 700 ks-tg-bot/.ssh\nchmod 600 ks-tg-bot/.ssh/authorized_keys\n' \
+  | sftp -b - -P 23 -i /root/.ssh/storagebox_ed25519 u123456@u123456.your-storagebox.de
 ```
 
-Storage Box uses **port 23** for SSH/rsync/sftp. Check the login works:
+Storage Box speaks SSH/rsync/sftp on **port 23**, not 22. Now check the
+sub-account, the way cron will meet it:
 
 ```bash
-sftp -P 23 -i /root/.ssh/storagebox_ed25519 u123456-sub1@u123456.your-storagebox.de
+printf 'pwd\nls -1\n' | sftp -b - -P 23 -i /root/.ssh/storagebox_ed25519 \
+  -o BatchMode=yes u123456-sub1@u123456-sub1.your-storagebox.de
 ```
+
+`BatchMode=yes` is the point of that check: it forbids falling back to a
+password. A listing means cron will get in. A password prompt means the key is
+not installed — and an interactive login would have hidden that by asking you
+for the password you happen to know.
+
+Note what `pwd` returns: `/home`. The sub-account sees its own directory as the
+root, which is why `BACKUP_REMOTE_DIR` is `.` — naming `ks-tg-bot` again would
+nest it inside itself.
 
 ### 6.2 Configure and schedule
 
@@ -143,13 +174,57 @@ weekly, which is what `docs/architecture.md` §10 asks for and costs a download 
 a few megabytes. It also warns if the newest archive is over 48h old — the case
 where backups stopped and nobody noticed because the old ones are still there.
 
-To confirm the alerting path itself works, run the backup with a deliberately
-wrong target — `BACKUP_REMOTE=nobody@invalid deploy/backup.sh` — and check the
-Telegram message arrives.
+The drill reports its own failures to the same Telegram chat, naming the stage
+it died at. It has to: in cron its stderr goes nowhere, and a weekly check that
+cannot speak is indistinguishable from a weekly check that passes.
+
+To confirm that alerting path, force a failure. An environment variable in front
+of the command will **not** do it — both scripts source `backup.env` after
+reading the environment, so the file wins. Move it aside:
+
+```bash
+mv deploy/backup.env /root/backup.env.away
+BACKUP_REMOTE=nobody@invalid BACKUP_SSH_KEY=/root/.ssh/storagebox_ed25519 \
+    deploy/restore-test.sh                      # expect exit 1 and an alert
+mv /root/backup.env.away deploy/backup.env
+head -2 deploy/backup.env                       # confirm it is back
+```
 
 Retention is 14 archives in each location. Pruning the Storage Box goes through
 sftp rather than `rsync --delete`, so an emptied local directory can never
 propagate and wipe the off-site history.
+
+### 6.4 Snapshots: the copy the server cannot destroy
+
+Everything above still trusts a key that lives on the production machine. Turn
+on **automatic snapshots** on the Storage Box (console → Snapshots; daily,
+keeping 10) — the box takes them itself, and `/.zfs` is read-only over SSH, so
+the server's key cannot delete or alter them. That is the only layer that
+survives the server being compromised, or a bug in our own pruning.
+
+Schedule them **after** the nightly backup lands. The server runs on UTC and
+`backup.sh` fires at 03:30, so 05:00 UTC leaves margin; a snapshot at midnight
+would every day capture the box as it was before that day's archive arrived.
+
+Restoring from one is a file copy, **not** the console's restore button — that
+one rolls the whole box back and deletes every newer snapshot. Read the archive
+straight out of the snapshot tree instead:
+
+```bash
+sftp -P 23 -i /root/.ssh/storagebox_ed25519 u123456@u123456.your-storagebox.de
+sftp> ls /home/.zfs/snapshot
+sftp> get /home/.zfs/snapshot/<snap>/ks-tg-bot/bot_data-<stamp>.db.gz
+```
+
+That path needs the **main** account: `/home/.zfs` sits above the sub-account's
+directory, so the confinement that protects the snapshots also hides them from
+the key on the server. Which is the intended trade — but it means a real restore
+starts in the console, not on the box.
+
+BX11 allows 10 automatic snapshots and 10 manual ones, counted separately. The
+manual slots are what `README.md` means by "know which snapshot you would
+restore" before deploying a migration: take one first, and automatic rotation
+cannot age it out from under you.
 
 ---
 
