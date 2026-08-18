@@ -145,7 +145,7 @@ EN: dict[str, str] = {
     "MSG_SUBSCRIBED": "We'll message you as soon as it is back.",
     "MSG_UNSUBSCRIBED": "We will not notify you about this product.",
     "MSG_FAVOURITE_OUT_OF_STOCK": "out of stock",
-    "BTN_DELIVERY_STATUS": "🚚 Delivery",
+    "BTN_DELIVERY_STATUS": "🚚 Track order",
     "MSG_DELIVERY_HEADER": "<b>🚚 Your parcels</b>",
     "MSG_NO_DELIVERIES": "There are no shipments to track right now.",
     "MSG_DELIVERY_STATUS": "Status: {status}",
