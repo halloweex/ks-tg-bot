@@ -31,8 +31,8 @@ from loguru import logger
 
 from core.domain.quiet import is_quiet_now
 from core.ports.notifier import Notifier, RateLimited, RecipientGone
-from core.repos.outbox import (MAX_ATTEMPTS, claim, mark_failed, mark_sent, park,
-                               uncertain)
+from core.repos.outbox import (GONE_PREFIX, MAX_ATTEMPTS, claim, mark_failed,
+                               mark_sent, park, uncertain)
 from core.repos.users import opt_out_user
 
 # The first retry waits a minute, then two, four, eight — capped, because past
@@ -103,7 +103,7 @@ async def deliver_once(
             # Both halves matter: the message can never arrive, and neither can
             # the next one. Unsubscribing is what stops a blocked chat costing a
             # send slot on every broadcast from now on (§6.1).
-            await park(message_id, f"recipient gone: {exc}")
+            await park(message_id, f"{GONE_PREFIX} {exc}")
             await opt_out_user(row["chat_id"])
             parked += 1
             unsubscribed += 1

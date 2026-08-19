@@ -31,6 +31,7 @@ from loguru import logger
 from bot.alerts import tell_admins
 from core.ports.notifier import RateLimited, RecipientGone
 from core.repos.outbox import prune, queue_depth
+from core.usecases.broadcast import report_finished_jobs
 from core.usecases.notify import deliver_once
 
 # How often the queue is looked at. Five seconds, because the first thing to
@@ -123,6 +124,9 @@ async def watch(bot: Bot, admin_ids: list[int] | None = None) -> None:
     while True:
         try:
             result = await deliver_once(notifier, limit=BATCH)
+            # Whoever started a broadcast is waiting for its summary, and this
+            # loop is the thing already awake when the last message of it goes.
+            await report_finished_jobs()
 
             now = datetime.now(timezone.utc)
             if result.parked and admin_ids and (

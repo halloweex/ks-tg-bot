@@ -1,10 +1,14 @@
-"""Broadcast handlers — opt-out commands and durable admin broadcast flow."""
+"""Broadcast handlers — opt-out commands and the admin flow that queues a send.
+
+The sending itself left with stage 6: the flow below records a job, queues one
+message per recipient and stops. Everything that used to be here — the driver,
+the per-recipient retry, the blocked-chat handling, the pacing, the lock that
+kept two jobs from overlapping and the resume-after-restart — is the outbox now,
+and none of it was ever specific to broadcasts.
+"""
 from __future__ import annotations
 
-import asyncio
-
-from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -15,20 +19,12 @@ from bot.callbacks import BroadcastAction
 from bot.analytics import track
 from core.config import AppConfig
 from core.usecases.analytics import usage_report
-from core.repos.broadcast import (broadcast_job_stats, create_broadcast_job,
-                                  finish_broadcast_job, get_pending_targets,
-                                  get_unfinished_broadcasts, mark_target)
+from core.usecases.broadcast import start_broadcast
 from core.repos.users import get_broadcast_recipients, get_user_language, opt_out_user
 from bot.keyboards import broadcast_confirm_kb
-from core.domain.quiet import is_quiet_now
 from bot.states import BroadcastStates
-from bot.tasks import spawn
 
 router = Router()
-
-# Only one job sends at a time so the ~20 msg/sec Telegram rate limit is global
-# across a fresh job and any jobs being resumed after a restart.
-_send_lock = asyncio.Lock()
 
 
 # --------------- Opt-out commands (/stop, /unsubscribe) ---------------
@@ -50,86 +46,17 @@ def _is_admin(user_id: int, config: AppConfig) -> bool:
     return user_id in config.env.admin_ids
 
 
-async def _send_one(bot: Bot, job_id: int, chat_id: int, text: str) -> None:
-    """Send to one recipient and persist the outcome so a restart can resume.
+async def _queue_broadcast(text: str, admin_id: int) -> None:
+    """Hand the job to the queue and let the sender get on with it.
 
-    403 Forbidden (bot blocked / account deactivated) → mark blocked AND opt the
-    user out, so future broadcasts skip them and the dead-chat_id set can't grow.
-    429 Too Many Requests → honour retry_after, then retry once.
+    Nothing is spawned any more. The messages are rows before this returns, and
+    the outbox sender empties them at its own pace — which is what makes a
+    redeploy in the middle of a broadcast a non-event instead of the reason
+    resume_broadcasts existed.
     """
-    # Silent at night. A broadcast is the bot's idea, not the customer's, and a
-    # job that starts in the evening can still be running at one in the morning:
-    # the decision is made per recipient, at the moment they are sent to.
-    silent = is_quiet_now()
-    try:
-        await bot.send_message(chat_id, text, disable_notification=silent)
-        await mark_target(job_id, chat_id, "sent")
-    except TelegramForbiddenError:
-        await mark_target(job_id, chat_id, "blocked")
-        await opt_out_user(chat_id)
-    except TelegramRetryAfter as e:
-        await asyncio.sleep(e.retry_after)
-        try:
-            await bot.send_message(chat_id, text, disable_notification=silent)
-            await mark_target(job_id, chat_id, "sent")
-        except TelegramForbiddenError:
-            await mark_target(job_id, chat_id, "blocked")
-            await opt_out_user(chat_id)
-        except Exception as exc:  # noqa: BLE001
-            await mark_target(job_id, chat_id, "failed", str(exc))
-    except Exception as exc:  # noqa: BLE001
-        await mark_target(job_id, chat_id, "failed", str(exc))
-
-
-async def run_broadcast_job(
-    bot: Bot,
-    job_id: int,
-    text: str,
-    notify_chat_id: int | None,
-    t: Texts | None = None,
-) -> None:
-    """Drive a job to completion over its still-pending targets, then report.
-
-    `t` is the admin's language when a person started the job. Resuming after a
-    restart has no user context, so the summary falls back to the default.
-
-    Safe to call again after a restart: already-processed recipients are no
-    longer 'pending', so only the remainder are sent.
-    """
-    async with _send_lock:
-        pending = await get_pending_targets(job_id)
-        logger.info("Broadcast job #{}: sending to {} recipient(s)", job_id, len(pending))
-        for chat_id in pending:
-            await _send_one(bot, job_id, chat_id, text)
-            await asyncio.sleep(0.05)  # ~20 msg/sec
-
-        await finish_broadcast_job(job_id)
-        stats = await broadcast_job_stats(job_id)
-        logger.info("Broadcast job #{} done: {}", job_id, stats)
-        if notify_chat_id:
-            await bot.send_message(
-                notify_chat_id,
-                (t or admin_texts(None)).MSG_BROADCAST_COMPLETE.format(
-                    sent=stats["sent"], failed=stats["failed"], blocked=stats["blocked"]
-                ),
-            )
-
-
-async def resume_broadcasts(bot: Bot) -> None:
-    """On startup, continue any broadcast interrupted by a restart/redeploy."""
-    for job in await get_unfinished_broadcasts():
-        logger.warning("Resuming interrupted broadcast job #{}", job["id"])
-        spawn(
-            run_broadcast_job(bot, job["id"], job["text"], job["created_by"]),
-            name=f"broadcast_job_{job['id']}",
-        )
-
-
-async def _start_broadcast(bot: Bot, text: str, admin_id: int, t: Texts) -> None:
-    """Persist a new job (snapshotting recipients) and run it in the background."""
-    job_id = await create_broadcast_job(text, admin_id)
-    logger.info("Broadcast job #{} created by admin {}", job_id, admin_id)
-    spawn(run_broadcast_job(bot, job_id, text, admin_id, t), name=f"broadcast_job_{job_id}")
+    started = await start_broadcast(text, admin_id)
+    logger.info("Broadcast job #{} queued for {} recipient(s)",
+                started.job_id, started.queued)
 
 
 @router.message(Command("broadcast"))
@@ -175,10 +102,9 @@ async def process_broadcast_confirm(
     callback_data: BroadcastAction,
     config: AppConfig,
     state: FSMContext,
-    bot: Bot,
     t: Texts,
 ) -> None:
-    """Execute or cancel the broadcast from the inline Yes/No buttons."""
+    """Queue or cancel the broadcast from the inline Yes/No buttons."""
     if not _is_admin(callback.from_user.id, config):
         await callback.answer()
         return
@@ -198,12 +124,12 @@ async def process_broadcast_confirm(
         return
 
     await callback.message.edit_text(at.MSG_BROADCAST_STARTED)
-    await _start_broadcast(bot, broadcast_text, callback.from_user.id, at)
+    await _queue_broadcast(broadcast_text, callback.from_user.id)
 
 
 @router.message(BroadcastStates.waiting_confirm, F.text)
 async def process_broadcast_confirm_text(
-    message: Message, config: AppConfig, state: FSMContext, bot: Bot,
+    message: Message, config: AppConfig, state: FSMContext,
     t: Texts,
 ) -> None:
     """Fallback: typing так/yes/да still confirms; anything else cancels."""
@@ -221,7 +147,7 @@ async def process_broadcast_confirm_text(
     await state.clear()
 
     await message.answer(at.MSG_BROADCAST_STARTED)
-    await _start_broadcast(bot, broadcast_text, message.from_user.id, at)
+    await _queue_broadcast(broadcast_text, message.from_user.id)
 
 
 # --------------- Admin utilities ---------------

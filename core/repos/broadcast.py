@@ -1,8 +1,14 @@
-"""Durable broadcast: one job row, one progress row per recipient.
+"""The header of a broadcast: what was sent, by whom, and whether it is done.
 
-The pair exists so a broadcast interrupted by a restart or a redeploy resumes
-where it stopped instead of starting over — which, for a send that is already
-half delivered, is the difference between finishing and messaging people twice.
+There used to be a second half — one `broadcast_targets` row per recipient,
+with its own status, driver and resume-after-restart — and it was the outbox
+written once for one feature. Stage 6 replaced it with the real one
+(core/usecases/broadcast.py), so what is left here is the part the queue cannot
+answer: which text a person sent, when, and under whose name.
+
+The table `broadcast_targets` is left in the schema with the rows of the jobs
+that ran before the move. Dropping it would delete the only record of them; it
+is simply no longer written.
 """
 from __future__ import annotations
 
@@ -12,54 +18,29 @@ from core.repos.base import connect
 
 
 async def create_broadcast_job(text: str, created_by: int) -> int:
-    """Create a broadcast job and snapshot the current recipient list into
-    broadcast_targets (all 'pending'). Returns the new job id.
+    """Record a new job and return its id.
 
-    The recipient set is frozen at creation time so a later opt-out/opt-in
-    can't change which people this job is responsible for.
+    The recipient snapshot used to happen here, into broadcast_targets. It now
+    happens as the queued rows themselves — same property, one mechanism: who is
+    in the list at this moment is who the job is responsible for, and an opt-out
+    afterwards does not pull a queued message back out.
     """
     async with connect() as db:
         cursor = await db.execute(
             "INSERT INTO broadcast_jobs (text, created_by) VALUES (?, ?)",
             (text, created_by),
         )
-        job_id = cursor.lastrowid
-        await db.execute(
-            "INSERT INTO broadcast_targets (job_id, chat_id) "
-            "SELECT ?, chat_id FROM users "
-            "WHERE chat_id NOT IN (SELECT chat_id FROM opt_out)",
-            (job_id,),
-        )
         await db.commit()
-        return job_id
-
-
-async def get_pending_targets(job_id: int) -> list[int]:
-    """Return chat_ids of this job's targets that still need sending."""
-    async with connect() as db:
-        cursor = await db.execute(
-            "SELECT chat_id FROM broadcast_targets "
-            "WHERE job_id = ? AND status = 'pending'",
-            (job_id,),
-        )
-        return [row[0] for row in await cursor.fetchall()]
-
-
-async def mark_target(
-    job_id: int, chat_id: int, status: str, error: str | None = None
-) -> None:
-    """Record the delivery outcome for one recipient (sent/failed/blocked)."""
-    async with connect() as db:
-        await db.execute(
-            "UPDATE broadcast_targets SET status = ?, error = ?, "
-            "updated_at = datetime('now') WHERE job_id = ? AND chat_id = ?",
-            (status, error, job_id, chat_id),
-        )
-        await db.commit()
+        return cursor.lastrowid
 
 
 async def get_unfinished_broadcasts() -> list[dict]:
-    """Return jobs still marked 'running' (to resume after a restart)."""
+    """Jobs still marked 'running'.
+
+    Read by the sender's loop to notice the ones whose queue has drained. It is
+    no longer a resume list — nothing needs resuming when the messages are rows
+    in a queue that outlives the process.
+    """
     async with connect() as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
@@ -80,15 +61,5 @@ async def finish_broadcast_job(job_id: int) -> None:
         await db.commit()
 
 
-async def broadcast_job_stats(job_id: int) -> dict:
-    """Return counts per status for a job: sent/failed/blocked/pending."""
-    async with connect() as db:
-        cursor = await db.execute(
-            "SELECT status, COUNT(*) FROM broadcast_targets "
-            "WHERE job_id = ? GROUP BY status",
-            (job_id,),
-        )
-        stats = {"sent": 0, "failed": 0, "blocked": 0, "pending": 0}
-        for status, count in await cursor.fetchall():
-            stats[status] = count
-        return stats
+# broadcast_job_stats lived here and is gone: the numbers now come from the
+# queue, which is where the outcomes are — core.repos.outbox.campaign_stats.

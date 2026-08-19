@@ -13,7 +13,7 @@ from core.repos.base import configure as configure_db
 from core.repos.schema import init_db
 from bot.fsm_storage import SQLiteStorage
 from bot.logs import setup_logging
-from bot.handlers.broadcast import resume_broadcasts, router as broadcast_router
+from bot.handlers.broadcast import router as broadcast_router
 from bot.handlers.common import router as common_router
 from bot.handlers.demo import router as demo_router
 from bot.handlers.info import router as info_router
@@ -84,8 +84,8 @@ async def main() -> None:
     @dp.startup()
     async def on_startup() -> None:
         await init_db()
-        # Continue any broadcast that a previous restart/redeploy interrupted.
-        await resume_broadcasts(bot)
+        # Nothing to resume any more: a broadcast interrupted by a redeploy is
+        # rows in the outbox, and the sender picks them up on its next pass.
         # Commands, menu button and the text shown before the first /start.
         await profile.apply(bot, config.env.admin_ids)
         # Poll KeyCRM for restocks and queue a message for whoever subscribed.

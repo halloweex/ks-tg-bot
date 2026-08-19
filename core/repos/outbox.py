@@ -57,6 +57,12 @@ MAX_ATTEMPTS = 5
 RETRY = "retry"    # a delivery status: a miss is worse than a duplicate
 REVIEW = "review"  # a broadcast: a duplicate is worse than a miss
 
+# How a parked row says the recipient is gone rather than the send being broken.
+# A constant because two modules read it: the sender writes it, and the
+# broadcast report counts it as "blocked" — which is a different number from
+# "failed" for the person reading the summary.
+GONE_PREFIX = "recipient gone:"
+
 _STAMP = "%Y-%m-%d %H:%M:%S"
 
 
@@ -102,6 +108,72 @@ async def enqueue(
         )
         await db.commit()
         return cursor.lastrowid if cursor.rowcount else None
+
+
+async def enqueue_many(
+    chat_ids: list[int],
+    kind: str,
+    campaign: CampaignKey,
+    payload: dict,
+    *,
+    on_uncertain: str = RETRY,
+    dedup_prefix: str | None = None,
+) -> int:
+    """Queue the same message for many people at once. Returns how many were new.
+
+    One statement instead of one connection per recipient, because this is the
+    broadcast path: twenty thousand rows through `enqueue` would be twenty
+    thousand connections, and the admin is watching a spinner while it happens.
+
+    The recipient list is the snapshot — whoever is in it at this moment is who
+    this campaign is responsible for, and an opt-out afterwards does not remove
+    a message already queued. That is the behaviour the job/target pair had
+    before the outbox, kept deliberately.
+    """
+    if on_uncertain not in (RETRY, REVIEW):
+        raise ValueError(f"unknown policy {on_uncertain!r}, expected retry or review")
+    if not chat_ids:
+        return 0
+
+    body = json.dumps(payload, ensure_ascii=False)
+    rows = [
+        (chat_id, kind, str(campaign), body,
+         f"{dedup_prefix}:{chat_id}" if dedup_prefix else None, on_uncertain)
+        for chat_id in chat_ids
+    ]
+    async with connect() as db:
+        cursor = await db.executemany(
+            "INSERT OR IGNORE INTO outbox "
+            "(chat_id, type, campaign_key, payload, dedup_key, on_uncertain) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+        await db.commit()
+        return cursor.rowcount or 0
+
+
+async def campaign_stats(campaign_key: str) -> dict[str, int]:
+    """How one campaign is doing: the numbers a person asked for it wants.
+
+    `blocked` is split out of `failed` because they mean opposite things to
+    whoever reads the summary — one is people who left, the other is sends that
+    broke — and the pre-outbox broadcast report already made that distinction.
+    """
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT "
+            "  COUNT(*) FILTER (WHERE sent_at IS NOT NULL) AS sent, "
+            "  COUNT(*) FILTER (WHERE failed_at IS NOT NULL "
+            "                     AND last_error LIKE ?) AS blocked, "
+            "  COUNT(*) FILTER (WHERE failed_at IS NOT NULL "
+            "                     AND (last_error NOT LIKE ? OR last_error IS NULL)) "
+            "    AS failed, "
+            "  COUNT(*) FILTER (WHERE sent_at IS NULL AND failed_at IS NULL) AS waiting "
+            "FROM outbox WHERE campaign_key = ?",
+            (f"{GONE_PREFIX}%", f"{GONE_PREFIX}%", campaign_key),
+        )
+        row = await cursor.fetchone()
+        return {"sent": row[0], "blocked": row[1], "failed": row[2], "waiting": row[3]}
 
 
 async def claim(limit: int = 50, *, now: datetime | None = None) -> list[dict]:
