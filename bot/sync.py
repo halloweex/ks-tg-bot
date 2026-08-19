@@ -29,6 +29,7 @@ from datetime import datetime, timedelta, timezone
 from aiogram import Bot
 from loguru import logger
 
+from bot.alerts import tell_admins
 from core.ports.crm import CrmOrders
 from core.repos.orders import get_last_sync_time
 from core.repos.sync_state import get_state
@@ -140,14 +141,6 @@ def _alert_text(state: dict | None, quiet_for: timedelta) -> str:
     return "\n".join(lines)
 
 
-async def _tell(bot: Bot, admin_ids: list[int], text: str) -> None:
-    for chat_id in admin_ids:
-        try:
-            await bot.send_message(chat_id, text)
-        except Exception as exc:  # noqa: BLE001 — one admin must not cost the others
-            logger.warning("Sync alert not delivered to {}: {}", chat_id, exc)
-
-
 async def watch_for_silence(bot: Bot, admin_ids: list[int]) -> None:
     """Tell the admins when the orders stop moving, and when they move again."""
     if not admin_ids:
@@ -167,10 +160,10 @@ async def watch_for_silence(bot: Bot, admin_ids: list[int]) -> None:
 
             if quiet_for >= SILENCE_AFTER:
                 if alerted_at is None or now - alerted_at >= REALERT_AFTER:
-                    await _tell(bot, admin_ids, _alert_text(state, quiet_for))
+                    await tell_admins(bot, admin_ids, _alert_text(state, quiet_for))
                     alerted_at = now
             elif alerted_at is not None:
-                await _tell(
+                await tell_admins(
                     bot, admin_ids,
                     "✅ Order sync is back. Last success: "
                     f"{(state or {}).get('last_success_at')} UTC",

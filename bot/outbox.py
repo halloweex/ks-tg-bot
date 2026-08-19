@@ -28,6 +28,7 @@ from aiogram.exceptions import (TelegramBadRequest, TelegramForbiddenError,
                                 TelegramRetryAfter)
 from loguru import logger
 
+from bot.alerts import tell_admins
 from core.ports.notifier import RateLimited, RecipientGone
 from core.repos.outbox import prune, queue_depth
 from core.usecases.notify import deliver_once
@@ -55,6 +56,12 @@ _GONE = ("chat not found", "user is deactivated", "bot was blocked",
 # The pruning of §6.4 is a once-a-day job and there is no nightly batch yet, so
 # the loop that is already awake does it.
 _PRUNE_EVERY = timedelta(days=1)
+
+# §6.3 asks for an attempt limit, a shelf for the dead and an alert. The first
+# two are in the queue; this is the third. Repeated at most hourly, because a
+# shelf that fills up says the same thing five hundred times and an alert
+# repeating faster than anybody can act on it is how alerts get muted.
+_REALERT_AFTER = timedelta(hours=1)
 
 
 class TelegramNotifier:
@@ -106,17 +113,25 @@ class TelegramNotifier:
             await self._bot.send_message(chat_id, text, disable_notification=silent)
 
 
-async def watch(bot: Bot) -> None:
+async def watch(bot: Bot, admin_ids: list[int] | None = None) -> None:
     """Empty the outbox, forever. One bad pass never kills the loop."""
     notifier = TelegramNotifier(bot)
     pruned_at = datetime.now(timezone.utc)
+    alerted_at: datetime | None = None
     logger.info("Outbox sender started ({}s interval)", POLL_INTERVAL_SECONDS)
 
     while True:
         try:
-            await deliver_once(notifier, limit=BATCH)
+            result = await deliver_once(notifier, limit=BATCH)
 
             now = datetime.now(timezone.utc)
+            if result.parked and admin_ids and (
+                alerted_at is None or now - alerted_at >= _REALERT_AFTER
+            ):
+                alerted_at = now
+                depth = await queue_depth()
+                await tell_admins(bot, admin_ids, _shelf_alert(result, depth))
+
             if now - pruned_at >= _PRUNE_EVERY:
                 pruned_at = now
                 removed = await prune()
@@ -132,3 +147,18 @@ async def watch(bot: Bot) -> None:
         except Exception as exc:  # noqa: BLE001 — the queue outlives its own bugs
             logger.exception("Outbox pass failed: {}", exc)
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
+
+
+def _shelf_alert(result, depth: dict[str, int]) -> str:
+    """What an admin needs to decide whether to look now or after lunch."""
+    lines = [
+        f"📮 Outbox: {result.parked} message(s) went on the shelf.",
+        f"Shelf now: {depth['parked']}. Due in the queue: {depth['due']}.",
+    ]
+    if result.unsubscribed:
+        # Not a problem to fix: somebody blocked the bot, and that is the queue
+        # working. Said out loud so the number in the line above is explained.
+        lines.append(f"{result.unsubscribed} of them blocked the bot and were "
+                     f"unsubscribed.")
+    lines.append("SELECT * FROM outbox WHERE failed_at IS NOT NULL ORDER BY id DESC;")
+    return "\n".join(lines)

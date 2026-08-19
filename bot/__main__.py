@@ -102,7 +102,9 @@ async def main() -> None:
         # Everything the bot sends on its own initiative leaves through here
         # (§6). One sender, which is what makes the capture in
         # core/repos/outbox.py correct on SQLite.
-        loops.append(spawn(watch_outbox(bot), name="outbox_sender"))
+        loops.append(
+            spawn(watch_outbox(bot, config.env.admin_ids), name="outbox_sender")
+        )
         logger.info("Bot started successfully")
 
     # Shutdown hook: let outstanding background tasks finish before exit.

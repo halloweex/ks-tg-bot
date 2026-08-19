@@ -114,3 +114,47 @@ def test_a_message_with_no_text_fails_instead_of_calling_telegram():
     with pytest.raises(ValueError):
         _send(bot, {"campaign_key": "stock.260819"})
     assert bot.calls == []
+
+
+# --- §6.3's third requirement: an alert for the shelf ------------------------
+
+def test_the_shelf_alert_says_how_bad_it_is_and_where_to_look():
+    from bot.outbox import _shelf_alert
+    from core.usecases.notify import Delivered
+
+    text = _shelf_alert(Delivered(parked=3, unsubscribed=1),
+                        {"parked": 12, "due": 40, "sent": 900})
+
+    assert "3 message(s) went on the shelf" in text
+    assert "Shelf now: 12" in text
+    assert "blocked the bot" in text, "explains one of the three, so 12 is not alarming"
+    assert "failed_at IS NOT NULL" in text, "the query to run, not a description of it"
+
+
+def test_a_shelf_of_blocked_chats_alone_does_not_read_as_breakage():
+    from bot.outbox import _shelf_alert
+    from core.usecases.notify import Delivered
+
+    text = _shelf_alert(Delivered(parked=1), {"parked": 1, "due": 0, "sent": 5})
+    assert "blocked the bot" not in text
+
+
+def test_an_alert_reaches_every_admin_and_survives_one_of_them():
+    """One unreachable admin must not cost the others their alert, and a failed
+    alert must not take down the loop that noticed the problem."""
+    from bot.alerts import tell_admins
+
+    class PickyBot:
+        def __init__(self) -> None:
+            self.sent: list[int] = []
+
+        async def send_message(self, chat_id: int, text: str, **kw):
+            if chat_id == 1:
+                raise RuntimeError("this admin blocked the bot")
+            self.sent.append(chat_id)
+
+    bot = PickyBot()
+    delivered = asyncio.run(tell_admins(bot, [1, 2, 3], "something happened"))
+
+    assert bot.sent == [2, 3]
+    assert delivered == 2
