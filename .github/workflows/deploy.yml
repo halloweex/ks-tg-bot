@@ -35,6 +35,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # docs/architecture.md §3 names this step as what holds the boundary, and
+      # until now the step did not exist — the rule was held by nobody having
+      # broken it. One reader of the environment is what makes a missing
+      # variable one loud error at startup instead of a default applied quietly
+      # three modules deep.
+      #
+      # The neighbouring invariant in that table — proactive sending only from
+      # `worker` — deliberately has no step here: there is no worker yet, and
+      # bot/stock.py and bot/sync.py send on purpose (docs/incremental-sync.md).
+      # A grep that has to be listed around five legitimate files proves
+      # nothing; it goes in with the container.
+      - name: os.environ is read in core/config.py and nowhere else
+        run: |
+          hits=$(grep -rn --include='*.py' -E 'os\.(environ|getenv)' bot core \
+                 | grep -v '^core/config\.py:' || true)
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo "::error::os.environ belongs in core/config.py — docs/architecture.md §3"
+            exit 1
+          fi
+
       - id: meta
         run: echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
