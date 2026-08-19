@@ -88,8 +88,10 @@ async def main() -> None:
         await resume_broadcasts(bot)
         # Commands, menu button and the text shown before the first /start.
         await profile.apply(bot, config.env.admin_ids)
-        # Poll KeyCRM for restocks and notify whoever subscribed.
-        loops.append(spawn(watch_stock(bot, dp["keycrm"]), name="stock_watcher"))
+        # Poll KeyCRM for restocks and queue a message for whoever subscribed.
+        # No bot argument any more: since stage 6 the sweep queues and the
+        # outbox sends, so nothing in that path knows about Telegram.
+        loops.append(spawn(watch_stock(dp["keycrm"]), name="stock_watcher"))
         # Pull whatever changed in the CRM into the local cache, and — as a
         # separate task, so it survives that one dying — watch that it keeps
         # happening (docs/architecture.md §5.5).
