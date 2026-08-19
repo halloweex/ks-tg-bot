@@ -239,6 +239,38 @@ CREATE TABLE IF NOT EXISTS user_crm_buyers (
 """
 
 
+# Everything the bot sends on its own initiative, before it is sent. §6.
+#
+# `chat_id` and not `user_id` as §6.4 spells it: every table here is keyed by
+# chat until `users.id` arrives with Postgres, and one table disagreeing would
+# be the one that cannot be joined.
+#
+# `on_uncertain` is §6.2's policy as a column rather than a decision in the
+# sender: a delivery status would rather arrive twice than not at all, a
+# broadcast would rather be missed than doubled. It is read for exactly one
+# case — a row whose lock expired without anybody releasing it, which is the
+# signature of a process that died mid-send and the only moment when nobody
+# knows whether the message went out.
+_CREATE_OUTBOX = """
+CREATE TABLE IF NOT EXISTS outbox (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id      INTEGER NOT NULL,
+    type         TEXT NOT NULL,
+    campaign_key TEXT NOT NULL,
+    payload      TEXT NOT NULL DEFAULT '{}',
+    dedup_key    TEXT,
+    on_uncertain TEXT NOT NULL DEFAULT 'retry',
+    not_before   TEXT NOT NULL DEFAULT (datetime('now')),
+    locked_until TEXT,
+    attempts     INTEGER NOT NULL DEFAULT 0,
+    sent_at      TEXT,
+    failed_at    TEXT,
+    last_error   TEXT,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
+
 # How far the incremental sync has read, and whether it is still reading. One
 # row per source. See core/repos/sync_state.py for what each column means and
 # why the alert reads last_success_at rather than last_error.
@@ -279,7 +311,7 @@ CREATE TABLE IF NOT EXISTS sync_state (
 # It could not express this change (SQLite cannot alter a UNIQUE constraint),
 # and it silently swallowed real failures — a full disk logged success.
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 async def _columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -425,6 +457,16 @@ async def _migration_6_support_albums(db: aiosqlite.Connection) -> None:
     await db.execute(_CREATE_SUPPORT_ALBUMS)
 
 
+async def _migration_10_outbox(db: aiosqlite.Connection) -> None:
+    """Add the queue every proactive message will pass through.
+
+    Nothing to backfill: what has already been sent is sent, and inventing rows
+    for it would put messages nobody queued in front of a sender that would
+    happily deliver them again.
+    """
+    await db.execute(_CREATE_OUTBOX)
+
+
 async def _migration_9_crm_checked_at(db: aiosqlite.Connection) -> None:
     """Remember that a chat was looked up, not only that it was recognised.
 
@@ -466,6 +508,7 @@ _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (7, "sync state", _migration_7_sync_state),
     (8, "chat to crm buyer map", _migration_8_user_crm_buyers),
     (9, "crm lookup timestamp", _migration_9_crm_checked_at),
+    (10, "outbox", _migration_10_outbox),
 )
 
 
@@ -522,6 +565,7 @@ async def init_db() -> None:
         await db.execute(_CREATE_SUPPORT_ALBUMS)
         await db.execute(_CREATE_SYNC_STATE)
         await db.execute(_CREATE_USER_CRM_BUYERS)
+        await db.execute(_CREATE_OUTBOX)
 
         if fresh:
             # The CREATE statements above deliberately keep their original
@@ -565,6 +609,20 @@ async def init_db() -> None:
         await db.execute(
             "CREATE INDEX IF NOT EXISTS ix_targets_status "
             "ON broadcast_targets(job_id, status)"
+        )
+        # §6.3, verbatim: without the predicate the sender's ordering scan walks
+        # a table that only grows, most of it long since delivered.
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS ix_outbox_ready "
+            "ON outbox(not_before) WHERE sent_at IS NULL"
+        )
+        # dedup_key prevents queueing the same message twice; it says nothing
+        # about sending, which is §6.1's at-least-once. Partial, because most
+        # rows have no key and NULLs would not collide anyway — the predicate is
+        # what keeps the index small.
+        await db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_outbox_dedup "
+            "ON outbox(dedup_key) WHERE dedup_key IS NOT NULL"
         )
         await db.commit()
     logger.info("Database initialized at {} (WAL mode)", base.DB_PATH)
