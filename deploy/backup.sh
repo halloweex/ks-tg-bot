@@ -33,6 +33,11 @@ SSH_KEY="${BACKUP_SSH_KEY:-$HOME/.ssh/id_ed25519}"
 REMOTE="${BACKUP_REMOTE:-}"                # u123456@u123456.your-storagebox.de
 REMOTE_DIR="${BACKUP_REMOTE_DIR:-ks-tg-bot}"
 
+# Where restore-test.sh records a pass, and how stale that record may get before
+# this script complains. Weekly drill plus a day of slack.
+DRILL_LOG="$HOST_DIR/restore-drill.log"
+DRILL_MAX_AGE_DAYS=8
+
 STAMP="$(date +%Y%m%d-%H%M%S)"
 NAME="bot_data-$STAMP.db.gz"
 SSH_OPTS=(-p "$SSH_PORT" -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
@@ -94,6 +99,54 @@ notify_failure() {
         "${errors:-(no error output captured)}" \
         "The database was NOT backed up. Check: docker compose logs bot" \
         "$(_where)")"
+}
+
+# --- is the weekly restore drill still passing? ------------------------------
+# restore-test.sh is silent when it passes, because alerts are for failures.
+# The cost of that is real: a drill that stops running looks exactly like a
+# drill that keeps passing, and the archives sitting here look fine either way.
+#
+# The drill already watches this job — it warns when the newest archive is over
+# 48h old. This is the other direction, and it is the cheap one, because this
+# script runs seven times as often and so notices within a day.
+check_drill_freshness() {
+    local now last age when
+    now="$(date +%s)"
+
+    if [ -s "$DRILL_LOG" ]; then
+        last="$(awk 'END {print $1}' "$DRILL_LOG" 2>/dev/null)"
+        when="$(awk 'END {print $2}' "$DRILL_LOG" 2>/dev/null)"
+    else
+        # No pass on record. That is only worth shouting about once backups have
+        # been running a while: on a fresh install the drill simply has not run
+        # yet, and DEPLOY.md §6.3 has you run it right after this script. The
+        # oldest archive stands in for "how long this has been unproven".
+        last="$(ls -1t "$HOST_DIR"/bot_data-*.db.gz 2>/dev/null | tail -1 \
+                | xargs -r stat -c %Y 2>/dev/null)"
+        when=""
+    fi
+
+    # Unreadable or absent is not a reason to shout — a bad number here would
+    # produce a nightly alarm about the alarm.
+    case "$last" in ''|*[!0-9]*) return 0 ;; esac
+
+    age=$(( (now - last) / 86400 ))
+    [ "$age" -gt "$DRILL_MAX_AGE_DAYS" ] || return 0
+
+    if [ -n "$when" ]; then
+        notify "$(printf '%s\n\n%s\n\n%s\n\n%s\n\n%s' \
+            "⚠️ Restore drill has not passed in $age days" \
+            "This backup succeeded — copies are still being made. What went quiet is the weekly proof that they come back." \
+            "Last pass: $when" \
+            "Run it now:  deploy/restore-test.sh" \
+            "$(_where)")"
+    else
+        notify "$(printf '%s\n\n%s\n\n%s\n\n%s' \
+            "⚠️ No backup has ever been proven to restore" \
+            "Copies have been taken here for $age days and the restore drill has never recorded a pass." \
+            "Run it now:  deploy/restore-test.sh" \
+            "$(_where)")"
+    fi
 }
 
 # --- the actual work --------------------------------------------------------
@@ -196,3 +249,10 @@ run_backup >"$LOG" 2>&1
 cat "$LOG"
 echo "Backup done: $NAME"
 echo "Verify it can actually be restored:  deploy/restore-test.sh"
+
+# The backup is finished and reported. Nothing below may turn a successful run
+# into a failed one, so the failure trap comes off before the drill check —
+# otherwise a stale-drill warning could arrive worded as "backup FAILED".
+trap - ERR
+set +e
+check_drill_freshness

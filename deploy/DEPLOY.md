@@ -200,6 +200,14 @@ The drill reports its own failures to the same Telegram chat, naming the stage
 it died at. It has to: in cron its stderr goes nowhere, and a weekly check that
 cannot speak is indistinguishable from a weekly check that passes.
 
+Passing stays silent — alerts are for failures — so instead the drill appends
+each pass to `backups/restore-drill.log`, and `backup.sh` complains once that
+record is over 8 days old (the weekly schedule plus a day of slack). It is the
+mirror of the drill's own 48-hour archive-age warning, and the cheaper
+direction: the nightly job notices a drill that stopped running within a day.
+If no pass has ever been recorded, the age of the oldest archive stands in, so
+a fresh install is not accused of anything during setup.
+
 To confirm that alerting path, force a failure. An environment variable in front
 of the command will **not** do it — both scripts source `backup.env` after
 reading the environment, so the file wins. Move it aside:

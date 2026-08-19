@@ -25,6 +25,7 @@ SSH_PORT="${BACKUP_SSH_PORT:-23}"
 SSH_KEY="${BACKUP_SSH_KEY:-$HOME/.ssh/id_ed25519}"
 REMOTE="${BACKUP_REMOTE:-}"
 REMOTE_DIR="${BACKUP_REMOTE_DIR:-ks-tg-bot}"
+HOST_DIR="${BACKUP_HOST_DIR:-$PWD/backups}"   # where the pass is recorded
 SSH_OPTS=(-p "$SSH_PORT" -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
 # sftp takes the port as -P; -p means "preserve permissions". Every sftp call
 # here was silently returning nothing, so LATEST came back empty and the drill
@@ -144,6 +145,20 @@ docker compose exec -T bot sh -c '
 
   echo "  newest user row: $(sqlite3 "$DB" "SELECT max(created_at) FROM users;")"
 '
+
+# Leave a trace, because passing is otherwise silent and silence is what hides a
+# drill that stopped running. backup.sh reads the last line of this file and
+# complains once it goes stale; it runs nightly, so it notices within a day.
+#
+# Appended rather than overwritten: the history is worth a line a week, and it
+# answers "was it passing before?" without anyone having kept a log.
+#
+# Failing to record must not be reported as a failed restore — the restore just
+# succeeded. A missed line ages the file, and the nightly check says so itself.
+mkdir -p "$HOST_DIR" 2>/dev/null || true
+printf '%s %s %s\n' "$(date +%s)" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$LATEST" \
+  >> "$HOST_DIR/restore-drill.log" \
+  || echo "WARNING: the drill passed but could not record it in $HOST_DIR" >&2
 
 echo
 echo "PASS — the off-site backup restores to a valid, populated database."
