@@ -147,3 +147,16 @@ def test_the_numbers_come_from_the_queue(db):
 
     stats = asyncio.run(campaign_stats(str(campaign_for(job_id))))
     assert stats == {"sent": 1, "blocked": 1, "failed": 1, "waiting": 0}
+
+
+def test_a_job_whose_messages_were_never_queued_is_closed_with_zeros(db):
+    """The window between recording a job and queueing it is milliseconds wide,
+    but a job left "running" would be re-checked on every pass forever — and
+    "nothing went out" is a true summary, not a missing one."""
+    from core.repos.broadcast import create_broadcast_job
+
+    job_id = asyncio.run(create_broadcast_job(TEXT, ADMIN))
+
+    assert asyncio.run(report_finished_jobs()) == [job_id]
+    [report] = [row for row in asyncio.run(claim(50)) if row["chat_id"] == ADMIN]
+    assert "0" in json.loads(report["payload"])["text"]

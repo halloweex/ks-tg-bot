@@ -86,6 +86,11 @@ async def report_finished_jobs() -> list[int]:
         stats = await campaign_stats(str(campaign_for(job["id"])))
         if stats["waiting"]:
             continue
+        # Nothing in the queue at all means the messages were never written:
+        # the process died between recording the job and queueing it, or the
+        # job predates the outbox. Closed with zeros rather than left running,
+        # because a job that stays "running" forever is checked on every pass
+        # forever — and a summary saying nothing went out is true.
 
         await finish_broadcast_job(job["id"])
         finished.append(job["id"])
