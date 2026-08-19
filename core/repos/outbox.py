@@ -83,6 +83,7 @@ async def enqueue(
     dedup_key: str | None = None,
     not_before: datetime | None = None,
     on_uncertain: str = RETRY,
+    respect_quiet: bool = True,
 ) -> int | None:
     """Queue one message. Returns its id, or None if it was already queued.
 
@@ -100,10 +101,11 @@ async def enqueue(
     async with connect() as db:
         cursor = await db.execute(
             "INSERT OR IGNORE INTO outbox "
-            "(chat_id, type, campaign_key, payload, dedup_key, on_uncertain, not_before) "
-            "VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))",
+            "(chat_id, type, campaign_key, payload, dedup_key, on_uncertain, "
+            " respect_quiet, not_before) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))",
             (chat_id, kind, str(campaign), json.dumps(payload, ensure_ascii=False),
-             dedup_key, on_uncertain,
+             dedup_key, on_uncertain, 1 if respect_quiet else 0,
              _stamp(not_before) if not_before else None),
         )
         await db.commit()

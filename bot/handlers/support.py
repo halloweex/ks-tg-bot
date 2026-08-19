@@ -12,6 +12,7 @@ from bot.analytics import track
 from core.config import AppConfig
 from core.repos.support import (album_in_progress, remember_support_thread, start_album,
                                 support_thread_owner)
+from core.usecases.support import queue_reply
 from core.repos.users import get_user_language
 from bot.states import SupportStates
 
@@ -168,22 +169,24 @@ async def admin_reply(
     ct = customer_texts(await get_user_language(user_chat_id))
 
     if message.text:
-        await bot.send_message(
-            chat_id=user_chat_id,
+        await queue_reply(
+            user_chat_id,
             text=f"{ct.MSG_SUPPORT_REPLY_PREFIX}\n\n{message.text}",
         )
     else:
-        # A photo, a voice note or a document. The previous version sent
+        # A photo, a voice note or a document. An older version sent
         # `message.text` regardless, and for anything but text that is None —
         # so the customer received the prefix followed by the word "None" and
-        # the manager had no way of knowing. copy_message carries whatever was
+        # the manager had no way of knowing. The copy carries whatever was
         # actually sent, caption included, and hides that it came from the
         # support chat.
-        await bot.send_message(chat_id=user_chat_id, text=ct.MSG_SUPPORT_REPLY_PREFIX)
-        await bot.copy_message(
-            chat_id=user_chat_id,
-            from_chat_id=message.chat.id,
-            message_id=message.message_id,
+        await queue_reply(
+            user_chat_id,
+            text=ct.MSG_SUPPORT_REPLY_PREFIX,
+            copy_from=(message.chat.id, message.message_id),
         )
 
-    logger.info("Support reply sent to chat_id={}", user_chat_id)
+    # Queued, not sent: the sender has it within five seconds, retries it if
+    # Telegram is busy, and shelves it with an alert if it truly cannot be
+    # delivered — instead of raising inside this handler where nobody sees it.
+    logger.info("Support reply queued for chat_id={}", user_chat_id)

@@ -158,13 +158,18 @@ def test_fresh_database_has_every_column_the_code_uses(tmp_path, monkeypatch):
     asyncio.run(schema.init_db())
 
     db = sqlite3.connect(path)
-    users = {r[1] for r in db.execute("PRAGMA table_info(users)")}
-    orders = {r[1] for r in db.execute("PRAGMA table_info(orders)")}
+    # Read per table named in the list rather than for the two that used to be
+    # in it: the third one (outbox.respect_quiet) was added in stage 6, and a
+    # test that assumed two would have looked for it in the wrong table and
+    # passed or failed for the wrong reason.
+    columns = {
+        table: {r[1] for r in db.execute(f"PRAGMA table_info({table})")}
+        for table in {t for t, _c, _d in schema._LATE_COLUMNS}
+    }
     db.close()
 
     for table, column, _decl in schema._LATE_COLUMNS:
-        present = users if table == "users" else orders
-        assert column in present, f"{table}.{column} missing from a fresh database"
+        assert column in columns[table], f"{table}.{column} missing from a fresh database"
 
 
 def test_the_database_path_still_comes_from_the_environment(monkeypatch):

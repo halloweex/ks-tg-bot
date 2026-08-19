@@ -73,13 +73,26 @@ class TelegramNotifier:
 
     async def send(self, chat_id: int, payload: dict, *, silent: bool) -> None:
         text = payload.get("text") or ""
-        if not text:
+        copy = payload.get("copy") or None
+        if not text and not copy:
             # Nothing to send is not a transport failure, and retrying it five
             # times would only prove that. Parked by the sender as unknown.
-            raise ValueError("queued message has no text")
+            raise ValueError("queued message has neither text nor anything to copy")
 
         try:
-            await self._send(chat_id, text, payload, silent=silent)
+            if text:
+                await self._send(chat_id, text, payload, silent=silent)
+            if copy:
+                # copy_message rather than forward_message: a forward would show
+                # the customer that their answer came out of a support chat, and
+                # a copy carries the photo, the voice note and the caption
+                # without saying where it was typed.
+                await self._bot.copy_message(
+                    chat_id=chat_id,
+                    from_chat_id=copy["from_chat_id"],
+                    message_id=copy["message_id"],
+                    disable_notification=silent,
+                )
         except TelegramRetryAfter as exc:
             raise RateLimited(exc.retry_after) from exc
         except TelegramForbiddenError as exc:

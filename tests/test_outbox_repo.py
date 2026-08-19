@@ -32,7 +32,15 @@ def db(tmp_path, monkeypatch):
 
 
 def _put(**kw) -> int:
+    """Queued as due at NOW.
+
+    Explicit, because the row is otherwise stamped `datetime('now')` by the
+    database while every claim below passes an invented NOW — which made these
+    tests pass in the morning and fail after midday UTC. A test that depends on
+    the hour it runs at is a test that will be believed on the wrong day.
+    """
     payload = kw.pop("payload", {"text": "your cream is back"})
+    kw.setdefault("not_before", NOW)
     return asyncio.run(enqueue(CHAT, kw.pop("kind", "stock"), CAMPAIGN, payload, **kw))
 
 

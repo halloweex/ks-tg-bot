@@ -96,9 +96,11 @@ async def deliver_once(
             continue
 
         try:
-            await notifier.send(
-                row["chat_id"], _payload(row), silent=is_quiet_now(moment)
-            )
+            # Quiet hours are the bot's manners about its own messages. A
+            # manager answering a customer is not the bot's idea, and the row
+            # says so.
+            silent = bool(row["respect_quiet"]) and is_quiet_now(moment)
+            await notifier.send(row["chat_id"], _payload(row), silent=silent)
         except RecipientGone as exc:
             # Both halves matter: the message can never arrive, and neither can
             # the next one. Unsubscribing is what stops a blocked chat costing a

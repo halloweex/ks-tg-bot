@@ -158,3 +158,42 @@ def test_an_alert_reaches_every_admin_and_survives_one_of_them():
 
     assert bot.sent == [2, 3]
     assert delivered == 2
+
+
+# --- attachments, which is what §6.7 needed from the transport ---------------
+
+def test_an_attachment_is_copied_rather_than_forwarded():
+    """A forward would tell the customer their answer came out of a support
+    chat. A copy carries the photo, the voice note and the caption without
+    saying where it was typed."""
+    class CopyingBot(FakeBot):
+        def __init__(self) -> None:
+            super().__init__()
+            self.copied: list[dict] = []
+
+        async def copy_message(self, chat_id, from_chat_id, message_id, **kw):
+            self.copied.append({"chat_id": chat_id, "from_chat_id": from_chat_id,
+                                "message_id": message_id, **kw})
+
+    bot = CopyingBot()
+    _send(bot, {"text": "Reply from a manager:",
+                "copy": {"from_chat_id": 129462784, "message_id": 500}})
+
+    assert bot.calls[0]["text"] == "Reply from a manager:"
+    assert bot.copied[0]["message_id"] == 500
+    assert bot.copied[0]["chat_id"] == CHAT
+
+
+def test_a_payload_that_is_only_an_attachment_still_sends():
+    class CopyingBot(FakeBot):
+        def __init__(self) -> None:
+            super().__init__()
+            self.copied: list[dict] = []
+
+        async def copy_message(self, chat_id, from_chat_id, message_id, **kw):
+            self.copied.append({"message_id": message_id})
+
+    bot = CopyingBot()
+    _send(bot, {"copy": {"from_chat_id": 1, "message_id": 7}})
+
+    assert bot.calls == [] and bot.copied == [{"message_id": 7}]

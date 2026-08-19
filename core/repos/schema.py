@@ -45,6 +45,12 @@ _LATE_COLUMNS: tuple[tuple[str, str, str], ...] = (
     # whether or not the answer was a card, so a customer the CRM has never
     # heard of is asked about once a day instead of every two minutes.
     ("users", "crm_checked_at", "TEXT"),
+    # Whether quiet hours apply to this message. They do for anything the bot
+    # decided to send — a restock, a broadcast — and they must not for a
+    # manager's answer: a person is replying to a person who is waiting, and
+    # delivering that without a sound at 23:00 is the bot deciding the customer
+    # can read it tomorrow.
+    ("outbox", "respect_quiet", "INTEGER NOT NULL DEFAULT 1"),
 )
 
 _CREATE_OPT_OUT = """
@@ -311,7 +317,7 @@ CREATE TABLE IF NOT EXISTS sync_state (
 # It could not express this change (SQLite cannot alter a UNIQUE constraint),
 # and it silently swallowed real failures — a full disk logged success.
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 async def _columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -457,6 +463,14 @@ async def _migration_6_support_albums(db: aiosqlite.Connection) -> None:
     await db.execute(_CREATE_SUPPORT_ALBUMS)
 
 
+async def _migration_11_respect_quiet(db: aiosqlite.Connection) -> None:
+    """Let a message say whether quiet hours are its business.
+
+    Defaulting to 1 keeps every row already queued behaving exactly as it did.
+    """
+    await _add_late_columns(db)
+
+
 async def _migration_10_outbox(db: aiosqlite.Connection) -> None:
     """Add the queue every proactive message will pass through.
 
@@ -509,6 +523,7 @@ _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (8, "chat to crm buyer map", _migration_8_user_crm_buyers),
     (9, "crm lookup timestamp", _migration_9_crm_checked_at),
     (10, "outbox", _migration_10_outbox),
+    (11, "quiet hours per message", _migration_11_respect_quiet),
 )
 
 

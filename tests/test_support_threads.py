@@ -117,15 +117,46 @@ def config():
     return SimpleNamespace(support_chat_id=SUPPORT_CHAT)
 
 
+def _queued_replies() -> list[dict]:
+    """What the manager's answer became. Since stage 6 it is a row in the outbox
+    rather than a call to Telegram — the send happens five seconds later in the
+    sender, is retried if Telegram is busy, and is shelved with an alert if it
+    truly cannot be delivered instead of raising inside a handler nobody
+    watches."""
+    import json
+
+    from core.repos.outbox import claim
+
+    return [
+        {**row, "payload": json.loads(row["payload"])}
+        for row in asyncio.run(claim(50))
+        if row["type"] == "support"
+    ]
+
+
 def test_text_reply_reaches_the_customer_as_one_message(db, config):
     asyncio.run(db.remember_support_thread([11], CUSTOMER))
     bot = _FakeBot()
     msg = _manager_message(bot, text="Вже відправили!", replied=_replied(11, text="?"))
     asyncio.run(support.admin_reply(msg, config, None))
 
-    assert len(bot.sent) == 1 and not bot.copied
-    assert bot.sent[0]["chat_id"] == CUSTOMER
-    assert "Вже відправили!" in bot.sent[0]["text"]
+    assert not bot.sent and not bot.copied, "the handler queues, it does not send"
+    [reply] = _queued_replies()
+    assert reply["chat_id"] == CUSTOMER
+    assert "Вже відправили!" in reply["payload"]["text"]
+    assert "copy" not in reply["payload"]
+
+
+def test_a_managers_answer_is_not_silenced_at_night(db, config):
+    """The reason the queue has a per-message quiet-hours flag. A restock at
+    03:00 is the bot's idea and can arrive quietly; a person answering a person
+    who is waiting is not the bot's call to postpone."""
+    asyncio.run(db.remember_support_thread([11], CUSTOMER))
+    msg = _manager_message(_FakeBot(), text="Вже відправили!",
+                           replied=_replied(11, text="?"))
+    asyncio.run(support.admin_reply(msg, config, None))
+
+    assert _queued_replies()[0]["respect_quiet"] == 0
 
 
 def test_a_photo_reply_is_copied_instead_of_becoming_the_word_None(db, config):
@@ -140,9 +171,11 @@ def test_a_photo_reply_is_copied_instead_of_becoming_the_word_None(db, config):
     msg = _manager_message(bot, text=None, replied=_replied(11, text="?"))
     asyncio.run(support.admin_reply(msg, config, None))
 
-    assert len(bot.copied) == 1, "the attachment itself must reach the customer"
-    assert bot.copied[0] == {"chat_id": CUSTOMER, "message_id": 500}
-    assert all("None" not in s["text"] for s in bot.sent)
+    [reply] = _queued_replies()
+    assert reply["payload"]["copy"] == {"from_chat_id": SUPPORT_CHAT,
+                                        "message_id": 500}, \
+        "the attachment itself must reach the customer"
+    assert "None" not in reply["payload"]["text"]
 
 
 def test_a_reply_in_another_chat_is_ignored(db, config):
@@ -278,8 +311,12 @@ def test_a_reply_to_something_that_is_not_a_support_message_stays_quiet(db, conf
 
 def test_attachments_travel_in_both_directions(db, config, texts):
     """Customer to manager rides forward_message, which carries any content;
-    manager to customer rides copy_message. Both are asserted here so the pair
-    cannot regress independently."""
+    manager to customer rides a copy — queued since stage 6, executed by the
+    sender. Both are asserted here so the pair cannot regress independently.
+
+    Only one direction moved onto the queue, and deliberately: the thread map is
+    built from the ids of the messages the bot puts in the support chat, and a
+    queued send has no id until it happens."""
     bot = _ForwardingBot()
 
     # A voice note from the customer: no text at all.
@@ -290,7 +327,11 @@ def test_attachments_travel_in_both_directions(db, config, texts):
     forwarded_id = 1002  # note=1001, forward=1002 with _ForwardingBot's counter
     assert asyncio.run(support_repo.support_thread_owner(forwarded_id)) == CUSTOMER
 
-    # A photo back from the manager: message.text is None.
+    # A photo back from the manager: message.text is None. It is queued rather
+    # than sent, and the copy instruction is what carries the attachment.
     reply = _manager_message(bot, text=None, replied=_replied(forwarded_id, text=None))
     asyncio.run(support.admin_reply(reply, config, None))
-    assert bot.copied and bot.copied[-1]["chat_id"] == CUSTOMER
+
+    [queued] = _queued_replies()
+    assert queued["chat_id"] == CUSTOMER
+    assert queued["payload"]["copy"]["message_id"] == 500
