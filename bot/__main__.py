@@ -26,6 +26,7 @@ from core.adapters.keycrm.client import KeyCRMClient
 from core.adapters.novaposhta.client import NovaPoshtaClient
 from bot.middlewares import LanguageMiddleware
 from bot import profile
+from bot.outbox import watch as watch_outbox
 from bot.stock import watch as watch_stock
 from bot.sync import watch as watch_orders, watch_for_silence
 from bot.tasks import drain, spawn
@@ -96,6 +97,10 @@ async def main() -> None:
         loops.append(
             spawn(watch_for_silence(bot, config.env.admin_ids), name="sync_watchdog")
         )
+        # Everything the bot sends on its own initiative leaves through here
+        # (§6). One sender, which is what makes the capture in
+        # core/repos/outbox.py correct on SQLite.
+        loops.append(spawn(watch_outbox(bot), name="outbox_sender"))
         logger.info("Bot started successfully")
 
     # Shutdown hook: let outstanding background tasks finish before exit.
