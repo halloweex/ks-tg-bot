@@ -220,6 +220,31 @@ async def transfer(sqlite_path: str, dsn: str, *, truncate: bool, dry_run: bool)
                 f"mapping is incomplete ({len(seen)} distinct, "
                 f"{len(problems)} occurrences):\n  " + "\n  ".join(shown) + more)
 
+        if not dry_run:
+            # THE STEP THAT IS EASY TO FORGET AND FAILS IN PRODUCTION.
+            #
+            # Rows carry their SQLite ids, so nothing ever drew from the
+            # sequences and they are still at 1 — `TRUNCATE ... RESTART
+            # IDENTITY` guarantees it. The first INSERT after the switch would
+            # then ask for id 1, which is taken, and the bot's first event or
+            # order would die on a duplicate key. Found by trying to write as
+            # the application role rather than by reading the script.
+            seqs = await conn.fetch(
+                "SELECT c.relname AS tbl, a.attname AS col, "
+                "       pg_get_serial_sequence(quote_ident(n.nspname)||'.'||"
+                "                              quote_ident(c.relname), a.attname) AS seq "
+                "FROM pg_class c "
+                "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 "
+                "WHERE n.nspname = current_schema() AND c.relkind = 'r' "
+                "  AND pg_get_serial_sequence(quote_ident(n.nspname)||'.'||"
+                "                             quote_ident(c.relname), a.attname) IS NOT NULL")
+            for s in seqs:
+                await conn.execute(
+                    f"SELECT setval($1, COALESCE((SELECT MAX({s['col']}) "
+                    f"FROM {s['tbl']}), 0) + 1, false)", s["seq"])
+            print(f"  sequences advanced: {len(seqs)}")
+
         if dry_run:
             await tx.rollback()
             done = True
