@@ -6,3 +6,9 @@ httpx==0.28.1
 loguru==0.7.3
 pydantic-settings>=2.0.0
 tzdata==2025.2
+
+# The Postgres driver. Present in the runtime image ahead of the switch (point 5
+# of docs/postgres-migration.md) so that turning it on is one IMAGE_TAG and not
+# also a dependency change discovered at the worst moment. Nothing imports
+# core/repos/pg.py yet outside its tests.
+asyncpg==0.30.0

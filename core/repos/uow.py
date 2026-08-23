@@ -31,8 +31,17 @@ class SqliteOrderCache:
 
 
 class SqliteUserProfiles:
-    async def bind_phone(self, user_id: int, phone: VerifiedPhone) -> None:
-        await save_user(user_id, phone.e164)
+    async def bind_phone(self, chat_id: int, phone: VerifiedPhone) -> int:
+        """Returns the chat id, because here it *is* the person's id.
+
+        SQLite's `users` is keyed by chat_id and mints nothing, so the surrogate
+        the port speaks of and the natural key are the same number. Returning it
+        rather than None is what lets one scenario be written once and mean the
+        same thing under both engines — under Postgres the identical call comes
+        back with a sequence value the caller could not have guessed.
+        """
+        await save_user(chat_id, phone.e164)
+        return chat_id
 
     async def update_profile(
         self,
