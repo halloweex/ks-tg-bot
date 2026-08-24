@@ -88,6 +88,11 @@ class AppConfig:
     env: EnvSettings
     brand_name: str
     website_url: str
+    # The Mini App the «⭐ Улюблені» key opens, and the only thing it does is
+    # ask the client to write "@bot " into the input field — see webapp/. Empty
+    # until the page is published: without it that key stays an ordinary text
+    # key and opens the favourites screen, which is what it did before.
+    webapp_url: str
     support_chat_id: int
     about_text: str
     contacts_text: str
@@ -111,6 +116,7 @@ def load_config(config_path: str | Path = "config.yaml") -> AppConfig:
         env=env,
         brand_name=yaml_data["brand_name"],
         website_url=yaml_data["website_url"],
+        webapp_url=yaml_data.get("webapp_url", ""),
         support_chat_id=yaml_data["support_chat_id"],
         about_text=yaml_data.get("about_text", ""),
         contacts_text=yaml_data.get("contacts_text", ""),

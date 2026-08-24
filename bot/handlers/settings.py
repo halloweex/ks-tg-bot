@@ -53,7 +53,7 @@ async def process_new_contact(
     await save_user(message.chat.id, phone.e164)
     await state.clear()
     # Sending the menu keyboard replaces the share-phone one it is answering.
-    await send_main_menu(message, t, config.website_url, t.MSG_PHONE_CHANGED)
+    await send_main_menu(message, t, config, t.MSG_PHONE_CHANGED)
 
 
 @router.message(SettingsStates.waiting_new_phone)
@@ -95,4 +95,4 @@ async def set_language(
     # menu in the message is the one this callback just overwrote.
     t = Texts(chosen)
     await render(callback, t.MSG_LANGUAGE_SET)
-    await send_main_menu(callback.message, t, config.website_url)
+    await send_main_menu(callback.message, t, config)

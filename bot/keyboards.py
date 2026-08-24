@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from urllib.parse import urlencode, urlparse
 
-from aiogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
+from aiogram.types import (InlineKeyboardMarkup, KeyboardButton,
+                           ReplyKeyboardMarkup, WebAppInfo)
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
 from bot.callbacks import (BroadcastAction, InfoAction, MenuAction,
@@ -82,7 +83,7 @@ def share_phone_kb(t: Texts) -> ReplyKeyboardMarkup:
     )
 
 
-def main_menu_kb(t: Texts) -> ReplyKeyboardMarkup:
+def main_menu_kb(t: Texts, webapp_url: str = "") -> ReplyKeyboardMarkup:
     """The main menu, as the keyboard under the input field.
 
     It is a reply keyboard and not an inline one for a reason that has nothing
@@ -105,11 +106,23 @@ def main_menu_kb(t: Texts) -> ReplyKeyboardMarkup:
 
     «🌐 Сайт» is a key like the others because a reply button cannot carry a
     URL — pressing it makes the bot answer with the link.
+
+    «⭐ Улюблені» is the one exception to all of that, and only when
+    `webapp_url` is set. It is then a `web_app` key: pressing it opens the page
+    in webapp/, which asks the client to write "@bot " into the input field and
+    closes. That is the only way a key down here can open the inline list —
+    `switch_inline_query_current_chat` exists on InlineKeyboardButton alone, and
+    no API writes into an input field, so the insertion has to be asked for from
+    inside the client. Without the url the key is an ordinary text key again and
+    opens the favourites screen, which is what it did before.
     """
     builder = ReplyKeyboardBuilder()
     for label in (t.BTN_ORDERS, t.BTN_DELIVERY_STATUS,
                   t.BTN_FAVOURITES, t.BTN_SUPPORT,
                   t.BTN_WEBSITE, t.BTN_INFO, t.BTN_SETTINGS):
+        if label == t.BTN_FAVOURITES and webapp_url:
+            builder.button(text=label, web_app=WebAppInfo(url=webapp_url))
+            continue
         builder.button(text=label)
     builder.adjust(2, 2, 3)
     return builder.as_markup(

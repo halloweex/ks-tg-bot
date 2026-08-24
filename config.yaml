@@ -1,5 +1,10 @@
 brand_name: "Korean Story"
 website_url: "https://koreanstory.com.ua"
+# The Mini App behind «⭐ Улюблені» (webapp/index.html, published by
+# .github/workflows/pages.yml). Empty means the key stays an ordinary text key
+# and opens the favourites screen instead of the inline list — which is what to
+# leave it as until the page is actually live.
+webapp_url: ""
 support_chat_id: 129462784
 
 # Info pages — text shown in Phase 3 menus

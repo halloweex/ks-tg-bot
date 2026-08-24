@@ -38,6 +38,7 @@ from core.repos.catalogue import get_offers
 from core.repos.orders import get_cached_orders
 from core.repos.users import get_user_phone
 from bot.analytics import track
+from bot.handlers.common import FAVOURITES_DEEP_LINK
 from bot.handlers.orders import favourite_products
 from bot.keyboards import cart_url, product_url
 
@@ -61,9 +62,12 @@ _THUMB_WIDTH = 200
 # can be counted at all.
 _CAMPAIGN = "favourites_inline"
 
-# Payload for the "open the bot" button above an empty panel. Telegram sends it
-# to /start, which ignores it: the point is landing in the chat, not the value.
-_START_PARAM = "favourites"
+# Payload for the button above the list. Telegram sends it to /start, which
+# reads it and draws the favourites screen — the same screen the key below the
+# input field opened before it became the way into this list. Imported rather
+# than spelled again: the writer and the reader of a deep link that agree by
+# coincidence stop agreeing the first time one of them is edited.
+_START_PARAM = FAVOURITES_DEEP_LINK
 
 
 @router.inline_query()
@@ -107,7 +111,18 @@ async def favourites_inline(query: InlineQuery, t: Texts, config: AppConfig) -> 
         return
     # Personal and uncached: the list is one customer's own, and Telegram must
     # not serve it to the next person who types the same query.
-    await query.answer(results, cache_time=0, is_personal=True)
+    #
+    # The button above it is the way back to the favourites screen. Since
+    # «⭐ Улюблені» opens this list from both menus, that screen — and with it
+    # the discount request and the back-in-stock subscription — would otherwise
+    # have nothing left pointing at it.
+    await query.answer(
+        results,
+        cache_time=0,
+        is_personal=True,
+        button=InlineQueryResultsButton(text=t.MSG_INLINE_SCREEN,
+                                        start_parameter=_START_PARAM),
+    )
 
 
 def _nothing_to_show(ranked: list[dict], needle: str, t: Texts) -> str:

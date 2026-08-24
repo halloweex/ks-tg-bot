@@ -56,7 +56,7 @@ async def _register_user(
     # Sending a reply keyboard replaces the share-phone one, so registration
     # ends with the menu already under the customer's thumb — and with the same
     # menu in a message above it, where «⭐ Улюблені» opens the inline list.
-    await send_main_menu(message, t, config.website_url, t.MSG_PHONE_VERIFIED)
+    await send_main_menu(message, t, config, t.MSG_PHONE_VERIFIED)
 
 
 @router.message(OnboardingStates.waiting_phone, F.contact)

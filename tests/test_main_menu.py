@@ -23,7 +23,12 @@ from core.i18n import Texts
 from tests.conftest import REPO_ROOT
 
 SHOP = "https://koreanstory.com.ua"
+WEBAPP = "https://halloweex.github.io/ks-tg-bot/"
 T = Texts("uk")
+
+
+def _config(webapp_url: str = WEBAPP):
+    return SimpleNamespace(website_url=SHOP, webapp_url=webapp_url)
 
 
 def _inline_rows():
@@ -102,6 +107,27 @@ def test_the_long_delivery_label_gets_a_row_of_its_own():
     assert len(row) == 1
 
 
+def test_the_key_below_opens_the_mini_app_that_fills_the_input_field():
+    """A KeyboardButton has no switch_inline field — the insertion can only be
+    asked for from inside the client, and a Mini App is the only thing down
+    here that runs there (webapp/index.html)."""
+    key = _favourites_key(main_menu_kb(T, WEBAPP))
+    assert key.web_app is not None and key.web_app.url == WEBAPP
+
+
+def test_without_the_page_the_key_is_the_plain_one_it_used_to_be():
+    """The page is published separately from the bot. Until it is up, the key
+    must open the favourites screen rather than a Telegram sheet with a 404 in
+    it — which is what an unpublished Mini App url looks like to a customer."""
+    key = _favourites_key(main_menu_kb(T, ""))
+    assert key.web_app is None
+
+
+def _favourites_key(keyboard):
+    return next(key for row in keyboard.keyboard for key in row
+                if key.text == T.BTN_FAVOURITES)
+
+
 def test_the_menu_arrives_as_two_messages_because_it_has_to():
     """Telegram gives a message one markup, and these are two kinds of markup:
     the keyboard under the input field and the buttons in the bubble."""
@@ -111,7 +137,7 @@ def test_the_menu_arrives_as_two_messages_because_it_has_to():
         sent.append((text, reply_markup))
 
     message = SimpleNamespace(answer=answer)
-    asyncio.run(send_main_menu(message, T, SHOP, "Вітаємо"))
+    asyncio.run(send_main_menu(message, T, _config(), "Вітаємо"))
 
     assert [text for text, _markup in sent] == ["Вітаємо", T.MSG_MENU_PICK]
     assert isinstance(sent[0][1], ReplyKeyboardMarkup)

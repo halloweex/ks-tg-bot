@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Улюблені</title>
+<!--
+  The whole Mini App. It exists for one call.
+
+  A reply-keyboard key cannot open the inline list: `switch_inline_query_current_chat`
+  is a field of InlineKeyboardButton, and KeyboardButton has no equivalent — the
+  insertion into the input field is done by the client, on the tap, before the
+  bot hears about it at all. The one exception is a `web_app` key: it launches a
+  Mini App *inside* the client, and a Mini App may ask the client to do the
+  insertion for it. That is this page, and nothing else is in it.
+
+  Kept to one file with no external assets — apart from Telegram's own script,
+  which every client caches — because it is shown for as long as it takes to
+  run: the sheet opens, this closes it.
+-->
+<style>
+  html, body { margin: 0; height: 100%; }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: var(--tg-theme-text-color, #222);
+    background: var(--tg-theme-bg-color, #fff);
+    text-align: center; padding: 24px;
+  }
+</style>
+</head>
+<body>
+<p id="note">⭐</p>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script>
+  (function () {
+    var app = window.Telegram && window.Telegram.WebApp;
+    if (!app) { return; }
+    app.ready();
+
+    // 6.7 is where switchInlineQuery appeared. An older client gets a sentence
+    // instead of a silent nothing — it is the only thing this page could say.
+    if (!app.isVersionAtLeast || !app.isVersionAtLeast('6.7')) {
+      document.getElementById('note').textContent =
+        'Оновіть Telegram, щоб відкрити список товарів.';
+      return;
+    }
+
+    try {
+      // Empty query: only the bot's username is inserted, which is what opens
+      // the list of everything this customer has bought.
+      app.switchInlineQuery('');
+    } catch (e) {
+      document.getElementById('note').textContent =
+        'Не вдалося відкрити список. Спробуйте ще раз.';
+      return;
+    }
+
+    // Current clients close the app themselves when they switch to inline mode.
+    // This is for the ones that do not: a sheet left open over the list would
+    // hide the thing it was opened for.
+    setTimeout(function () { app.close(); }, 600);
+  })();
+</script>
+</body>
+</html>

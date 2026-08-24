@@ -164,6 +164,7 @@ EN: dict[str, str] = {
     "MSG_INLINE_EMPTY": "What you order will show up here",
     "MSG_INLINE_NOT_IN_CATALOGUE": "These products are not in the catalogue right now",
     "MSG_INLINE_NOTHING_FOUND": "Nothing found — try another name",
+    "MSG_INLINE_SCREEN": "⭐ Discount and back-in-stock alerts",
     "BTN_DELIVERY_STATUS": "🚚 Track order",
     "MSG_DELIVERY_HEADER": "<b>🚚 Your parcels</b>",
     "MSG_NO_DELIVERIES": "There are no shipments to track right now.",

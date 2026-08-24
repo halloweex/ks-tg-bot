@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
+from bot.handlers.common import FAVOURITES_DEEP_LINK, cmd_start
 from bot.handlers.inline import favourites_inline
 from core.config import AppConfig
 from core.domain.offer import Offer
@@ -252,3 +253,53 @@ def test_opening_the_panel_is_counted_once_and_keystrokes_are_not(db, no_trackin
     _ask(_Query("p"))
     _ask(_Query("pr"))
     assert [event for event, _meta in no_tracking] == ["favourites_inline_opened"]
+
+
+# --- the way back to the screen ---------------------------------------------
+
+def test_the_list_carries_a_way_to_the_screen_it_replaced(db):
+    """Both menus open this list from «⭐ Улюблені», so nothing else points at
+    the favourites screen any more — and the discount request and the
+    back-in-stock subscription live there. Neither can be a button in the list:
+    a message sent through inline mode has no callback message to redraw."""
+    _registered_customer(_order("1"), offers={"1": _offer("1")})
+    query = _ask(_Query())
+    assert query.results
+    assert query.kwargs["button"].start_parameter == FAVOURITES_DEEP_LINK
+
+
+def test_the_deep_link_opens_the_favourites_screen(db):
+    """What the button above the list does: /start with a payload, straight to
+    the screen, no menu in the way."""
+    _registered_customer(_order("1"), offers={"1": _offer("1", variant=99)})
+
+    sent = []
+
+    async def answer(text, reply_markup=None, **kwargs):
+        sent.append((text, reply_markup))
+
+    async def nothing(*args, **kwargs):
+        return None
+
+    message = SimpleNamespace(
+        chat=SimpleNamespace(id=CHAT),
+        from_user=SimpleNamespace(id=CHAT, language_code="uk"),
+        bot=SimpleNamespace(set_chat_menu_button=nothing),
+        answer=answer,
+    )
+    asyncio.run(cmd_start(
+        message,
+        SimpleNamespace(args=FAVOURITES_DEEP_LINK),
+        _config(),
+        SimpleNamespace(clear=nothing),
+        None,
+        Texts("uk"),
+        "uk",
+        "uk",
+    ))
+
+    assert len(sent) == 1, "the screen and nothing else"
+    _text, markup = sent[0]
+    buttons = [b for row in markup.inline_keyboard for b in row]
+    assert any(b.text.startswith("🛒 Product 1") for b in buttons)
+    assert any(b.text == Texts("uk").BTN_WANT_DISCOUNT for b in buttons)

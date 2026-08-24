@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from aiogram import Router
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
@@ -12,10 +12,17 @@ from core.config import AppConfig
 from core.repos.users import get_user, get_user_language, is_opted_out, opt_in_user
 from bot.keyboards import language_kb, share_phone_kb
 from bot.screen import send_main_menu
+from bot.handlers.orders import favourites_screen
+from core.adapters.keycrm.client import KeyCRMClient
 from bot.profile import ensure_menu_button
 from bot.states import OnboardingStates
 
 router = Router()
+
+# What the button above the inline list sends to /start. Its own name because
+# two modules have to agree on the string: the one that puts it on the button
+# (bot/handlers/inline.py) and this one, which reads it.
+FAVOURITES_DEEP_LINK = "favourites"
 
 
 async def _maybe_offer_language(
@@ -38,8 +45,10 @@ async def _maybe_offer_language(
 @router.message(CommandStart())
 async def cmd_start(
     message: Message,
+    command: CommandObject,
     config: AppConfig,
     state: FSMContext,
+    keycrm: KeyCRMClient,
     t: Texts,
     lang: str,
     tg_lang: str,
@@ -67,11 +76,22 @@ async def cmd_start(
             greeting = t.MSG_WELCOME_BACK_NAME.format(name=user["full_name"])
         else:
             greeting = t.MSG_WELCOME_BACK
+        # Arriving from the button above the inline list: the customer is
+        # already looking at their products and asked for the one thing the
+        # list cannot carry. Straight to the screen, no menu in the way — the
+        # keyboard they tapped from is already on their screen.
+        if (command.args or "") == FAVOURITES_DEEP_LINK:
+            text, markup = await favourites_screen(
+                message.chat.id, t, keycrm, message, config.website_url
+            )
+            await message.answer(text, reply_markup=markup)
+            return
+
         # The greeting carries the menu keyboard — sending a keyboard replaces
         # whatever the chat had before it — and the menu itself follows as
         # buttons in a message, which is the only kind that can hand the input
         # field to the inline list.
-        await send_main_menu(message, t, config.website_url, greeting)
+        await send_main_menu(message, t, config, greeting)
         await _maybe_offer_language(message, t, lang, tg_lang)
         return
 

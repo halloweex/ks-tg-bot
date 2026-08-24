@@ -136,7 +136,7 @@ async def restore_menu(message: Message, config: AppConfig, t: Texts) -> None:
     ordinary message and scrolls away like any other, and «⭐ Улюблені» on it
     is the only way into the inline list that does not cost an extra tap.
     """
-    await send_main_menu(message, t, config.website_url)
+    await send_main_menu(message, t, config)
 
 
 @_menu("BTN_WEBSITE")

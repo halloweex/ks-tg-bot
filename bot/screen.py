@@ -16,6 +16,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from aiogram.exceptions import TelegramBadRequest
 from loguru import logger
 
+from core.config import AppConfig
 from core.i18n import Texts
 from bot.keyboards import main_menu_inline_kb, main_menu_kb
 
@@ -25,7 +26,7 @@ from bot.keyboards import main_menu_inline_kb, main_menu_kb
 _NOT_MODIFIED = "message is not modified"
 
 
-async def send_main_menu(message: Message, t: Texts, website_url: str,
+async def send_main_menu(message: Message, t: Texts, config: AppConfig,
                          intro: str = "") -> None:
     """Put both menus on screen: the keyboard below, and the one in a message.
 
@@ -34,13 +35,16 @@ async def send_main_menu(message: Message, t: Texts, website_url: str,
     bubble. The first carries whatever we were going to say anyway — a
     greeting, a confirmation — and the second is the menu itself.
 
-    Why both at all: only an inline button can hand the input field to the
-    inline list (bot/keyboards.py), and only a reply keyboard draws the ☰
-    toggle in the input row.
+    Why both at all: only a reply keyboard draws the ☰ toggle in the input row,
+    and it never scrolls away; the menu in the message is what stays reachable
+    once this one has. Both open the inline list from «⭐ Улюблені» — the one
+    below through the Mini App in webapp/, the one here through the button type
+    that does it natively (bot/keyboards.py).
     """
-    await message.answer(intro or t.MSG_MAIN_MENU, reply_markup=main_menu_kb(t))
+    await message.answer(intro or t.MSG_MAIN_MENU,
+                         reply_markup=main_menu_kb(t, config.webapp_url))
     await message.answer(t.MSG_MENU_PICK,
-                         reply_markup=main_menu_inline_kb(t, website_url))
+                         reply_markup=main_menu_inline_kb(t, config.website_url))
 
 
 async def render(

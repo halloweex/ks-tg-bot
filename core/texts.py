@@ -347,6 +347,11 @@ MSG_INLINE_EMPTY = "Тут зʼявиться те, що ви замовляли
 # never ordered anything.
 MSG_INLINE_NOT_IN_CATALOGUE = "Цих товарів зараз немає в каталозі"
 MSG_INLINE_NOTHING_FOUND = "Нічого не знайшли — спробуйте іншу назву"
+# The bar above the list. It is the way back to the favourites screen, which is
+# where the two things the list cannot carry live: the discount request and the
+# back-in-stock subscription. Neither can be a button in the list — a message
+# sent through inline mode has no callback message to redraw.
+MSG_INLINE_SCREEN = "⭐ Знижка та сповіщення про наявність"
 BTN_DELIVERY_STATUS = "🚚 Відслідкувати замовлення"
 MSG_DELIVERY_HEADER = "<b>🚚 Ваші відправлення</b>"
 MSG_NO_DELIVERIES = "Наразі немає відправлень для відстеження."
