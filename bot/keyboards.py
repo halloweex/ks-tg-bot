@@ -12,6 +12,19 @@ from collections.abc import Sequence
 from core.i18n import LANGUAGE_NAMES, SUPPORTED, Texts
 
 
+def _tags(campaign: str, lang: str = "") -> str:
+    """The UTM query string every shop link out of the bot carries.
+
+    `campaign` is what tells one place in the bot from another in the shop's
+    analytics — and that is the only place they can be told apart at all, since
+    Telegram reports nothing when a url button is tapped.
+    """
+    tags = {"utm_source": "telegram", "utm_medium": "bot", "utm_campaign": campaign}
+    if lang:
+        tags["locale"] = lang
+    return urlencode(tags)
+
+
 def tagged_website_url(url: str) -> str:
     """Website URL with UTM tags.
 
@@ -21,15 +34,12 @@ def tagged_website_url(url: str) -> str:
     """
     if not url:
         return url
-    tags = urlencode({
-        "utm_source": "telegram",
-        "utm_medium": "bot",
-        "utm_campaign": "main_menu",
-    })
+    tags = _tags("main_menu")
     return f"{url}{'&' if urlparse(url).query else '?'}{tags}"
 
 
-def cart_url(website_url: str, variant_ids: Sequence[int], lang: str = "uk") -> str:
+def cart_url(website_url: str, variant_ids: Sequence[int], lang: str = "uk",
+             campaign: str = "favourites") -> str:
     """A Shopify cart permalink for exactly these variants.
 
     /cart/{variant}:1,{variant}:1 hands the shop a whole basket in a URL and
@@ -44,13 +54,18 @@ def cart_url(website_url: str, variant_ids: Sequence[int], lang: str = "uk") -> 
     a surprise nobody asked for.
     """
     items = ",".join(f"{variant_id}:1" for variant_id in variant_ids)
-    tags = urlencode({
-        "utm_source": "telegram",
-        "utm_medium": "bot",
-        "utm_campaign": "favourites",
-        "locale": lang,
-    })
-    return f"{website_url.rstrip('/')}/cart/{items}?{tags}"
+    return f"{website_url.rstrip('/')}/cart/{items}?{_tags(campaign, lang)}"
+
+
+def product_url(website_url: str, handle: str, lang: str = "uk",
+                campaign: str = "favourites") -> str:
+    """The product's own page on the shop.
+
+    Where a customer is sent when there is nothing to put in a basket: the
+    product is one they have bought and cannot buy today. The page says so in
+    the shop's own words, which is more than a card with no button under it.
+    """
+    return f"{website_url.rstrip('/')}/products/{handle}?{_tags(campaign, lang)}"
 
 
 def share_phone_kb(t: Texts) -> ReplyKeyboardMarkup:

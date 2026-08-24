@@ -56,6 +56,16 @@ _BUTTON_NAME_LEN = 30
 # keeps almost as much room as it has on a buy button.
 _NOTIFY_NAME_LEN = 28
 
+# How many favourites the screen itself lists — the same five it always did.
+# Spelled out here because the ranking now runs deeper than the screen does:
+# the inline panel shows the tail, and the button that opens it is only worth
+# offering when there is a tail to show.
+_ON_SCREEN = 5
+# How deep that ranking goes, which is Telegram's own cap on one inline answer.
+# Lives here rather than in bot/handlers/inline.py because that module imports
+# this one, and the two must agree on what "everything" means.
+INLINE_LIMIT = 50
+
 # Orders per page. Five of these blocks is a wall of text you get lost in —
 # on a phone it is over a screen and a half, and nothing in it stands out. Three
 # fit on one screen, and the rest is one tap away.
@@ -81,15 +91,6 @@ def _as_number(value) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
-
-
-def _price(value) -> str:
-    """A price as it goes on a button: whole hryvnia, thousands spaced out.
-
-    3480.36 reads as 3 480 — the kopecks are noise next to a product name, and
-    an unbroken 3480 is a number the eye has to count digits in.
-    """
-    return f"{int(round(_as_number(value))):,}".replace(",", "\u2009")
 
 
 def _order_products(row: dict) -> list[dict]:
@@ -225,14 +226,6 @@ def _format_orders_from_cache(
         current_len += len(block) + 2
 
     return header + "\n".join(result_parts)
-
-
-def _short_date(raw: str) -> str:
-    """dd.mm.yyyy from a stored timestamp, or the raw value if unparseable."""
-    try:
-        return datetime.fromisoformat(raw).strftime("%d.%m.%Y")
-    except (ValueError, TypeError):
-        return raw or ""
 
 
 def _orders_kb(
@@ -481,7 +474,10 @@ async def _favourites_view(
     for a product the storefront has no offer for: roughly a fifth of the
     catalogue, mostly samples and sets that are sold but never listed.
     """
-    favourites = favourite_products(cached)
+    # Ranked deeper than the screen shows, and sliced: the same one pass answers
+    # both what to draw and whether the inline panel would add anything.
+    ranked = favourite_products(cached, limit=INLINE_LIMIT)
+    favourites = ranked[:_ON_SCREEN]
     if not favourites:
         return (t.MSG_NO_FAVOURITES if cached else t.MSG_NO_ORDERS), _no_orders_kb(t), 0
 
@@ -502,7 +498,8 @@ async def _favourites_view(
 
     return (
         "\n".join(lines),
-        _favourites_kb(favourites, offers, levels, subscribed, t, website_url),
+        _favourites_kb(favourites, offers, levels, subscribed, t, website_url,
+                       more=len(ranked) > len(favourites)),
         len(favourites),
     )
 
@@ -544,7 +541,7 @@ def _is_missing(item: dict, offers: dict[str, Offer], levels: dict[str, int]) ->
 
 
 def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
-                   website_url: str) -> InlineKeyboardMarkup:
+                   website_url: str, more: bool = False) -> InlineKeyboardMarkup:
     """One button per product, then one for the lot, then the discount ask.
 
     Every button says what it does to which product, so the screen needs no
@@ -565,7 +562,7 @@ def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
         offer = _buyable(item, offers)
         if offer is not None:
             builder.button(
-                text=t.BTN_BUY_PRODUCT.format(name=label, price=_price(offer.price)),
+                text=t.BTN_BUY_PRODUCT.format(name=label, price=texts.price_label(offer.price)),
                 url=cart_url(website_url, [offer.variant_id], t.lang),
             )
             basket.append(offer.variant_id)
@@ -589,8 +586,17 @@ def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
     # One basket with everything available in it. Only from two products up:
     # with one it is the button directly above it, worded at greater length.
     if len(basket) > 1:
-        builder.button(text=t.BTN_BUY_ALL.format(total=_price(total)),
+        builder.button(text=t.BTN_BUY_ALL.format(total=texts.price_label(total)),
                        url=cart_url(website_url, basket, t.lang))
+        rows += 1
+
+    # Everything below the five is in the inline panel, which opens over the
+    # keyboard with a photo beside each product and filters as the customer
+    # types (bot/handlers/inline.py). Offered only when there is more to see
+    # than the screen already shows — otherwise the button leads back to the
+    # same five products, with pictures.
+    if more:
+        builder.button(text=t.BTN_FAVOURITES_ALL, switch_inline_query_current_chat="")
         rows += 1
 
     builder.button(text=t.BTN_WANT_DISCOUNT, callback_data=DiscountAction(action="ask"))
@@ -637,7 +643,7 @@ async def request_discount(
     lines = [op.MSG_DISCOUNT_ADMIN.format(chat_id=chat_id), ""]
     lines += [
         f"• {escape(texts.shorten_name(f['name'], 60))} — "
-        f"{op.MSG_FAVOURITE_LINE.format(orders=f['orders'], qty=f['qty'], date=_short_date(f['last']))}"
+        f"{op.MSG_FAVOURITE_LINE.format(orders=f['orders'], qty=f['qty'], date=texts.short_date(f['last']))}"
         for f in favourites
     ]
     lines += ["", escape(op.MSG_SUPPORT_REPLY_INSTRUCTION)]

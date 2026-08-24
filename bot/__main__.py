@@ -17,6 +17,7 @@ from bot.handlers.broadcast import router as broadcast_router
 from bot.handlers.common import router as common_router
 from bot.handlers.demo import router as demo_router
 from bot.handlers.info import router as info_router
+from bot.handlers.inline import router as inline_router
 from bot.handlers.menu import router as menu_router
 from bot.handlers.onboarding import router as onboarding_router
 from bot.handlers.orders import router as orders_router
@@ -129,6 +130,9 @@ async def main() -> None:
     # can just use the injected `t`.
     dp.message.middleware(LanguageMiddleware())
     dp.callback_query.middleware(LanguageMiddleware())
+    # The inline panel is a third kind of update and needs the same `t`: it is
+    # answered without a message and without a callback.
+    dp.inline_query.middleware(LanguageMiddleware())
 
     # Register routers (order matters: commands first, callbacks second, FSM last)
     dp.include_router(common_router)
@@ -137,6 +141,7 @@ async def main() -> None:
     dp.include_router(menu_router)
     dp.include_router(orders_router)
     dp.include_router(info_router)
+    dp.include_router(inline_router)
     dp.include_router(support_router)
     dp.include_router(settings_router)
     dp.include_router(onboarding_router)  # FSM catch-all — ALWAYS last

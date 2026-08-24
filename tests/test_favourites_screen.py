@@ -171,3 +171,24 @@ def test_a_one_off_purchase_is_not_called_a_favourite(db):
     asyncio.run(save_offers({"1": _offer("1")}))
     text, _buttons = _view([_order("1")])
     assert text.splitlines()[0] == "🛍 Ви це вже купували"
+
+
+# --- the way to the rest of the list ---------------------------------------
+
+def test_the_screen_offers_the_inline_panel_once_there_is_more_than_it_shows(db):
+    """The screen lists five products. The inline panel lists everything the
+    customer has bought, with a photo each and filtering as they type — worth a
+    button exactly when there is a sixth product it would show."""
+    skus = [str(n) for n in range(1, 7)]
+    asyncio.run(save_offers({s: _offer(s) for s in skus}))
+    _text, buttons = _view([_order(*skus)])
+    panel = next(b for b in buttons if b.text == "🔍 Усе, що ви купували")
+    assert panel.switch_inline_query_current_chat == ""
+
+
+def test_five_products_or_fewer_get_no_button_to_the_panel(db):
+    """It would open a list of the same five products, with pictures."""
+    skus = [str(n) for n in range(1, 6)]
+    asyncio.run(save_offers({s: _offer(s) for s in skus}))
+    _text, buttons = _view([_order(*skus)])
+    assert not any(b.text == "🔍 Усе, що ви купували" for b in buttons)

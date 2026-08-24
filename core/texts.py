@@ -3,6 +3,7 @@
 No string literals should appear in handler files — import from here instead.
 """
 import re
+from datetime import datetime
 from html import escape
 from urllib.parse import quote
 
@@ -124,6 +125,35 @@ def product_label(name: str, limit: int = NAME_MAX_LEN) -> str:
 
     chosen = re.sub(r"\s+", " ", chosen).strip(" ,")
     return shorten_name(chosen, limit)
+
+
+def short_date(raw: str) -> str:
+    """dd.mm.yyyy from a stored timestamp, or the raw value if unparseable.
+
+    Cached timestamps come from two systems and one of them has been known to
+    send a date the other's parser refuses; showing what we were given beats
+    showing nothing where the alternative is a line that says "востаннє".
+    """
+    try:
+        return datetime.fromisoformat(raw).strftime("%d.%m.%Y")
+    except (ValueError, TypeError):
+        return raw or ""
+
+
+def price_label(value) -> str:
+    """A price as a button or a list row shows it: whole hryvnia, thousands
+    spaced out.
+
+    3480.36 reads as 3 480 — the kopecks are noise next to a product name, and
+    an unbroken 3480 is a number the eye has to count digits in. Anything
+    unparseable comes back as 0 rather than raising: a missing price must not
+    take the button it sits on off the screen.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = 0.0
+    return f"{int(round(number)):,}".replace(",", "\u2009")
 
 
 def order_source_label(row: dict) -> str:
@@ -281,6 +311,30 @@ MSG_STOCK_HINT = "🔔 номер — повідомимо, щойно зʼяв�
 MSG_SUBSCRIBED = "Повідомимо, щойно товар знову з'явиться."
 MSG_UNSUBSCRIBED = "Більше не сповіщатимемо про цей товар."
 MSG_FAVOURITE_OUT_OF_STOCK = "зараз немає"
+
+# Favourites as Telegram's own inline list — the panel that opens above the
+# input field, with a photo beside every product. The screen above shows the
+# top five; this shows everything the customer has ever bought and filters as
+# they type, which is the whole reason it exists next to a screen that already
+# lists their favourites.
+BTN_FAVOURITES_ALL = "🔍 Усе, що ви купували"
+# Two lines under the product's name in the panel. The first is today's price
+# and whether it can be bought; the second is MSG_FAVOURITE_LINE, the same
+# "замовлень: 3 · 4 шт · востаннє 15.06.2026" the manager sees.
+MSG_INLINE_IN_STOCK = "{price} ₴ · у наявності"
+MSG_INLINE_OUT_OF_STOCK = "{price} ₴ · зараз немає"
+# Picking a result sends this card into the chat. It is sent by the customer,
+# not by the bot — that is how inline mode works — so it says what was picked
+# and carries the one button worth having under it.
+MSG_INLINE_CARD = "<b>{name}</b>\n{detail}"
+BTN_BUY = "🛒 Замовити"
+BTN_OPEN_PRODUCT = "🌐 Дивитися на сайті"
+# The panel can answer with a button above the results instead of results.
+# These three are what it says when there is nothing to show: in somebody
+# else's chat, before the number is shared, and before the first order.
+MSG_INLINE_NOT_HERE = "Відкрийте цей список у чаті з ботом"
+MSG_INLINE_NEED_PHONE = "Поділіться номером — і побачите свої товари"
+MSG_INLINE_EMPTY = "Тут зʼявиться те, що ви замовляли"
 BTN_DELIVERY_STATUS = "🚚 Відслідкувати замовлення"
 MSG_DELIVERY_HEADER = "<b>🚚 Ваші відправлення</b>"
 MSG_NO_DELIVERIES = "Наразі немає відправлень для відстеження."
