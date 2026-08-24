@@ -25,6 +25,10 @@ contacts_text: |
 #
 # `|` keeps every newline exactly as typed, so a paragraph stays on one line
 # here however long it gets: wrapping it in this file wraps it on the phone.
+#
+# <tg-emoji> is the carrier's real logo, drawn inline. It falls back to the 🚚
+# inside it wherever it cannot be drawn, and the outgoing middleware strips the
+# tag if Telegram ever refuses it — see core/texts.py.
 payment_text: |
   <b>💳 Оплата</b>
 
@@ -34,7 +38,7 @@ payment_text: |
 delivery_text: |
   <b>🚚 Доставка</b>
 
-  <b>Нова Пошта</b>
+  <b><tg-emoji emoji-id="5266999677340890591">🚚</tg-emoji> Нова Пошта</b>
   В обласне місто — 3 дні, у районне — до 5 днів.
   Безкоштовна доставка від 3000 грн.
 

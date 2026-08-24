@@ -67,6 +67,59 @@ MSG_ORDER_SOURCE_INSTAGRAM = "📸 Instagram"
 NOVAPOSHTA_TRACKING_URL = "https://novaposhta.ua/tracking/?cargo_number={ttn}"
 
 
+# ---------------------------------------------------------------------------
+# Custom emoji: the brand marks a message can carry instead of a picture.
+#
+# A <tg-emoji> renders a real logo inline in the text — the red Nova Poshta
+# square where "🚚" used to be — and costs nothing to send: it is an entity, not
+# an attachment. Two things decide how they are used here.
+#
+# **They are a privilege, not a feature.** Per the Bot API: "Custom emoji
+# entities can only be used by bots that purchased additional usernames on
+# Fragment or in the messages directly sent by the bot to private, group and
+# supergroup chats if the owner of the bot has a Telegram Premium subscription."
+# This bot travels the second road, so the permission is somebody's paid
+# subscription and can lapse without anybody here doing anything. Nothing may
+# depend on one working: `strip_custom_emoji` is what the outgoing middleware
+# falls back to (bot/middlewares.py), and every tag carries the plain emoji it
+# replaces.
+#
+# **"Directly sent by the bot" excludes inline mode.** A message the customer
+# sends by picking a result belongs to them, not to the bot, so no custom emoji
+# belongs in a string that reaches InputTextMessageContent — nor in an inline
+# result's title or description, which are plain text and would show the tag
+# itself. That rules out everything format_cached_order touches.
+#
+# The ids come from the packs published by t.me/karelin_icons (UIcons), read
+# back through getStickerSet. They are Telegram's own identifiers for the
+# stickers and are stable as long as the pack is.
+
+# 🚚 Nova Poshta — the only carrier this shop ships with.
+NOVA_POSHTA = "5266999677340890591"
+
+_CUSTOM_EMOJI = re.compile(r'<tg-emoji\s+emoji-id="\d+">(.*?)</tg-emoji>', re.S)
+
+
+def custom_emoji(emoji_id: str, fallback: str) -> str:
+    """A custom emoji, carrying the ordinary one it stands in for.
+
+    The fallback is not decoration: Telegram shows it wherever the custom emoji
+    cannot be drawn — system notifications, message previews, a non-premium
+    reader forwarding the message — and it is what stays if the tags are
+    stripped.
+    """
+    return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
+
+
+def strip_custom_emoji(text: str) -> str:
+    """The same text with every custom emoji reduced to its plain twin.
+
+    What a message becomes when Telegram refuses the entities: still a
+    sentence, still with an emoji where the logo was, just not the logo.
+    """
+    return _CUSTOM_EMOJI.sub(r"\1", text)
+
+
 def customer_ref(chat_id: int, *, name: str = "", username: str = "",
                  phone: str = "") -> str:
     """Who a customer is, in one line a manager can act on.
@@ -428,7 +481,11 @@ BTN_TRACK_PARCEL = "🚚 Відстежити посилку"
 MSG_INLINE_ORDERS_EMPTY = "Тут зʼявляться ваші замовлення"
 MSG_INLINE_ORDERS_SCREEN = "📦 Відкрити екран замовлень"
 BTN_DELIVERY_STATUS = "🚚 Відслідкувати замовлення"
-MSG_DELIVERY_HEADER = "<b>🚚 Ваші відправлення</b>"
+# The carrier's own mark rather than a lorry: every parcel here is a Nova
+# Poshta one, and the screen is recognised by that red square before a word of
+# it is read. Safe in this string because only the delivery screen uses it —
+# see core/emoji.py for why an inline result must never carry one.
+MSG_DELIVERY_HEADER = f"<b>{custom_emoji(NOVA_POSHTA, '🚚')} Ваші відправлення</b>"
 MSG_NO_DELIVERIES = "Наразі немає відправлень для відстеження."
 MSG_DELIVERY_STATUS = "Статус: {status}"
 MSG_DELIVERY_SCHEDULED = "📅 Очікувана дата: {date}"

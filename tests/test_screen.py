@@ -1,9 +1,13 @@
-"""The decoration: a reaction, a message that takes itself back, an effect.
+"""The decoration: a reaction, a vanishing message, an effect, a brand logo.
 
-All three are cosmetic, and the tests are mostly about that word — every one of
+All four are cosmetic, and the tests are mostly about that word — every one of
 them has to fail into a plain, delivered message rather than into a broken
 flow. A chat that looks slightly duller is never worth a customer not hearing
 from the shop.
+
+The custom emoji are the sharpest case: the permission to send them is the
+owner's Telegram Premium subscription, so it can end on a date nobody here
+knows about.
 """
 from __future__ import annotations
 
@@ -12,8 +16,11 @@ from types import SimpleNamespace
 
 import pytest
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.methods import SendMessage
 
 from bot import screen
+from bot.middlewares import DropCustomEmoji
+from core import texts
 
 
 class _Method:
@@ -117,3 +124,61 @@ def test_anything_else_the_send_says_is_still_an_error():
     answer = _Method(raises=_bad_request("Bad Request: chat not found"))
     with pytest.raises(TelegramBadRequest):
         asyncio.run(screen.with_effect(SimpleNamespace(answer=answer), "hi", "42"))
+
+
+# --- custom emoji, and what happens when they are refused -------------------
+
+def test_a_custom_emoji_carries_the_plain_one_it_replaces():
+    """Telegram draws the fallback wherever the logo cannot go — a system
+    notification, a chat list preview, a forward by a non-premium reader."""
+    assert texts.custom_emoji("42", "🚚") == '<tg-emoji emoji-id="42">🚚</tg-emoji>'
+    assert texts.strip_custom_emoji(texts.custom_emoji("42", "🚚")) == "🚚"
+
+
+def test_stripping_leaves_the_rest_of_the_message_alone():
+    before = f"<b>{texts.custom_emoji('42', '🚚')} Ваші відправлення</b>"
+    assert texts.strip_custom_emoji(before) == "<b>🚚 Ваші відправлення</b>"
+
+
+def test_a_refused_logo_costs_the_logo_and_not_the_message():
+    """The permission is the owner's Premium subscription, which can lapse
+    without anybody here doing anything. The delivery screen must not go with
+    it."""
+    sent = []
+
+    async def make_request(bot, method):
+        sent.append(method.text)
+        if "tg-emoji" in method.text:
+            raise _bad_request("Bad Request: CUSTOM_EMOJI_INVALID")
+        return "sent"
+
+    method = SendMessage(chat_id=1, text=f"{texts.custom_emoji('42', '🚚')} Ваші")
+    result = asyncio.run(DropCustomEmoji()(make_request, None, method))
+
+    assert result == "sent"
+    assert sent[1] == "🚚 Ваші", "the second try is the same message, plain"
+
+
+def test_a_message_without_logos_is_never_retried():
+    """Only the emoji are optional. Retrying anything else would turn some
+    other 400 into a silent second attempt."""
+    calls = []
+
+    async def make_request(bot, method):
+        calls.append(method.text)
+        raise _bad_request("Bad Request: CUSTOM_EMOJI_INVALID")
+
+    with pytest.raises(TelegramBadRequest):
+        asyncio.run(DropCustomEmoji()(
+            make_request, None, SendMessage(chat_id=1, text="плаский текст")))
+    assert len(calls) == 1
+
+
+def test_any_other_refusal_travels_up_untouched():
+    async def make_request(bot, method):
+        raise _bad_request("Bad Request: chat not found")
+
+    with pytest.raises(TelegramBadRequest):
+        asyncio.run(DropCustomEmoji()(
+            make_request, None,
+            SendMessage(chat_id=1, text=texts.custom_emoji("42", "🚚"))))

@@ -27,7 +27,7 @@ from bot.handlers.support import router as support_router
 from core.adapters.keycrm.client import KeyCRMClient
 from core.adapters.shopify.catalog import ShopifyStorefront
 from core.adapters.novaposhta.client import NovaPoshtaClient
-from bot.middlewares import LanguageMiddleware
+from bot.middlewares import DropCustomEmoji, LanguageMiddleware
 from bot import profile
 from bot.outbox import watch as watch_outbox
 from bot.catalogue import watch as watch_catalogue
@@ -135,6 +135,11 @@ async def main() -> None:
     # can just use the injected `t`.
     dp.message.middleware(LanguageMiddleware())
     dp.callback_query.middleware(LanguageMiddleware())
+
+    # On the way out, not on the way in: the one place every API call passes
+    # through, so a lapsed Premium subscription costs the logos in a message
+    # rather than the message (bot/middlewares.py).
+    bot.session.middleware(DropCustomEmoji())
     # The inline panel is a third kind of update and needs the same `t`: it is
     # answered without a message and without a callback.
     dp.inline_query.middleware(LanguageMiddleware())

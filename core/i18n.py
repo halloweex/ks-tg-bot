@@ -181,7 +181,8 @@ EN: dict[str, str] = {
     "MSG_INLINE_ORDERS_EMPTY": "Your orders will show up here",
     "MSG_INLINE_ORDERS_SCREEN": "📦 Open the orders screen",
     "BTN_DELIVERY_STATUS": "🚚 Track order",
-    "MSG_DELIVERY_HEADER": "<b>🚚 Your parcels</b>",
+    "MSG_DELIVERY_HEADER": (
+        f"<b>{texts.custom_emoji(texts.NOVA_POSHTA, '🚚')} Your parcels</b>"),
     "MSG_NO_DELIVERIES": "There are no shipments to track right now.",
     "MSG_DELIVERY_STATUS": "Status: {status}",
     "MSG_DELIVERY_SCHEDULED": "📅 Estimated date: {date}",
