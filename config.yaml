@@ -5,7 +5,11 @@ website_url: "https://koreanstory.com.ua"
 # and opens the favourites screen instead of the inline list — which is what to
 # leave it as until the page is actually live.
 webapp_url: "https://halloweex.github.io/ks-tg-bot/"
-support_chat_id: 129462784
+# @korean_story_ua (id 7444906573) — the manager who answers customers.
+# Everything a customer sends through "💬 Менеджер", and every discount
+# request, lands in this one chat; whoever sits here replies by replying to the
+# forwarded message. One id, so moving support means moving it here.
+support_chat_id: 7444906573
 
 # Info pages — text shown in Phase 3 menus
 # Placeholder content — owner will fill in real text
