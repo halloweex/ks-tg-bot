@@ -2,9 +2,12 @@ brand_name: "Korean Story"
 website_url: "https://koreanstory.com.ua"
 # The Mini App behind «⭐ Улюблені» (webapp/index.html, published by
 # .github/workflows/pages.yml). Empty means the key stays an ordinary text key
-# and opens the favourites screen instead of the inline list — which is what to
-# leave it as until the page is actually live.
-webapp_url: "https://halloweex.github.io/ks-tg-bot/"
+# and opens the favourites screen — which is what it is again: the Mini App is
+# the only way a key down there can open the inline list, and it costs a
+# webview flashing open and shut on every single press. Tried on 2026-08-24 and
+# turned back off for exactly that. The page stays published; this line is the
+# whole switch.
+webapp_url: ""
 # @korean_story_ua (id 7444906573) — the manager who answers customers.
 # Everything a customer sends through "💬 Менеджер", and every discount
 # request, lands in this one chat; whoever sits here replies by replying to the

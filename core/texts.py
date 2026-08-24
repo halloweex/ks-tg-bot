@@ -333,6 +333,11 @@ MSG_INLINE_OUT_OF_STOCK = "{price} ₴ · зараз немає"
 # and carries the one button worth having under it.
 MSG_INLINE_CARD = "<b>{name}</b>\n{detail}"
 BTN_BUY = "🛒 Замовити"
+# On a card the product's name is the message above the button, so these say
+# only what the button does — unlike their twins on the favourites screen,
+# which carry the name because five of them sit in a column.
+BTN_NOTIFY_CARD = "🔔 Повідомити, коли зʼявиться"
+BTN_WAITING_CARD = "✅ Чекаєте — скасувати"
 BTN_OPEN_PRODUCT = "🌐 Дивитися на сайті"
 # The panel can answer with a button above the results instead of results.
 # These three are what it says when there is nothing to show: in somebody
@@ -340,12 +345,9 @@ BTN_OPEN_PRODUCT = "🌐 Дивитися на сайті"
 MSG_INLINE_NOT_HERE = "Відкрийте цей список у чаті з ботом"
 MSG_INLINE_NEED_PHONE = "Поділіться номером — і побачите свої товари"
 MSG_INLINE_EMPTY = "Тут зʼявиться те, що ви замовляли"
-# The panel is one tap from the favourites screen and does not know in advance
-# whether it has anything to show, so it has to say which kind of nothing this
-# is. A customer whose whole history is samples and sets — the fifth of the
-# catalogue the shop lists no offer for — would otherwise be told they have
-# never ordered anything.
-MSG_INLINE_NOT_IN_CATALOGUE = "Цих товарів зараз немає в каталозі"
+# The list holds every product the customer has bought, so the only nothing it
+# can answer with is "nothing was typed that matches" — MSG_INLINE_NOT_IN_
+# CATALOGUE lived here until the products without an offer became rows too.
 MSG_INLINE_NOTHING_FOUND = "Нічого не знайшли — спробуйте іншу назву"
 # The bar above the list. It is the way back to the favourites screen, which is
 # where the two things the list cannot carry live: the discount request and the

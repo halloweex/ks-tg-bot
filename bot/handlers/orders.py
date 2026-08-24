@@ -649,7 +649,10 @@ async def request_discount(
     await callback.answer(t.MSG_DISCOUNT_SENT, show_alert=True)
 
 
-@router.callback_query(StockAction.filter())
+# Not the ones from a card in the inline list: those carry an inline_message_id
+# and no message, and this handler redraws the screen the callback came from.
+# bot/handlers/inline.py has their own, and this router is registered first.
+@router.callback_query(StockAction.filter(), ~F.inline_message_id)
 async def toggle_stock_subscription(
     callback: CallbackQuery,
     callback_data: StockAction,

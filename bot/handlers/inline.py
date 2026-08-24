@@ -22,13 +22,17 @@ be edited in place, because it is the customer's own message.
 """
 from __future__ import annotations
 
+import hashlib
 from html import escape
 from urllib.parse import urlparse
 
-from aiogram import Router
-from aiogram.types import (InlineKeyboardButton, InlineKeyboardMarkup,
-                           InlineQuery, InlineQueryResultArticle,
-                           InlineQueryResultsButton, InputTextMessageContent)
+from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import (CallbackQuery, InlineKeyboardButton,
+                           InlineKeyboardMarkup, InlineQuery,
+                           InlineQueryResultArticle, InlineQueryResultsButton,
+                           InputTextMessageContent)
+from loguru import logger
 
 from core import texts
 from core.config import AppConfig
@@ -36,8 +40,11 @@ from core.domain.offer import Offer
 from core.i18n import Texts
 from core.repos.catalogue import get_offers
 from core.repos.orders import get_cached_orders
+from core.repos.stock import (add_stock_subscription, get_stock_levels,
+                              get_subscribed_skus, remove_stock_subscription)
 from core.repos.users import get_user_phone
 from bot.analytics import track
+from bot.callbacks import StockAction
 from bot.handlers.common import FAVOURITES_DEEP_LINK
 from bot.handlers.orders import favourite_products
 from bot.keyboards import cart_url, product_url
@@ -97,8 +104,20 @@ async def favourites_inline(query: InlineQuery, t: Texts, config: AppConfig) -> 
                   if not needle or needle in str(item["name"]).casefold()]
 
     offers = await get_offers(str(item.get("sku") or "") for item in favourites)
-    results = [_result(item, offers[str(item["sku"])], t, config.website_url)
-               for item in favourites if str(item.get("sku") or "") in offers]
+    # The CRM's unit count, for the products the storefront lists no offer for
+    # — about a fifth of the catalogue, samples and sets. Without it those
+    # would be missing from a list that promises everything they have bought.
+    levels = await get_stock_levels()
+    # What they are already waiting for, so a card does not offer again what
+    # the customer has already asked for.
+    subscribed = await get_subscribed_skus(chat_id)
+    results = [
+        _result(item, offers.get(str(item.get("sku") or "")), t,
+                config.website_url,
+                waiting=str(item.get("sku") or "") in subscribed,
+                out_of_stock=_is_out_of_stock(item, levels))
+        for item in favourites
+    ]
 
     # Counted when the panel opens, not on every keystroke: each character
     # typed arrives here as its own query, and the question worth answering is
@@ -126,19 +145,26 @@ async def favourites_inline(query: InlineQuery, t: Texts, config: AppConfig) -> 
 
 
 def _nothing_to_show(ranked: list[dict], needle: str, t: Texts) -> str:
-    """Which kind of nothing this is.
+    """Which kind of nothing this is: never bought anything, or typed something
+    that matches nothing they have bought.
 
-    The panel is one tap from the favourites screen, which offers it without
-    knowing whether it has rows — so the empty answer has to say why it is
-    empty. Telling a customer whose whole history is samples and sets that they
-    have never ordered anything would be a plain falsehood, and they are the
-    fifth of the catalogue the shop publishes no offer for.
+    There is no third kind any more. Every favourite is a row now, whether or
+    not the shop has an offer for it — a customer whose whole history is
+    samples and sets used to open this and be told they had never ordered.
     """
-    if not ranked:
-        return t.MSG_INLINE_EMPTY
-    if needle:
-        return t.MSG_INLINE_NOTHING_FOUND
-    return t.MSG_INLINE_NOT_IN_CATALOGUE
+    return t.MSG_INLINE_NOTHING_FOUND if needle and ranked else t.MSG_INLINE_EMPTY
+
+
+def _is_out_of_stock(item: dict, levels: dict[str, int]) -> bool:
+    """True only where the CRM says there is none free to sell.
+
+    An unknown sku is never reported as missing: rows cached before skus were
+    stored have none, and claiming "out of stock" for something we cannot look
+    up would be worse than staying quiet. Same rule as the favourites screen,
+    which is the point — the two must not disagree about one product.
+    """
+    sku = str(item.get("sku") or "")
+    return bool(sku) and sku in levels and levels[sku] <= 0
 
 
 async def _button_only(query: InlineQuery, text: str) -> None:
@@ -156,53 +182,155 @@ async def _button_only(query: InlineQuery, text: str) -> None:
     )
 
 
-def _result(item: dict, offer: Offer, t: Texts,
-            website_url: str) -> InlineQueryResultArticle:
+def _result(item: dict, offer: Offer | None, t: Texts, website_url: str,
+            waiting: bool = False,
+            out_of_stock: bool = False) -> InlineQueryResultArticle:
     """One product as a row in the panel, and as the card picking it sends.
 
-    Only products the storefront has an offer for get this far, which is what
-    keeps every row here answerable: a price to show and a page to open. The
-    fifth or so of the catalogue the shop lists no offer for — samples, sets —
-    is named on the favourites screen instead, in the line that exists for
-    exactly the products nothing can be pressed for.
+    Every favourite becomes a row, including the fifth or so of the catalogue
+    the storefront publishes no offer for — samples, sets. Those have no price
+    and no picture to show, and their card can only offer to tell the customer
+    when the thing is back; what they must not be is missing from a list that
+    says it holds everything this person has bought.
     """
+    sku = str(item.get("sku") or "")
     name = texts.product_label(item["name"], _TITLE_LEN)
-    price = texts.price_label(offer.price)
     history = t.MSG_FAVOURITE_LINE.format(
         orders=item["orders"], qty=item["qty"], date=texts.short_date(item["last"])
     )
 
-    if offer.available:
-        detail = t.MSG_INLINE_IN_STOCK.format(price=price)
-        button = InlineKeyboardButton(
-            text=t.BTN_BUY,
-            url=cart_url(website_url, [offer.variant_id], t.lang, _CAMPAIGN),
-        )
+    if offer is not None:
+        detail = (t.MSG_INLINE_IN_STOCK if offer.available
+                  else t.MSG_INLINE_OUT_OF_STOCK).format(
+                      price=texts.price_label(offer.price))
     else:
-        detail = t.MSG_INLINE_OUT_OF_STOCK.format(price=price)
-        button = InlineKeyboardButton(
-            text=t.BTN_OPEN_PRODUCT,
-            url=product_url(website_url, offer.handle, t.lang, _CAMPAIGN),
-        )
+        # No price to put on the line: the shop does not list this one. What
+        # can still be said is whether the CRM has any of it.
+        detail = t.MSG_FAVOURITE_OUT_OF_STOCK if out_of_stock else ""
 
     return InlineQueryResultArticle(
         # The sku, so the same product is the same result between queries.
-        # Unique by construction: favourites are grouped by it, and a product
-        # without one never has an offer to be shown by.
-        id=offer.sku,
+        # Order lines cached before skus were stored have none, and those are
+        # grouped by name — hence the fallback, which only has to be unique
+        # within one answer.
+        id=sku or _fallback_id(item["name"]),
         title=name,
         # Two lines, as the panel draws them: today's price and availability
         # above, and how often this was ordered below.
-        description=f"{detail}\n{history}",
-        thumbnail_url=_thumbnail(offer.image_url),
+        description=f"{detail}\n{history}" if detail else history,
+        thumbnail_url=_thumbnail(offer.image_url) if offer is not None else None,
         input_message_content=InputTextMessageContent(
             # Escaped like every other HTML message the bot builds: product
             # names here carry '&' by the thousand.
-            message_text=t.MSG_INLINE_CARD.format(name=escape(name), detail=detail),
+            message_text=t.MSG_INLINE_CARD.format(name=escape(name),
+                                                  detail=detail or history),
             parse_mode="HTML",
         ),
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[button]]),
+        reply_markup=_card_kb(sku, offer, t, website_url, waiting, out_of_stock),
     )
+
+
+def _card_kb(sku: str, offer: Offer | None, t: Texts, website_url: str,
+             waiting: bool, out_of_stock: bool) -> InlineKeyboardMarkup | None:
+    """What sits under the card: buy it, or wait for it.
+
+    A card is a message the customer sent through inline mode, so a callback
+    from these buttons arrives with an inline_message_id and no message at all
+    — which is why the subscription has its own handler below rather than the
+    one the favourites screen uses.
+
+    Sold out, the card offers both things there are to do about that: be told
+    when it is back, and look at it on the shop, where the shop says in its own
+    words what happened to it. A product the shop lists no offer for has only
+    the first of those, and one that nothing can be said about — no offer, no
+    stock figure — has neither, which is a card with no buttons rather than a
+    button that does nothing.
+    """
+    if offer is not None and offer.available:
+        return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+            text=t.BTN_BUY,
+            url=cart_url(website_url, [offer.variant_id], t.lang, _CAMPAIGN),
+        )]])
+
+    rows: list[list[InlineKeyboardButton]] = []
+    if sku and (offer is not None or out_of_stock):
+        rows.append([InlineKeyboardButton(
+            text=t.BTN_WAITING_CARD if waiting else t.BTN_NOTIFY_CARD,
+            callback_data=StockAction(
+                action="unsub" if waiting else "sub", sku=sku).pack(),
+        )])
+    if offer is not None:
+        rows.append([InlineKeyboardButton(
+            text=t.BTN_OPEN_PRODUCT,
+            url=product_url(website_url, offer.handle, t.lang, _CAMPAIGN),
+        )])
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+
+
+@router.callback_query(StockAction.filter(), F.inline_message_id)
+async def toggle_stock_from_card(
+    callback: CallbackQuery,
+    callback_data: StockAction,
+    config: AppConfig,
+    t: Texts,
+) -> None:
+    """🔔 on a card sent from the list — the same subscription the screen sets.
+
+    Separate from the screen's handler because there is no message to redraw:
+    a card belongs to no chat this bot can address, only to an
+    inline_message_id, and the screen's version reaches for callback.message.
+
+    The product is looked up in this customer's own history, so a forged sku
+    subscribes to nothing rather than to somebody else's product — the same
+    guard the screen's handler keeps, for the same reason.
+    """
+    chat_id = callback.from_user.id
+    sku = callback_data.sku
+    name = next(
+        (item["name"] for item in favourite_products(
+            await get_cached_orders(chat_id), limit=_MAX_RESULTS)
+         if str(item.get("sku") or "") == sku),
+        "",
+    )
+    if not name:
+        await callback.answer()
+        return
+
+    waiting = callback_data.action == "sub"
+    if waiting:
+        await add_stock_subscription(chat_id, sku, name)
+        track(chat_id, "stock_subscribed", source="inline")
+        await callback.answer(t.MSG_SUBSCRIBED, show_alert=True)
+    else:
+        await remove_stock_subscription(chat_id, sku)
+        track(chat_id, "stock_unsubscribed", source="inline")
+        await callback.answer(t.MSG_UNSUBSCRIBED, show_alert=True)
+
+    # The button has to stop offering what was just done. Only the keyboard
+    # changes — the card's text is the product and its price, and neither moved.
+    offer = (await get_offers([sku])).get(sku)
+    try:
+        await callback.bot.edit_message_reply_markup(
+            inline_message_id=callback.inline_message_id,
+            reply_markup=_card_kb(sku, offer, t, config.website_url, waiting,
+                                  out_of_stock=True),
+        )
+    except TelegramBadRequest as exc:
+        # A card older than Telegram's edit window, or already showing this.
+        # The subscription is stored either way, which is what was asked for.
+        logger.debug("Could not redraw an inline card: {}", exc)
+
+
+def _fallback_id(name: str) -> str:
+    """An id for a product with no sku, and the same one every time.
+
+    Order lines cached before skus were stored have none, and favourites groups
+    those by name. Hashed rather than built from the name itself because the id
+    is capped at 64 bytes and a product name here runs to 147; digested rather
+    than hash() because that one is salted per process, and an id that changes
+    when the bot restarts is an id nothing can be matched against later.
+    """
+    return hashlib.sha1(name.encode("utf-8")).hexdigest()[:16]
 
 
 def _thumbnail(image_url: str) -> str | None:

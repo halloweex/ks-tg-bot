@@ -24,9 +24,11 @@ from core.config import AppConfig
 from core.domain.offer import Offer
 from core.i18n import Texts
 from core.repos import base as repos_base
+from bot.callbacks import StockAction
 from core.repos.catalogue import save_offers
 from core.repos.orders import upsert_orders
 from core.repos.schema import init_db
+from core.repos.stock import add_stock_subscription, save_stock_levels
 from core.repos.users import save_user
 
 CHAT = 7171
@@ -128,14 +130,15 @@ def test_a_customer_with_nothing_bought_yet_gets_a_button(db):
     assert query.kwargs["button"].text == Texts("uk").MSG_INLINE_EMPTY
 
 
-def test_a_history_the_shop_lists_no_offer_for_is_not_called_empty(db):
-    """The screen offers this panel without knowing whether it has rows, so an
-    empty answer has to say why. A customer whose whole history is samples and
-    sets has ordered plenty — telling them otherwise would be false."""
+def test_a_history_the_shop_lists_no_offer_for_is_still_a_list(db):
+    """About a fifth of the catalogue is sold but never listed — samples, sets.
+    A customer whose whole history is those has ordered plenty, and the list
+    that promises everything they bought has to hold them."""
     _registered_customer(_order("1"))
-    query = _ask(_Query())
-    assert query.results == []
-    assert query.kwargs["button"].text == Texts("uk").MSG_INLINE_NOT_IN_CATALOGUE
+    row = _ask(_Query()).results[0]
+    assert row.title == "Product 1"
+    assert row.thumbnail_url is None
+    assert "замовлень: 1" in row.description
 
 
 def test_the_answer_is_personal_and_never_cached(db):
@@ -181,12 +184,26 @@ def test_the_second_line_says_how_often_it_was_ordered(db):
     assert row.description.splitlines()[1] == "замовлень: 2 · 2 шт · востаннє 01.08.2026"
 
 
-def test_a_product_the_shop_has_no_offer_for_is_not_a_row(db):
-    """There is no price to show and nothing to press. The favourites screen
-    names it in text instead, which is where it belongs."""
+def test_a_product_the_shop_has_no_offer_for_is_a_row_without_a_price(db):
+    """It has no price and no picture — but it is something this customer buys,
+    and the list is of what they buy."""
     _registered_customer(_order("1", "2"), offers={"1": _offer("1")})
     rows = _ask(_Query()).results
-    assert [row.id for row in rows] == ["1"]
+    assert sorted(row.id for row in rows) == ["1", "2"]
+    plain = next(row for row in rows if row.id == "2")
+    assert "₴" not in plain.description
+    assert plain.reply_markup is None
+
+
+def test_a_product_with_no_offer_but_no_stock_can_still_be_waited_for(db):
+    """Where the storefront says nothing, the CRM's count answers — the same
+    fallback the favourites screen uses, so the two cannot disagree."""
+    _registered_customer(_order("1"))
+    asyncio.run(save_stock_levels({"1": 0}))
+    row = _ask(_Query()).results[0]
+    notify = row.reply_markup.inline_keyboard[0][0]
+    assert notify.text == Texts("uk").BTN_NOTIFY_CARD
+    assert StockAction.unpack(notify.callback_data).sku == "1"
 
 
 # --- what picking one does --------------------------------------------------
@@ -210,15 +227,27 @@ def test_a_tap_from_the_panel_is_counted_apart_from_the_screen(db):
     assert campaign["utm_campaign"] == ["favourites_inline"]
 
 
-def test_a_sold_out_product_opens_its_page_instead_of_the_basket(db):
-    """A cart link to something that cannot be bought ends at a checkout that
-    refuses it. The product's own page says why, in the shop's words."""
+def test_a_sold_out_product_offers_the_two_things_left_to_do(db):
+    """Be told when it is back, and see what the shop says about it. A cart
+    link would end at a checkout that refuses the order."""
     _registered_customer(_order("1"),
                          offers={"1": _offer("1", available=False, handle="serum")})
     row = _ask(_Query()).results[0]
-    button = row.reply_markup.inline_keyboard[0][0]
-    assert urlparse(button.url).path == "/products/serum"
+    notify, site = (r[0] for r in row.reply_markup.inline_keyboard)
+    assert notify.text == Texts("uk").BTN_NOTIFY_CARD
+    assert StockAction.unpack(notify.callback_data) == StockAction(action="sub", sku="1")
+    assert urlparse(site.url).path == "/products/serum"
     assert row.description.startswith("680 ₴ · зараз немає")
+
+
+def test_a_product_already_waited_for_offers_to_stop_waiting(db):
+    """The button must not offer again what the customer already asked for."""
+    _registered_customer(_order("1"), offers={"1": _offer("1", available=False)})
+    asyncio.run(add_stock_subscription(CHAT, "1", "Product 1"))
+    row = _ask(_Query()).results[0]
+    notify = row.reply_markup.inline_keyboard[0][0]
+    assert notify.text == Texts("uk").BTN_WAITING_CARD
+    assert StockAction.unpack(notify.callback_data).action == "unsub"
 
 
 def test_the_card_escapes_what_it_interpolates(db):
