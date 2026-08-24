@@ -194,6 +194,11 @@ MSG_NO_FAVOURITES = (
     "Поки що нема з чого скласти улюблене — тут з'являться товари, "
     "які ви замовляєте найчастіше."
 )
+# Numbered like the notify buttons above and for the same reason: a row of
+# glyph-and-number buttons fits, a row of 40-character product names does not.
+BTN_BUY = "🛒 {product}"
+BTN_BUY_ALL = "🛒 Замовити все, що є ({count})"
+MSG_BUY_HINT = "🛒 номер — оформити замовлення"
 BTN_WANT_DISCOUNT = "💰 Хочу знижку на ці товари"
 MSG_DISCOUNT_SENT = (
     "Передали менеджеру ваш запит на знижку. Ми звʼяжемось із вами тут, у боті."

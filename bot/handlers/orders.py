@@ -16,13 +16,16 @@ from core.i18n import Texts, operator_texts
 from bot.callbacks import DiscountAction, MenuAction, OrderAction, StockAction
 from bot.analytics import track
 from core.config import AppConfig
+from core.domain.offer import Offer
 from core.repos.support import (add_discount_request, recent_discount_request,
                                 remember_support_thread)
 from core.repos.stock import (add_stock_subscription, get_stock_levels,
                               get_subscribed_skus, remove_stock_subscription)
+from core.repos.catalogue import get_offers
 from core.repos.orders import (CANCELLED_STATUS_GROUP, get_cached_orders,
                                get_last_sync_time)
 from core.repos.users import get_user_phone
+from bot.keyboards import cart_url
 from bot.screen import render, typing
 from bot.sync import stale_notice
 from core.adapters.keycrm.client import KeyCRMClient
@@ -408,6 +411,7 @@ async def favourites_screen(
     t: Texts,
     keycrm: KeyCRMClient,
     anchor: Message,
+    website_url: str,
 ) -> tuple[str, InlineKeyboardMarkup | None]:
     """The favourites screen.
 
@@ -425,51 +429,80 @@ async def favourites_screen(
         await _refresh_orders(chat_id, keycrm)
         cached = await get_cached_orders(chat_id)
 
-    text, markup, found = await _favourites_view(chat_id, t, cached)
+    text, markup, found = await _favourites_view(chat_id, t, cached, website_url)
     track(chat_id, "favourites_viewed", found=found)
     return text, markup
 
 
 async def _favourites_view(
-    chat_id: int, t: Texts, cached: list[dict]
+    chat_id: int, t: Texts, cached: list[dict], website_url: str
 ) -> tuple[str, InlineKeyboardMarkup, int]:
     """The favourites screen — its text, its buttons, and how many it lists.
 
     Built in one place because two handlers draw it: opening the screen, and
     toggling a back-in-stock subscription, which has to redraw so the button
     the customer just pressed changes to reflect what it did.
+
+    Two sources of availability meet here, and they answer different questions.
+    The storefront's offer says whether a thing can be bought — which is what
+    the buy button needs, and what a customer means by "є". The CRM's stock
+    level is what the restock watcher compares against, and it is the fallback
+    for a product the storefront has no offer for: roughly a fifth of the
+    catalogue, mostly samples and sets that are sold but never listed.
     """
     favourites = favourite_products(cached)
     if not favourites:
         return (t.MSG_NO_FAVOURITES if cached else t.MSG_NO_ORDERS), _no_orders_kb(t), 0
 
+    offers = await get_offers(str(item.get("sku") or "") for item in favourites)
     levels = await get_stock_levels()
     subscribed = await get_subscribed_skus(chat_id)
 
     repeated = any(item["orders"] > 1 for item in favourites)
     header = t.MSG_FAVOURITES_HEADER if repeated else t.MSG_FAVOURITES_HEADER_ONCE
     lines = [header, ""]
-    any_out_of_stock = False
     for i, item in enumerate(favourites, 1):
         line = t.MSG_FAVOURITE_LINE.format(
             orders=item["orders"], qty=item["qty"],
             date=escape(_short_date(item["last"])),
         )
-        if _is_out_of_stock(item, levels):
+        offer = _buyable(item, offers)
+        if offer is not None:
+            # Today's price, from the shop rather than from what they paid last
+            # time. Prices move, and an old one on a buy button is a promise the
+            # checkout will not keep.
+            line += f" · {_money(offer.price)} {escape(t.currency('uah'))}"
+        elif _is_missing(item, offers, levels):
             line += f" · {escape(t.MSG_FAVOURITE_OUT_OF_STOCK)}"
-            any_out_of_stock = True
         lines.append(f"<b>{i}.</b> {escape(texts.shorten_name(item['name'], 52))}")
         lines.append(line)
+
     # Same reason as the order list: the buttons below are numbers, and the
     # numbers only mean something once they have been explained.
-    if any_out_of_stock:
-        lines += ["", t.MSG_STOCK_HINT]
+    hints = []
+    if any(_buyable(item, offers) for item in favourites):
+        hints.append(t.MSG_BUY_HINT)
+    if any(_is_missing(item, offers, levels) for item in favourites):
+        hints.append(t.MSG_STOCK_HINT)
+    if hints:
+        lines += ["", *hints]
 
     return (
         "\n".join(lines),
-        _favourites_kb(favourites, levels, subscribed, t),
+        _favourites_kb(favourites, offers, levels, subscribed, t, website_url),
         len(favourites),
     )
+
+
+def _buyable(item: dict, offers: dict[str, Offer]) -> Offer | None:
+    """The storefront's offer for this product, if it can be bought right now.
+
+    None covers three different situations on purpose — no sku on the cached
+    order line, no offer for that sku, or an offer that is not sellable — and
+    the screen treats them the same way: no buy button.
+    """
+    offer = offers.get(str(item.get("sku") or ""))
+    return offer if offer is not None and offer.available else None
 
 
 def _is_out_of_stock(item: dict, levels: dict[str, int]) -> bool:
@@ -483,17 +516,48 @@ def _is_out_of_stock(item: dict, levels: dict[str, int]) -> bool:
     return bool(sku) and sku in levels and levels[sku] <= 0
 
 
-def _favourites_kb(favourites, levels, subscribed, t: Texts) -> InlineKeyboardMarkup:
-    """A notify-me button for each favourite that is currently unavailable.
+def _is_missing(item: dict, offers: dict[str, Offer], levels: dict[str, int]) -> bool:
+    """True when we can say, from one source or the other, that it is gone.
 
-    Labelled with the product's number in the list above, so up to five of them
-    fit on one row instead of five rows of truncated product names.
+    The storefront wins where it has an opinion: it is what the customer would
+    see on the site, and it knows about a product that has units but is
+    unpublished. Only where it has no offer at all does the CRM's count answer —
+    and where neither knows, the screen says nothing rather than guessing.
+    """
+    offer = offers.get(str(item.get("sku") or ""))
+    if offer is not None:
+        return not offer.available
+    return _is_out_of_stock(item, levels)
+
+
+def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
+                   website_url: str) -> InlineKeyboardMarkup:
+    """A button per product for whatever can be done with it, and one for the lot.
+
+    Three kinds, in the order the customer cares about them: buy what is there,
+    be told about what is not, ask for a discount on all of it. Each product
+    button is labelled with the product's number in the list above, so five of
+    them fit on one row instead of five rows of truncated product names.
+
+    The buy buttons are url buttons — the cart link is the whole mechanism, and
+    Telegram cannot report a tap on one. That is why the link carries UTM tags:
+    the shop's analytics is the only place this can be counted.
     """
     builder = InlineKeyboardBuilder()
-    notify_buttons = 0
+    buyable: list[int] = []
+    buy_buttons = notify_buttons = 0
+
+    for i, item in enumerate(favourites, 1):
+        offer = _buyable(item, offers)
+        if offer is not None:
+            builder.button(text=t.BTN_BUY.format(product=i),
+                           url=cart_url(website_url, [offer.variant_id], t.lang))
+            buyable.append(offer.variant_id)
+            buy_buttons += 1
+
     for i, item in enumerate(favourites, 1):
         sku = str(item.get("sku") or "")
-        if not _is_out_of_stock(item, levels):
+        if not sku or not _is_missing(item, offers, levels):
             continue
         if sku in subscribed:
             builder.button(text=t.BTN_NOTIFY_CANCEL.format(product=i),
@@ -502,9 +566,20 @@ def _favourites_kb(favourites, levels, subscribed, t: Texts) -> InlineKeyboardMa
             builder.button(text=t.BTN_NOTIFY_ME.format(product=i),
                            callback_data=StockAction(action="sub", sku=sku))
         notify_buttons += 1
+
+    # One basket with everything available in it. Only from two products up:
+    # with one it is the button directly above it, worded at greater length.
+    whole_basket = len(buyable) > 1
+    if whole_basket:
+        builder.button(text=t.BTN_BUY_ALL.format(count=len(buyable)),
+                       url=cart_url(website_url, buyable, t.lang))
+
     builder.button(text=t.BTN_WANT_DISCOUNT,
                    callback_data=DiscountAction(action="ask"))
-    layout = [notify_buttons] if notify_buttons else []
+
+    layout = [n for n in (buy_buttons, notify_buttons) if n]
+    if whole_basket:
+        layout.append(1)
     layout.append(1)
     builder.adjust(*layout)
     return builder.as_markup()
@@ -572,6 +647,7 @@ async def request_discount(
 async def toggle_stock_subscription(
     callback: CallbackQuery,
     callback_data: StockAction,
+    config: AppConfig,
     t: Texts,
 ) -> None:
     """Subscribe to, or unsubscribe from, a product coming back in stock."""
@@ -582,7 +658,7 @@ async def toggle_stock_subscription(
         await remove_stock_subscription(chat_id, sku)
         track(chat_id, "stock_unsubscribed")
         await callback.answer(t.MSG_UNSUBSCRIBED, show_alert=True)
-        await _redraw_favourites(callback, chat_id, t)
+        await _redraw_favourites(callback, chat_id, t, config.website_url)
         return
 
     # The product name comes from this customer's own cached orders, so a
@@ -602,10 +678,11 @@ async def toggle_stock_subscription(
     await add_stock_subscription(chat_id, sku, name)
     track(chat_id, "stock_subscribed")
     await callback.answer(t.MSG_SUBSCRIBED, show_alert=True)
-    await _redraw_favourites(callback, chat_id, t)
+    await _redraw_favourites(callback, chat_id, t, config.website_url)
 
 
-async def _redraw_favourites(callback: CallbackQuery, chat_id: int, t: Texts) -> None:
+async def _redraw_favourites(callback: CallbackQuery, chat_id: int, t: Texts,
+                             website_url: str) -> None:
     """Redraw the favourites screen after a subscription changed.
 
     Without this the button keeps offering what the customer just did: they tap
@@ -614,7 +691,7 @@ async def _redraw_favourites(callback: CallbackQuery, chat_id: int, t: Texts) ->
     from is always the favourites list.
     """
     text, markup, _found = await _favourites_view(
-        chat_id, t, await get_cached_orders(chat_id)
+        chat_id, t, await get_cached_orders(chat_id), website_url
     )
     await render(callback, text, markup)
 

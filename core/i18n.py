@@ -131,6 +131,9 @@ EN: dict[str, str] = {
         "Nothing to base favourites on yet — the products you order most often "
         "will show up here."
     ),
+    "BTN_BUY": "🛒 {product}",
+    "BTN_BUY_ALL": "🛒 Order everything in stock ({count})",
+    "MSG_BUY_HINT": "🛒 number — go to checkout",
     "BTN_WANT_DISCOUNT": "💰 I'd like a discount on these",
     "MSG_DISCOUNT_SENT": (
         "We've passed your discount request to a manager. We'll get back to you "

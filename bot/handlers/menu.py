@@ -76,11 +76,14 @@ async def open_favourites(
     message: Message,
     state: FSMContext,
     keycrm: KeyCRMClient,
+    config: AppConfig,
     t: Texts,
 ) -> None:
     """⭐ — what this customer buys most, and what of it is out of stock."""
     await state.clear()
-    text, markup = await favourites_screen(message.chat.id, t, keycrm, message)
+    text, markup = await favourites_screen(
+        message.chat.id, t, keycrm, message, config.website_url
+    )
     await message.answer(text, reply_markup=markup)
 
 

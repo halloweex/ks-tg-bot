@@ -7,6 +7,8 @@ from aiogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMar
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
 from bot.callbacks import BroadcastAction, InfoAction, SettingsAction
+from collections.abc import Sequence
+
 from core.i18n import LANGUAGE_NAMES, SUPPORTED, Texts
 
 
@@ -25,6 +27,30 @@ def tagged_website_url(url: str) -> str:
         "utm_campaign": "main_menu",
     })
     return f"{url}{'&' if urlparse(url).query else '?'}{tags}"
+
+
+def cart_url(website_url: str, variant_ids: Sequence[int], lang: str = "uk") -> str:
+    """A Shopify cart permalink for exactly these variants.
+
+    /cart/{variant}:1,{variant}:1 hands the shop a whole basket in a URL and
+    redirects to checkout with it. Verified against the live storefront: the
+    redirect keeps both the locale and the UTM tags, so a purchase started here
+    is attributable in the shop's own analytics — which is the only place it can
+    be, since Telegram reports nothing when a url button is tapped.
+
+    Note that a permalink *replaces* the basket rather than adding to it. That
+    is the intent here: the button says "order this", and arriving at checkout
+    with something the customer put in their cart last week added to it would be
+    a surprise nobody asked for.
+    """
+    items = ",".join(f"{variant_id}:1" for variant_id in variant_ids)
+    tags = urlencode({
+        "utm_source": "telegram",
+        "utm_medium": "bot",
+        "utm_campaign": "favourites",
+        "locale": lang,
+    })
+    return f"{website_url.rstrip('/')}/cart/{items}?{tags}"
 
 
 def share_phone_kb(t: Texts) -> ReplyKeyboardMarkup:
