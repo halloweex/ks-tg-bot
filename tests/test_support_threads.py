@@ -257,6 +257,8 @@ def _customer_message(bot, *, message_id, media_group_id=None):
     msg = SimpleNamespace(
         bot=bot, chat=SimpleNamespace(id=CUSTOMER), message_id=message_id,
         media_group_id=media_group_id, answer=answer, react=react,
+        from_user=SimpleNamespace(id=CUSTOMER, first_name="Оксана",
+                                  last_name="Петренко", username="oksana"),
     )
     msg.answered = answered
     msg.reactions = reactions
@@ -379,6 +381,20 @@ def test_attachments_travel_in_both_directions(db, config, texts):
     [queued] = _queued_replies()
     assert queued["chat_id"] == CUSTOMER
     assert queued["payload"]["copy"]["message_id"] == 500
+
+
+def test_the_note_above_a_forwarded_message_says_who_wrote_it(db, config, texts):
+    """A chat id is safe, stable, and tells the person reading it nothing.
+
+    The note is built from operator_texts(), not from the customer's `t`: it is
+    read by a manager, in the support chat's own language."""
+    bot = _ForwardingBot()
+    asyncio.run(support.forward_to_support(
+        _customer_message(bot, message_id=1), _NoState(), config, texts))
+    note = bot.sent[0]["text"]
+    assert "Оксана Петренко" in note, "the CRM has no card for them, so Telegram answers"
+    assert "@oksana" in note
+    assert f'tg://user?id={CUSTOMER}' in note
 
 
 def test_a_forwarded_message_is_marked_as_arrived(db, config, texts):

@@ -109,7 +109,7 @@ EN: dict[str, str] = {
     "MSG_WELCOME_BACK": "Welcome back! 🌸",
     "MSG_WELCOME_BACK_NAME": "{name}, lovely to see you again! 🌸",
     "MSG_PHONE_VERIFIED": "Thank you! Number verified ✅",
-    "MSG_SUPPORT_ADMIN_NOTE": "📩 Message from a user (chat_id: {chat_id}):",
+    "MSG_SUPPORT_ADMIN_NOTE": "📩 New message\n👤 {who}",
     "MSG_SUPPORT_REPLY_INSTRUCTION": "↩️ Reply to the forwarded message to answer the customer.",
     "MSG_SUPPORT_NO_REPLY_TARGET": "Please reply to the customer's forwarded message.",
     "MSG_OPT_OUT_CONFIRM": "You have unsubscribed from our updates. Send /start to subscribe again.",
@@ -150,7 +150,8 @@ EN: dict[str, str] = {
         "We couldn't get your message to a manager 😔\n"
         "Please try again in a few minutes — your text is not lost, just send it again."
     ),
-    "MSG_DISCOUNT_ADMIN": "💰 Discount request (chat_id: {chat_id}):",
+    "MSG_DISCOUNT_ADMIN": "💰 Discount request\n👤 {who}",
+    "MSG_CUSTOMER_UNKNOWN": "a customer",
     "MSG_BACK_IN_STOCK_HEADER": "🔔 Back in stock:",
     "BTN_NOTIFY_ME": "🔔 {product}",
     "BTN_NOTIFY_CANCEL": "🔕 {product}",

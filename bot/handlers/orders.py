@@ -17,6 +17,7 @@ from core.i18n import Texts, operator_texts
 from bot.callbacks import DiscountAction, MenuAction, OrderAction, StockAction
 from bot.alerts import tell_admins_once
 from bot.analytics import track
+from bot.customer import describe
 from core.config import AppConfig
 from core.domain.offer import Offer
 from core.repos.support import (add_discount_request, recent_discount_request,
@@ -656,7 +657,8 @@ async def request_discount(
         return
 
     op = operator_texts()
-    lines = [op.MSG_DISCOUNT_ADMIN.format(chat_id=chat_id), ""]
+    lines = [op.MSG_DISCOUNT_ADMIN.format(
+        who=await describe(callback.from_user, chat_id)), ""]
     lines += [
         f"• {escape(texts.shorten_name(f['name'], 60))} — "
         f"{op.MSG_FAVOURITE_LINE.format(orders=f['orders'], qty=f['qty'], date=texts.short_date(f['last']))}"

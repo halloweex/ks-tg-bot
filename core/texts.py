@@ -67,6 +67,33 @@ MSG_ORDER_SOURCE_INSTAGRAM = "📸 Instagram"
 NOVAPOSHTA_TRACKING_URL = "https://novaposhta.ua/tracking/?cargo_number={ttn}"
 
 
+def customer_ref(chat_id: int, *, name: str = "", username: str = "",
+                 phone: str = "") -> str:
+    """Who a customer is, in one line a manager can act on.
+
+    The name is a link to the person's Telegram profile — `tg://user?id=` is
+    what makes a name in a bot's message tappable — and the parts that follow
+    are the two ways to reach or find them: the @username to write to, and the
+    number to look up in the CRM. Whatever is unknown is left out rather than
+    printed empty.
+
+    The chat id stays, last and quiet: it is what the support thread is keyed
+    on, and the one identifier that is still there when a customer has no name,
+    no username and no number of ours.
+
+    Sent with parse_mode="HTML", hence the escaping — a name really can carry
+    '&' or '<'.
+    """
+    label = escape(name.strip()) if name.strip() else MSG_CUSTOMER_UNKNOWN
+    parts = [f'<a href="tg://user?id={chat_id}">{label}</a>']
+    if username:
+        parts.append(f"@{escape(username.lstrip('@'))}")
+    if phone:
+        parts.append(escape(phone))
+    parts.append(f"<code>{chat_id}</code>")
+    return " · ".join(parts)
+
+
 def tracking_url(ttn: str) -> str:
     """Where a parcel with this TTN can be looked up.
 
@@ -237,7 +264,14 @@ MSG_WELCOME_BACK_NAME = "{name}, раді бачити вас знову! \U0001
 MSG_PHONE_VERIFIED = "Дякуємо! Номер підтверджено \u2705"
 
 # Support relay (admin-side)
-MSG_SUPPORT_ADMIN_NOTE = "📩 Повідомлення від користувача (chat_id: {chat_id}):"
+# Two lines rather than one sentence: a name cannot be declined, and "від
+# Оксана Петренко" is what a sentence around it produces. The second line is
+# also where the eye goes first on a phone.
+MSG_SUPPORT_ADMIN_NOTE = "📩 Нове звернення\n👤 {who}"
+# When we know nothing but the chat id. The CRM name arrives with the buyer
+# card, the Telegram one with the message — a customer missing both has neither
+# ordered under this number nor a name set on their account.
+MSG_CUSTOMER_UNKNOWN = "клієнт"
 MSG_SUPPORT_REPLY_INSTRUCTION = "↩️ Відповідайте на переслане повідомлення, щоб відповісти клієнту."
 MSG_SUPPORT_NO_REPLY_TARGET = "Будь ласка, відповідайте на переслане повідомлення клієнта."
 
@@ -325,7 +359,7 @@ MSG_SUPPORT_NOT_DELIVERED = (
     "просто надішліть його знову."
 )
 # Goes to the support chat, so Ukrainian regardless of the customer's language.
-MSG_DISCOUNT_ADMIN = "💰 Запит на знижку (chat_id: {chat_id}):"
+MSG_DISCOUNT_ADMIN = "💰 Запит на знижку\n👤 {who}"
 MSG_BACK_IN_STOCK_HEADER = "🔔 Знову в наявності:"
 # Numbered like the order buttons, for the same reason: a 40-character product
 # name does not fit on a button next to another one.

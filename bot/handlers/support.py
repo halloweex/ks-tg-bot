@@ -11,6 +11,7 @@ from loguru import logger
 from core.i18n import Texts, operator_texts
 from bot.alerts import tell_admins_once
 from bot.analytics import track
+from bot.customer import describe
 from core.config import AppConfig
 from core.repos.support import (album_in_progress, remember_support_thread, start_album,
                                 support_thread_owner)
@@ -61,7 +62,9 @@ async def forward_to_support(
             # Send metadata line with chat_id (privacy-safe identifier)
             note = await bot.send_message(
                 chat_id=config.support_chat_id,
-                text=op.MSG_SUPPORT_ADMIN_NOTE.format(chat_id=message.chat.id),
+                text=op.MSG_SUPPORT_ADMIN_NOTE.format(
+                    who=await describe(message.from_user, message.chat.id)),
+                parse_mode="HTML",
             )
             thread_ids.append(note.message_id)
 

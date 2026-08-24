@@ -356,7 +356,8 @@ def _ask_for_discount(sku: str) -> dict:
         told.setdefault("popup", text)
 
     callback = SimpleNamespace(
-        from_user=SimpleNamespace(id=CHAT),
+        from_user=SimpleNamespace(id=CHAT, first_name="Оксана", last_name="",
+                                  username="oksana"),
         answer=answer,
         bot=SimpleNamespace(send_message=send_message),
     )
@@ -364,6 +365,17 @@ def _ask_for_discount(sku: str) -> dict:
         callback, DiscountAction(action="ask", sku=sku), _config(), Texts("uk")
     ))
     return told
+
+
+def test_the_manager_can_see_whose_request_it_is(db):
+    """It used to say "chat_id: 1032317787" and nothing else, which is an
+    identifier and not an answer — the manager had to go and look the number
+    up before they could reply to a person."""
+    _registered_customer(_order("1"), offers={"1": _offer("1")})
+    told = _ask_for_discount("1")
+    assert "@oksana" in told["text"]
+    assert "+380670000000" in told["text"], "the number they are known by in the CRM"
+    assert f'tg://user?id={CHAT}' in told["text"], "the name opens their profile"
 
 
 def test_a_card_asks_for_a_discount_on_its_own_product(db):
