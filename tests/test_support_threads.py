@@ -15,10 +15,23 @@ import pytest
 from core.repos import support as support_repo
 from core.repos import base as repos_base
 from core.repos.schema import init_db
+from aiogram.exceptions import TelegramForbiddenError
+
+from bot import alerts
 from bot.handlers import support
 
 SUPPORT_CHAT = 129462784
 CUSTOMER = 555000111
+ADMIN = 42
+
+
+@pytest.fixture(autouse=True)
+def fresh_alert_throttle():
+    """The "do not repeat this alert" memory is module state, and a test that
+    alerts would otherwise silence the next one."""
+    alerts._last_told.clear()
+    yield
+    alerts._last_told.clear()
 
 
 @pytest.fixture()
@@ -96,6 +109,10 @@ class _FakeBot:
     def __init__(self):
         self.sent: list[dict] = []
         self.copied: list[dict] = []
+        self.actions: list[str] = []
+
+    async def send_chat_action(self, chat_id, action, **kw):
+        self.actions.append(action)
 
     async def send_message(self, chat_id, text, **kw):
         self.sent.append({"chat_id": chat_id, "text": text})
@@ -371,3 +388,88 @@ def test_a_managers_reply_is_marked_when_it_finds_its_customer(db, config):
     message = _manager_message(bot, text="hello", replied=_replied(10))
     asyncio.run(support.admin_reply(message, config, None))
     assert message.reactions == ["👀"]
+
+
+# --- when the support chat cannot be written to -----------------------------
+
+class _ForbiddenBot(_FakeBot):
+    """A bot whose every call to the support chat is refused — which is what
+    "bot can't initiate conversation with a user" looks like from here."""
+
+    def __init__(self):
+        super().__init__()
+        self.alerted: list[str] = []
+
+    async def send_message(self, chat_id, text, **kw):
+        if chat_id == SUPPORT_CHAT:
+            raise TelegramForbiddenError(
+                method=SimpleNamespace(),
+                message="Forbidden: bot can't initiate conversation with a user")
+        self.alerted.append(text)
+
+    async def forward_message(self, chat_id, from_chat_id, message_id, **kw):
+        raise TelegramForbiddenError(
+            method=SimpleNamespace(),
+            message="Forbidden: bot can't initiate conversation with a user")
+
+    async def send_chat_action(self, chat_id, action, **kw):
+        raise TelegramForbiddenError(
+            method=SimpleNamespace(),
+            message="Forbidden: bot can't initiate conversation with a user")
+
+
+@pytest.fixture()
+def broken_config():
+    return SimpleNamespace(support_chat_id=SUPPORT_CHAT,
+                           env=SimpleNamespace(admin_ids=[ADMIN]))
+
+
+def test_a_customer_is_told_when_their_message_did_not_arrive(db, broken_config, texts):
+    """It used to be silence: the exception went to the log, the customer got
+    no confirmation and no error, and the shop learned about it from them."""
+    texts.MSG_SUPPORT_NOT_DELIVERED = "not delivered"
+    bot = _ForbiddenBot()
+    message = _customer_message(bot, message_id=1)
+    asyncio.run(support.forward_to_support(message, _NoState(), broken_config, texts))
+    assert message.answered == ["not delivered"]
+    assert message.reactions == [], "nothing arrived, so nothing is marked as arrived"
+
+
+def test_the_operator_hears_about_it_too(db, broken_config, texts):
+    """The customer's retry cannot fix a misconfigured chat id. Somebody who
+    can has to be told, and told what to do about it."""
+    texts.MSG_SUPPORT_NOT_DELIVERED = "not delivered"
+    bot = _ForbiddenBot()
+    asyncio.run(support.forward_to_support(
+        _customer_message(bot, message_id=1), _NoState(), broken_config, texts))
+    assert len(bot.alerted) == 1
+    assert "support_chat_id" in bot.alerted[0]
+    assert "Start" in bot.alerted[0]
+
+
+def test_the_same_alert_is_not_repeated_for_every_customer(db, broken_config, texts):
+    """A shop with a broken relay has many customers writing into it, and an
+    alert per customer is how alerts get muted."""
+    texts.MSG_SUPPORT_NOT_DELIVERED = "not delivered"
+    bot = _ForbiddenBot()
+    for message_id in (1, 2, 3):
+        asyncio.run(support.forward_to_support(
+            _customer_message(bot, message_id=message_id), _NoState(),
+            broken_config, texts))
+    assert len(bot.alerted) == 1
+
+
+def test_the_startup_check_finds_it_before_any_customer_does(db, broken_config):
+    """getChat answered happily for an account this bot was forbidden from
+    messaging, which is how the broken relay reached production. This probe
+    fails the way a real send does, and creates no message."""
+    bot = _ForbiddenBot()
+    assert asyncio.run(
+        alerts.check_support_chat(bot, SUPPORT_CHAT, [ADMIN])) is False
+    assert len(bot.alerted) == 1
+
+
+def test_a_reachable_support_chat_says_nothing_to_anybody(db):
+    bot = _FakeBot()
+    assert asyncio.run(alerts.check_support_chat(bot, SUPPORT_CHAT, [ADMIN])) is True
+    assert bot.sent == []

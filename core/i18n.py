@@ -146,6 +146,11 @@ EN: dict[str, str] = {
         "here in the bot."
     ),
     "MSG_DISCOUNT_ALREADY": "Your request is already with a manager — they will reply shortly.",
+    "MSG_DISCOUNT_FAILED": "We couldn't pass the request on. Please try again in a few minutes.",
+    "MSG_SUPPORT_NOT_DELIVERED": (
+        "We couldn't get your message to a manager 😔\n"
+        "Please try again in a few minutes — your text is not lost, just send it again."
+    ),
     "MSG_DISCOUNT_ADMIN": "💰 Discount request (chat_id: {chat_id}):",
     "MSG_BACK_IN_STOCK_HEADER": "🔔 Back in stock:",
     "BTN_NOTIFY_ME": "🔔 {product}",

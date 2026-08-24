@@ -315,6 +315,16 @@ MSG_DISCOUNT_SENT = (
     "Передали менеджеру ваш запит на знижку. Ми звʼяжемось із вами тут, у боті."
 )
 MSG_DISCOUNT_ALREADY = "Ваш запит уже в роботі — менеджер відповість найближчим часом."
+# Said when the message did not reach the manager. It used to say the opposite:
+# the send was attempted, the failure was logged, and the customer was thanked
+# for a request nobody received. A shop that says "passed on" when nothing was
+# passed on is worse than one that admits a hiccup.
+MSG_DISCOUNT_FAILED = "Не вдалося передати запит. Спробуйте, будь ласка, за кілька хвилин."
+MSG_SUPPORT_NOT_DELIVERED = (
+    "Не вдалося передати повідомлення менеджеру 😔\n"
+    "Спробуйте, будь ласка, ще раз за кілька хвилин — ваш текст нікуди не зник, "
+    "просто надішліть його знову."
+)
 # Goes to the support chat, so Ukrainian regardless of the customer's language.
 MSG_DISCOUNT_ADMIN = "💰 Запит на знижку (chat_id: {chat_id}):"
 MSG_BACK_IN_STOCK_HEADER = "🔔 Знову в наявності:"

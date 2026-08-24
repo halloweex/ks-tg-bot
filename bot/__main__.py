@@ -12,6 +12,7 @@ from core.config import load_config
 from core.repos.base import configure as configure_db
 from core.repos.schema import init_db
 from bot.fsm_storage import SQLiteStorage
+from bot.alerts import check_support_chat
 from bot.logs import setup_logging
 from bot.handlers.broadcast import router as broadcast_router
 from bot.handlers.common import router as common_router
@@ -95,6 +96,10 @@ async def main() -> None:
         # rows in the outbox, and the sender picks them up on its next pass.
         # Commands, menu button and the text shown before the first /start.
         await profile.apply(bot, config.env.admin_ids)
+        # Can the support chat be written to? Asked here because the answer
+        # changes with configuration, not with code, and the way it used to be
+        # discovered was a customer saying "nobody answered me".
+        await check_support_chat(bot, config.support_chat_id, config.env.admin_ids)
         # Poll KeyCRM for restocks and queue a message for whoever subscribed.
         # No bot argument any more: since stage 6 the sweep queues and the
         # outbox sends, so nothing in that path knows about Telegram.

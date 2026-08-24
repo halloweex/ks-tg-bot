@@ -1,17 +1,28 @@
 """Telling the people who run the bot that something needs them.
 
-One place, because there are now two callers and there will be more: the sync
-watchdog (§5.5) and the outbox shelf (§6.3). Both want the same three
-properties — reach every admin, never let one unreachable admin cost the others
-their alert, and never let a failed alert take down the loop that raised it.
+One place, because there are several callers now: the sync watchdog (§5.5), the
+outbox shelf (§6.3), the support relay, and the startup check at the bottom of
+this file. All want the same three properties — reach every admin, never let
+one unreachable admin cost the others their alert, and never let a failed alert
+take down the loop that raised it.
 
 English, like everything else an admin reads: it sits next to the logs, the
 runbook and the backup alerts.
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from aiogram import Bot
+from aiogram.exceptions import TelegramAPIError
 from loguru import logger
+
+# When the same thing keeps breaking, the alert about it is worth sending once
+# in a while rather than once per customer: an alert repeating faster than
+# anybody can act on it is how alerts get muted. Same reasoning, and the same
+# interval, as the outbox shelf.
+_REPEAT_AFTER = timedelta(minutes=10)
+_last_told: dict[str, datetime] = {}
 
 
 async def tell_admins(bot: Bot, admin_ids: list[int], text: str) -> int:
@@ -28,3 +39,56 @@ async def tell_admins(bot: Bot, admin_ids: list[int], text: str) -> int:
         except Exception as exc:  # noqa: BLE001 — one admin must not cost the others
             logger.warning("Alert not delivered to {}: {}", chat_id, exc)
     return delivered
+
+
+async def tell_admins_once(bot: Bot, admin_ids: list[int], key: str,
+                           text: str) -> int:
+    """Alert about `key`, unless the same key was alerted about just now.
+
+    In memory on purpose: a restart is exactly when an alert should be allowed
+    through again, because a restart is when the thing may have been fixed.
+    """
+    now = datetime.now(timezone.utc)
+    last = _last_told.get(key)
+    if last is not None and now - last < _REPEAT_AFTER:
+        logger.debug("Alert {} suppressed, last sent {}", key, last)
+        return 0
+    _last_told[key] = now
+    return await tell_admins(bot, admin_ids, text)
+
+
+async def check_support_chat(bot: Bot, support_chat_id: int,
+                             admin_ids: list[int]) -> bool:
+    """At startup, find out whether the support chat can be written to at all.
+
+    Not with getChat: that answered happily for an account this bot was
+    forbidden from messaging, which is exactly how a broken relay reached
+    production unnoticed. sendChatAction is the probe instead — it creates no
+    message, shows a "typing" flicker at worst, and fails the way a real send
+    would ("bot can't initiate conversation with a user", "PEER_ID_INVALID").
+
+    A bot cannot open a conversation with a person. If support_chat_id names a
+    user account, that account has to press Start once; a group the bot is in
+    has no such rule, which is why a group is the sturdier configuration.
+
+    Never raises: a bot that refuses to start because an alert failed is worse
+    than one that starts with a broken relay and says so.
+    """
+    try:
+        await bot.send_chat_action(support_chat_id, "typing")
+        logger.info("Support chat {} is reachable", support_chat_id)
+        return True
+    except TelegramAPIError as exc:
+        logger.error("Support chat {} cannot be written to: {}", support_chat_id, exc)
+        await tell_admins_once(
+            bot, admin_ids, "support_relay",
+            f"⚠️ The support chat cannot be written to: {exc}\n\n"
+            f"support_chat_id={support_chat_id}. Nothing a customer sends to "
+            f"support, and no discount request, will reach anybody until this "
+            f"is fixed: that account must open the bot and press Start, or the "
+            f"id must name a group the bot is a member of.",
+        )
+        return False
+    except Exception as exc:  # noqa: BLE001 — a check must not stop the bot
+        logger.warning("Support chat check failed unexpectedly: {}", exc)
+        return False

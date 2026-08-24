@@ -7,6 +7,7 @@ from datetime import datetime
 from html import escape
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from loguru import logger
@@ -14,6 +15,7 @@ from loguru import logger
 from core import texts
 from core.i18n import Texts, operator_texts
 from bot.callbacks import DiscountAction, MenuAction, OrderAction, StockAction
+from bot.alerts import tell_admins_once
 from bot.analytics import track
 from core.config import AppConfig
 from core.domain.offer import Offer
@@ -653,13 +655,6 @@ async def request_discount(
         await callback.answer()
         return
 
-    await add_discount_request(chat_id, json.dumps(
-        [{"sku": f["sku"], "name": f["name"], "orders": f["orders"]} for f in favourites],
-        ensure_ascii=False,
-    ))
-    track(chat_id, "discount_requested", products=len(favourites),
-          source="card" if callback_data.sku else "screen")
-
     op = operator_texts()
     lines = [op.MSG_DISCOUNT_ADMIN.format(chat_id=chat_id), ""]
     lines += [
@@ -678,8 +673,32 @@ async def request_discount(
         # happened to reply to that exact line — the failure this whole table
         # exists to remove.
         await remember_support_thread([sent.message_id], chat_id)
-    except Exception as exc:  # noqa: BLE001 — the customer must still get an answer
-        logger.warning("Discount request not delivered to support: {}", exc)
+    except TelegramAPIError as exc:
+        # It used to say "passed on to the manager" here whatever happened, and
+        # the request was already written down — so a customer was thanked for
+        # a request nobody received, and the week-long throttle then refused
+        # them a second try. Both halves of that are fixed by the order: record
+        # it only once it has actually arrived, and say what happened.
+        logger.error("Discount request to chat {} failed: {}",
+                     config.support_chat_id, exc)
+        await tell_admins_once(
+            callback.bot, config.env.admin_ids, "support_relay",
+            f"Discount requests are not reaching support: {exc}\n\n"
+            f"support_chat_id={config.support_chat_id}. A bot cannot write to a "
+            f"user who has never opened it — that account must press Start, or "
+            f"the id must name a group the bot is in.",
+        )
+        await callback.answer(t.MSG_DISCOUNT_FAILED, show_alert=True)
+        return
+
+    # Written down only now: what is in this table is what a manager was asked,
+    # and it is also what the week-long throttle above reads.
+    await add_discount_request(chat_id, json.dumps(
+        [{"sku": f["sku"], "name": f["name"], "orders": f["orders"]} for f in favourites],
+        ensure_ascii=False,
+    ))
+    track(chat_id, "discount_requested", products=len(favourites),
+          source="card" if callback_data.sku else "screen")
 
     await callback.answer(t.MSG_DISCOUNT_SENT, show_alert=True)
 

@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from loguru import logger
 
 from core.i18n import Texts, customer_texts, operator_texts
+from bot.alerts import tell_admins_once
 from bot.analytics import track
 from core.config import AppConfig
 from core.repos.support import (album_in_progress, remember_support_thread, start_album,
@@ -49,31 +51,53 @@ async def forward_to_support(
 
     thread_ids: list[int] = []
 
-    if first_of_album:
-        # Send metadata line with chat_id (privacy-safe identifier)
-        note = await bot.send_message(
-            chat_id=config.support_chat_id,
-            text=op.MSG_SUPPORT_ADMIN_NOTE.format(chat_id=message.chat.id),
-        )
-        thread_ids.append(note.message_id)
+    # Every call to the support chat in one place, because they fail together
+    # and they fail for one reason: the chat cannot be written to. Telegram
+    # says so with "bot can't initiate conversation with a user" when
+    # support_chat_id names an account that has never opened this bot — which
+    # is a configuration mistake, not a customer's problem, and used to reach
+    # the customer as silence and the operator as nothing at all.
+    try:
+        if first_of_album:
+            # Send metadata line with chat_id (privacy-safe identifier)
+            note = await bot.send_message(
+                chat_id=config.support_chat_id,
+                text=op.MSG_SUPPORT_ADMIN_NOTE.format(chat_id=message.chat.id),
+            )
+            thread_ids.append(note.message_id)
 
-    # Forward the actual message. forward_message carries whatever the customer
-    # sent — photo, voice, video note, document — so attachments reach the
-    # manager unchanged in this direction.
-    forwarded = await bot.forward_message(
-        chat_id=config.support_chat_id,
-        from_chat_id=message.chat.id,
-        message_id=message.message_id,
-    )
-    thread_ids.append(forwarded.message_id)
-
-    if first_of_album:
-        # Send instruction for replying
-        instruction = await bot.send_message(
+        # Forward the actual message. forward_message carries whatever the
+        # customer sent — photo, voice, video note, document — so attachments
+        # reach the manager unchanged in this direction.
+        forwarded = await bot.forward_message(
             chat_id=config.support_chat_id,
-            text=op.MSG_SUPPORT_REPLY_INSTRUCTION,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id,
         )
-        thread_ids.append(instruction.message_id)
+        thread_ids.append(forwarded.message_id)
+
+        if first_of_album:
+            # Send instruction for replying
+            instruction = await bot.send_message(
+                chat_id=config.support_chat_id,
+                text=op.MSG_SUPPORT_REPLY_INSTRUCTION,
+            )
+            thread_ids.append(instruction.message_id)
+    except TelegramAPIError as exc:
+        logger.error("Support relay to chat {} failed: {}",
+                     config.support_chat_id, exc)
+        await tell_admins_once(
+            bot, config.env.admin_ids, "support_relay",
+            f"Support relay is broken: {exc}\n\n"
+            f"support_chat_id={config.support_chat_id}. A bot cannot write to a "
+            f"user who has never opened it — that account must press Start, or "
+            f"the id must name a group the bot is in. Customers are being told "
+            f"to try again; their messages are not reaching anyone.",
+        )
+        # The state is deliberately left alone: whatever they send next is
+        # still a support message, so a retry is one tap and not a new flow.
+        await message.answer(t.MSG_SUPPORT_NOT_DELIVERED)
+        return
 
     # Every bot-sent message of the request, because a manager replies to
     # whichever is under their thumb — most often the forwarded one, which is
