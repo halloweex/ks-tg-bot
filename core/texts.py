@@ -148,7 +148,7 @@ MSG_SETTINGS_MENU = "Налаштування:"
 
 # Menu content
 MSG_LANGUAGE_CURRENT = "Поточна мова: Українська \u2705"
-MSG_SUPPORT_PROMPT = "Привіт! Як можу допомогти?"
+MSG_SUPPORT_PROMPT = "Напиши свій запит — ми підключимо менеджера 💬"
 MSG_NEW_PHONE_PROMPT = "Щоб оновити номер, поділіться ним через кнопку нижче 👇"
 MSG_PHONE_CHANGED = "Номер телефону змінено! \u2705"
 

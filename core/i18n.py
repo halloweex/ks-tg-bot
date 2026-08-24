@@ -102,7 +102,7 @@ EN: dict[str, str] = {
     "MSG_INFO_MENU": "Choose a section:",
     "MSG_SETTINGS_MENU": "Settings:",
     "MSG_LANGUAGE_CURRENT": "Current language: English ✅",
-    "MSG_SUPPORT_PROMPT": "Hi! How can I help?",
+    "MSG_SUPPORT_PROMPT": "Send your question — we'll bring a manager in 💬",
     "MSG_NEW_PHONE_PROMPT": "To update your number, share it using the button below 👇",
     "MSG_PHONE_CHANGED": "Phone number updated! ✅",
     "MSG_WELCOME_BACK": "Welcome back! 🌸",
