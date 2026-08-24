@@ -122,7 +122,7 @@ EN: dict[str, str] = {
     "MSG_BROADCAST_STARTED": "Broadcast started...",
     "MSG_BROADCAST_COMPLETE": "Broadcast finished!\n\nSent: {sent}\nFailed: {failed}\nBlocked: {blocked}",
     "MSG_BROADCAST_NO_RECIPIENTS": "There are no active subscribers to send to.",
-    "MSG_ORDER_LATEST_MARK": "⭐ ",
+    "MSG_ORDER_LATEST_MARK": " ⭐",
     "BTN_FAVOURITES": "⭐ Favourites",
     "MSG_FAVOURITES_HEADER": "<b>⭐ The ones you love most</b>",
     "MSG_FAVOURITES_HEADER_ONCE": "🛍 Products you have ordered:",

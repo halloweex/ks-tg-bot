@@ -45,10 +45,10 @@ _MAX_INLINE_ITEMS = 4
 # What a shortened order still shows before "…and N more".
 _COLLAPSED_ITEMS = 2
 
-# Orders per page. 92% of customers have five or fewer in total, so for almost
-# everyone this is their whole history on one screen with no buttons at all;
-# the long tail gets paging instead of a truncation notice it cannot act on.
-_ORDERS_PER_PAGE = 5
+# Orders per page. Five of these blocks is a wall of text you get lost in —
+# on a phone it is over a screen and a half, and nothing in it stands out. Three
+# fit on one screen, and the rest is one tap away.
+_ORDERS_PER_PAGE = 3
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +79,7 @@ def _item_line(product: dict, t: Texts) -> str:
     contain '&'.
     """
     name = texts.shorten_name(product.get("name", ""))
-    return f"   • {escape(name)} ×{escape(str(product.get('qty', '')))}"
+    return f"• {escape(name)} ×{escape(str(product.get('qty', '')))}"
 
 
 def _format_cached_order(
@@ -97,14 +97,14 @@ def _format_cached_order(
 
     products = _order_products(row)
     if not products:
-        item_lines = ["   -"]
+        item_lines = ["-"]
     elif expanded or len(products) <= _MAX_INLINE_ITEMS:
         item_lines = [_item_line(p, t) for p in products]
     else:
         shown = products[:_COLLAPSED_ITEMS]
         item_lines = [_item_line(p, t) for p in shown]
         item_lines.append(
-            "   " + t.MSG_ORDER_MORE_ITEMS.format(count=len(products) - len(shown))
+            t.MSG_ORDER_MORE_ITEMS.format(count=len(products) - len(shown))
         )
 
     ordered_at = row.get("ordered_at", "")
@@ -121,22 +121,22 @@ def _format_cached_order(
     mark = t.MSG_ORDER_LATEST_MARK if is_latest else ""
 
     lines = [
-        f"{mark}<b>{number}. {escape(source_label)}</b>",
-        f"  {t.LBL_STATUS}: {status}",
-        f"  {t.LBL_PRODUCTS}:",
+        f"<b>{number}. {escape(source_label)}</b>{mark}",
+        f"{t.LBL_STATUS}: <b>{status}</b>",
+        f"{t.LBL_PRODUCTS}:",
         *item_lines,
-        f"  {t.LBL_TOTAL}: {total} {currency}",
-        f"  {t.LBL_DATE}: {escape(date_str)}",
+        f"{t.LBL_TOTAL}: {total} {currency}",
+        f"{t.LBL_DATE}: {escape(date_str)}",
     ]
 
     tracking = row.get("tracking_code", "")
     if tracking:
-        lines.append(f"  {t.MSG_ORDER_TRACKING.format(code=texts.tracking_link(tracking))}")
+        lines.append(f"{t.MSG_ORDER_TRACKING.format(code=texts.tracking_link(tracking))}")
 
     location_parts = [p for p in (row.get("delivery_city", ""), row.get("receive_point", "")) if p]
     if location_parts:
         location = escape(", ".join(location_parts))
-        lines.append(f"  {t.MSG_ORDER_LOCATION.format(location=location)}")
+        lines.append(f"{t.MSG_ORDER_LOCATION.format(location=location)}")
 
     return "\n".join(lines)
 
@@ -451,7 +451,7 @@ async def _favourites_view(
     lines = [header, ""]
     any_out_of_stock = False
     for i, item in enumerate(favourites, 1):
-        line = "   " + t.MSG_FAVOURITE_LINE.format(
+        line = t.MSG_FAVOURITE_LINE.format(
             orders=item["orders"], qty=item["qty"],
             date=escape(_short_date(item["last"])),
         )

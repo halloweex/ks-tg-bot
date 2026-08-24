@@ -51,26 +51,26 @@ def _format_delivery_block(row: dict, tracking_info: dict | None, t: Texts) -> s
     label = _format_order_label(row, t)
     ttn = row.get("tracking_code", "")
 
-    lines = [label, f"  {t.MSG_ORDER_TRACKING.format(code=texts.tracking_link(ttn))}"]
+    lines = [label, f"{t.MSG_ORDER_TRACKING.format(code=texts.tracking_link(ttn))}"]
 
     if tracking_info:
         ts = tracking_info
         if ts.status:
-            lines.append(f"  {t.MSG_DELIVERY_STATUS.format(status=escape(t.status(ts.status)))}")
+            lines.append(f"{t.MSG_DELIVERY_STATUS.format(status=escape(t.status(ts.status)))}")
         if ts.warehouse_recipient:
-            lines.append(f"  {t.MSG_DELIVERY_WAREHOUSE.format(warehouse=escape(ts.warehouse_recipient))}")
+            lines.append(f"{t.MSG_DELIVERY_WAREHOUSE.format(warehouse=escape(ts.warehouse_recipient))}")
         if ts.actual_delivery:
-            lines.append(f"  {t.MSG_DELIVERY_ACTUAL.format(date=_format_date(ts.actual_delivery))}")
+            lines.append(f"{t.MSG_DELIVERY_ACTUAL.format(date=_format_date(ts.actual_delivery))}")
         elif ts.scheduled_delivery:
-            lines.append(f"  {t.MSG_DELIVERY_SCHEDULED.format(date=_format_date(ts.scheduled_delivery))}")
+            lines.append(f"{t.MSG_DELIVERY_SCHEDULED.format(date=_format_date(ts.scheduled_delivery))}")
     else:
         # Fallback: use data from CRM
         shipping_status = row.get("shipping_status", "")
         if shipping_status:
-            lines.append(f"  {t.MSG_DELIVERY_STATUS.format(status=escape(t.status(shipping_status)))}")
+            lines.append(f"{t.MSG_DELIVERY_STATUS.format(status=escape(t.status(shipping_status)))}")
         location_parts = [p for p in (row.get("delivery_city", ""), row.get("receive_point", "")) if p]
         if location_parts:
-            lines.append(f"  📍 {escape(', '.join(location_parts))}")
+            lines.append(f"📍 {escape(', '.join(location_parts))}")
 
     return "\n".join(lines)
 

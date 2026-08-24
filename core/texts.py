@@ -180,7 +180,7 @@ MSG_BROADCAST_NO_RECIPIENTS = "Немає активних підписникі�
 # The newest order is marked with a star on its own heading line rather than
 # announced above it — the list is numbered, so one glyph says what a whole
 # line used to.
-MSG_ORDER_LATEST_MARK = "⭐ "
+MSG_ORDER_LATEST_MARK = " ⭐"
 
 # Favourites
 BTN_FAVOURITES = "⭐ Улюблені"
