@@ -253,8 +253,13 @@ BTN_BUY_PRODUCT = "🛒 {name} · {price} ₴"
 # state: "немає" told the customer something they could already see and offered
 # them nothing. Every shop that does this well — Rozetka, MAKEUP, Zara — puts
 # the undertaking on the button and the availability in the text.
-BTN_NOTIFY_PRODUCT = "🔔 Повідомити, коли зʼявиться: {name}"
-BTN_NOTIFY_WAITING = "✅ Повідомимо: {name}"
+#
+# One word for it, though. "Повідомити, коли зʼявиться" is the fuller promise
+# and it made this button half again as wide as the buy buttons above it, which
+# is a worse thing to be than slightly less explicit. The pop-up that follows
+# the tap says the whole sentence.
+BTN_NOTIFY_PRODUCT = "🔔 Повідомити: {name}"
+BTN_NOTIFY_WAITING = "✅ Чекаєте: {name}"
 BTN_BUY_ALL = "🛒 Усе разом · {total} ₴"
 # Products the shop can say nothing about — no offer, no stock figure — get no
 # button, because there is nothing to press. Naming them here keeps them from

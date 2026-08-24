@@ -134,8 +134,8 @@ EN: dict[str, str] = {
         "will show up here."
     ),
     "BTN_BUY_PRODUCT": "🛒 {name} · {price} ₴",
-    "BTN_NOTIFY_PRODUCT": "🔔 Notify me when it's back: {name}",
-    "BTN_NOTIFY_WAITING": "✅ We'll let you know: {name}",
+    "BTN_NOTIFY_PRODUCT": "🔔 Notify me: {name}",
+    "BTN_NOTIFY_WAITING": "✅ Waiting: {name}",
     "BTN_BUY_ALL": "🛒 All of it · {total} ₴",
     "MSG_FAVOURITES_ALSO": "You have also bought: {names}",
     "BTN_WANT_DISCOUNT": "💰 I'd like a discount on these",

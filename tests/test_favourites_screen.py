@@ -123,7 +123,7 @@ def test_the_storefront_outranks_the_crm_count(db):
     asyncio.run(save_stock_levels({"1": 50}))
     _text, buttons = _view([_order("1")])
     assert not any(b.text.startswith("🛒 Product") for b in buttons)
-    assert "🔔 Повідомити, коли зʼявиться: Product 1" in _labels(buttons)
+    assert "🔔 Повідомити: Product 1" in _labels(buttons)
 
 
 def test_without_an_offer_the_crm_count_still_answers(db):
@@ -131,7 +131,7 @@ def test_without_an_offer_the_crm_count_still_answers(db):
     Those keep the behaviour the screen had before the storefront existed."""
     asyncio.run(save_stock_levels({"1": 0}))
     _text, buttons = _view([_order("1")])
-    assert "🔔 Повідомити, коли зʼявиться: Product 1" in _labels(buttons)
+    assert "🔔 Повідомити: Product 1" in _labels(buttons)
 
 
 def test_where_neither_source_knows_the_screen_says_nothing(db):
@@ -148,7 +148,7 @@ def test_a_subscription_already_taken_shows_as_cancellable(db):
     asyncio.run(save_offers({"1": _offer("1", available=False)}))
     asyncio.run(add_stock_subscription(CHAT, "1", "Product 1"))
     _text, buttons = _view([_order("1")])
-    assert "✅ Повідомимо: Product 1" in _labels(buttons)
+    assert "✅ Чекаєте: Product 1" in _labels(buttons)
 
 
 # --- the hints under the list ----------------------------------------------
