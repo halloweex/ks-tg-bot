@@ -2,6 +2,7 @@
 
 No string literals should appear in handler files — import from here instead.
 """
+import re
 from html import escape
 from urllib.parse import quote
 
@@ -87,6 +88,42 @@ def shorten_name(name: str, limit: int = NAME_MAX_LEN) -> str:
     """Trim a product name to `limit` characters, adding an ellipsis if cut."""
     name = str(name)
     return name if len(name) <= limit else name[:limit].rstrip() + "…"
+
+
+# The CRM writes a product as "English name - українська назва", in either
+# order, and sometimes as one mixed string with no separator at all. Trimming
+# such a name from the left throws away the half a Ukrainian customer reads:
+# "Dear Doer The Hidden Body Scrub - Dear Doer the Hidd…"
+_NAME_SPLIT = re.compile(r"\s+[-–—]\s+")
+_CYRILLIC = re.compile(r"[Ѐ-ӿ]")
+# The brand, as far as the first word: the leading latin token, with a
+# "(Miniature)" marker in front of it skipped.
+_BRAND = re.compile(r"^(?:\(Miniature\)\s*)?([A-Za-z][\w:.'’]*)")
+
+
+def product_label(name: str, limit: int = NAME_MAX_LEN) -> str:
+    """A product name as a customer should read it: their half, brand kept.
+
+    Picks the half of the name written in Cyrillic — which is the one the
+    customer reads — and puts the brand back in front if that half dropped it,
+    since "Гелева маска з колагеном" without "Abib" names no product anyone can
+    ask for. Names with no separator, or with no Cyrillic at all, are left alone
+    and only trimmed: "CURE SPF Cooling Sunstick" is already what it is.
+    """
+    name = str(name).strip()
+    parts = [part.strip() for part in _NAME_SPLIT.split(name) if part.strip()]
+    if len(parts) > 1:
+        cyrillic = [part for part in parts if _CYRILLIC.search(part)]
+        chosen = cyrillic[0] if cyrillic else parts[0]
+    else:
+        chosen = name
+
+    brand = _BRAND.match(name)
+    if brand and not chosen.lower().startswith(brand.group(1).lower()):
+        chosen = f"{brand.group(1)} {chosen}"
+
+    chosen = re.sub(r"\s+", " ", chosen).strip(" ,")
+    return shorten_name(chosen, limit)
 
 
 def order_source_label(row: dict) -> str:
@@ -184,10 +221,21 @@ MSG_ORDER_LATEST_MARK = " ⭐"
 
 # Favourites
 BTN_FAVOURITES = "⭐ Улюблені"
-MSG_FAVOURITES_HEADER = "<b>⭐ Те, що ви любите найбільше</b>"
+# Two lines, and the second one is an instruction rather than a description.
+# The first line of this screen is not this header at all — it is the customer's
+# own "⭐ Улюблені", echoed into the chat by the menu key they pressed. A header
+# that says the same thing again in other words is the second of three lines
+# before anything actionable appears.
+MSG_FAVOURITES_HEADER = (
+    "<b>⭐ Ваші постійні засоби</b>\n"
+    "Те, що ви замовляєте найчастіше. Натисніть, щоб замовити ще раз 👇"
+)
 # When nothing has been bought twice, calling it a favourite is a small lie:
 # a quarter of customers have only ever ordered one product.
-MSG_FAVOURITES_HEADER_ONCE = "🛍 Товари, які ви замовляли:"
+MSG_FAVOURITES_HEADER_ONCE = (
+    "<b>🛍 Ви це вже купували</b>\n"
+    "Натисніть, щоб замовити ще раз 👇"
+)
 # Counts rather than "N разів" to sidestep Ukrainian plural agreement.
 MSG_FAVOURITE_LINE = "замовлень: {orders} · {qty} шт · востаннє {date}"
 MSG_NO_FAVOURITES = (
@@ -196,9 +244,18 @@ MSG_NO_FAVOURITES = (
 )
 # Numbered like the notify buttons above and for the same reason: a row of
 # glyph-and-number buttons fits, a row of 40-character product names does not.
-BTN_BUY = "🛒 {product}"
-BTN_BUY_ALL = "🛒 Замовити все, що є ({count})"
-MSG_BUY_HINT = "🛒 номер — оформити замовлення"
+# One button per product, carrying the product's own name. The numbered
+# variants these replaced needed a legend under the list explaining what the
+# numbers meant — and a screen that has to explain its own buttons has already
+# lost the argument.
+BTN_BUY_PRODUCT = "🛒 {name} · {price} ₴"
+BTN_NOTIFY_PRODUCT = "🔔 {name} — немає"
+BTN_NOTIFY_WAITING = "🔕 {name} — чекаєте"
+BTN_BUY_ALL = "🛒 Усе разом · {total} ₴"
+# Products the shop can say nothing about — no offer, no stock figure — get no
+# button, because there is nothing to press. Naming them here keeps them from
+# vanishing off a screen that is supposed to list what someone buys.
+MSG_FAVOURITES_ALSO = "Також ви купували: {names}"
 BTN_WANT_DISCOUNT = "💰 Хочу знижку на ці товари"
 MSG_DISCOUNT_SENT = (
     "Передали менеджеру ваш запит на знижку. Ми звʼяжемось із вами тут, у боті."

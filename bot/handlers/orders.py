@@ -48,6 +48,11 @@ _MAX_INLINE_ITEMS = 4
 # What a shortened order still shows before "…and N more".
 _COLLAPSED_ITEMS = 2
 
+# How much of a product name fits on a button next to its price. Telegram wraps
+# a longer label onto a second line rather than cutting it, which costs the row
+# its shape but never hides the price.
+_BUTTON_NAME_LEN = 30
+
 # Orders per page. Five of these blocks is a wall of text you get lost in —
 # on a phone it is over a screen and a half, and nothing in it stands out. Three
 # fit on one screen, and the rest is one tap away.
@@ -65,6 +70,23 @@ def _money(value) -> str:
     except (TypeError, ValueError):
         return escape(str(value))
     return str(int(num)) if num == int(num) else f"{num:.2f}"
+
+
+def _as_number(value) -> float:
+    """A price as a number, or 0 for anything unparseable."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _price(value) -> str:
+    """A price as it goes on a button: whole hryvnia, thousands spaced out.
+
+    3480.36 reads as 3 480 — the kopecks are noise next to a product name, and
+    an unbroken 3480 is a number the eye has to count digits in.
+    """
+    return f"{int(round(_as_number(value))):,}".replace(",", "\u2009")
 
 
 def _order_products(row: dict) -> list[dict]:
@@ -439,6 +461,12 @@ async def _favourites_view(
 ) -> tuple[str, InlineKeyboardMarkup, int]:
     """The favourites screen — its text, its buttons, and how many it lists.
 
+    The list *is* the buttons. What used to be five text blocks plus two rows of
+    numbered buttons plus two lines of legend explaining the numbers is now one
+    button per product carrying its own name and today's price; the message
+    itself is a heading and an instruction. Nothing on the screen has to be
+    matched to anything else on the screen.
+
     Built in one place because two handlers draw it: opening the screen, and
     toggling a back-in-stock subscription, which has to redraw so the button
     the customer just pressed changes to reflect what it did.
@@ -459,33 +487,15 @@ async def _favourites_view(
     subscribed = await get_subscribed_skus(chat_id)
 
     repeated = any(item["orders"] > 1 for item in favourites)
-    header = t.MSG_FAVOURITES_HEADER if repeated else t.MSG_FAVOURITES_HEADER_ONCE
-    lines = [header, ""]
-    for i, item in enumerate(favourites, 1):
-        line = t.MSG_FAVOURITE_LINE.format(
-            orders=item["orders"], qty=item["qty"],
-            date=escape(_short_date(item["last"])),
-        )
-        offer = _buyable(item, offers)
-        if offer is not None:
-            # Today's price, from the shop rather than from what they paid last
-            # time. Prices move, and an old one on a buy button is a promise the
-            # checkout will not keep.
-            line += f" · {_money(offer.price)} {escape(t.currency('uah'))}"
-        elif _is_missing(item, offers, levels):
-            line += f" · {escape(t.MSG_FAVOURITE_OUT_OF_STOCK)}"
-        lines.append(f"<b>{i}.</b> {escape(texts.shorten_name(item['name'], 52))}")
-        lines.append(line)
+    lines = [t.MSG_FAVOURITES_HEADER if repeated else t.MSG_FAVOURITES_HEADER_ONCE]
 
-    # Same reason as the order list: the buttons below are numbers, and the
-    # numbers only mean something once they have been explained.
-    hints = []
-    if any(_buyable(item, offers) for item in favourites):
-        hints.append(t.MSG_BUY_HINT)
-    if any(_is_missing(item, offers, levels) for item in favourites):
-        hints.append(t.MSG_STOCK_HINT)
-    if hints:
-        lines += ["", *hints]
+    # A product with no offer and no stock figure has no button — there is
+    # nothing to press — so it is named in the text instead of disappearing.
+    silent = [item for item in favourites
+              if _buyable(item, offers) is None and not _is_missing(item, offers, levels)]
+    if silent:
+        names = ", ".join(texts.product_label(item["name"], 28) for item in silent)
+        lines += ["", t.MSG_FAVOURITES_ALSO.format(names=escape(names))]
 
     return (
         "\n".join(lines),
@@ -532,56 +542,56 @@ def _is_missing(item: dict, offers: dict[str, Offer], levels: dict[str, int]) ->
 
 def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
                    website_url: str) -> InlineKeyboardMarkup:
-    """A button per product for whatever can be done with it, and one for the lot.
+    """One button per product, then one for the lot, then the discount ask.
 
-    Three kinds, in the order the customer cares about them: buy what is there,
-    be told about what is not, ask for a discount on all of it. Each product
-    button is labelled with the product's number in the list above, so five of
-    them fit on one row instead of five rows of truncated product names.
+    Every button says what it does to which product, so the screen needs no
+    legend. One per row: the labels carry a product name and a price, and two of
+    those side by side is two lines of wrapped text each.
 
     The buy buttons are url buttons — the cart link is the whole mechanism, and
     Telegram cannot report a tap on one. That is why the link carries UTM tags:
     the shop's analytics is the only place this can be counted.
     """
     builder = InlineKeyboardBuilder()
-    buyable: list[int] = []
-    buy_buttons = notify_buttons = 0
+    rows = 0
+    basket: list[int] = []
+    total = 0.0
 
-    for i, item in enumerate(favourites, 1):
+    for item in favourites:
+        label = texts.product_label(item["name"], _BUTTON_NAME_LEN)
         offer = _buyable(item, offers)
         if offer is not None:
-            builder.button(text=t.BTN_BUY.format(product=i),
-                           url=cart_url(website_url, [offer.variant_id], t.lang))
-            buyable.append(offer.variant_id)
-            buy_buttons += 1
+            builder.button(
+                text=t.BTN_BUY_PRODUCT.format(name=label, price=_price(offer.price)),
+                url=cart_url(website_url, [offer.variant_id], t.lang),
+            )
+            basket.append(offer.variant_id)
+            total += _as_number(offer.price)
+            rows += 1
+            continue
 
-    for i, item in enumerate(favourites, 1):
         sku = str(item.get("sku") or "")
         if not sku or not _is_missing(item, offers, levels):
             continue
-        if sku in subscribed:
-            builder.button(text=t.BTN_NOTIFY_CANCEL.format(product=i),
-                           callback_data=StockAction(action="unsub", sku=sku))
-        else:
-            builder.button(text=t.BTN_NOTIFY_ME.format(product=i),
-                           callback_data=StockAction(action="sub", sku=sku))
-        notify_buttons += 1
+        waiting = sku in subscribed
+        builder.button(
+            text=(t.BTN_NOTIFY_WAITING if waiting else t.BTN_NOTIFY_PRODUCT).format(
+                name=label
+            ),
+            callback_data=StockAction(action="unsub" if waiting else "sub", sku=sku),
+        )
+        rows += 1
 
     # One basket with everything available in it. Only from two products up:
     # with one it is the button directly above it, worded at greater length.
-    whole_basket = len(buyable) > 1
-    if whole_basket:
-        builder.button(text=t.BTN_BUY_ALL.format(count=len(buyable)),
-                       url=cart_url(website_url, buyable, t.lang))
+    if len(basket) > 1:
+        builder.button(text=t.BTN_BUY_ALL.format(total=_price(total)),
+                       url=cart_url(website_url, basket, t.lang))
+        rows += 1
 
-    builder.button(text=t.BTN_WANT_DISCOUNT,
-                   callback_data=DiscountAction(action="ask"))
-
-    layout = [n for n in (buy_buttons, notify_buttons) if n]
-    if whole_basket:
-        layout.append(1)
-    layout.append(1)
-    builder.adjust(*layout)
+    builder.button(text=t.BTN_WANT_DISCOUNT, callback_data=DiscountAction(action="ask"))
+    rows += 1
+    builder.adjust(*([1] * rows))
     return builder.as_markup()
 
 

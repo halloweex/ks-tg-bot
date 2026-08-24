@@ -124,16 +124,20 @@ EN: dict[str, str] = {
     "MSG_BROADCAST_NO_RECIPIENTS": "There are no active subscribers to send to.",
     "MSG_ORDER_LATEST_MARK": " ⭐",
     "BTN_FAVOURITES": "⭐ Favourites",
-    "MSG_FAVOURITES_HEADER": "<b>⭐ The ones you love most</b>",
-    "MSG_FAVOURITES_HEADER_ONCE": "🛍 Products you have ordered:",
+    "MSG_FAVOURITES_HEADER": ("<b>⭐ Your regulars</b>\n"
+                              "What you order most often. Tap to order it again 👇"),
+    "MSG_FAVOURITES_HEADER_ONCE": ("<b>🛍 You have bought these before</b>\n"
+                                   "Tap to order again 👇"),
     "MSG_FAVOURITE_LINE": "orders: {orders} · {qty} pcs · last {date}",
     "MSG_NO_FAVOURITES": (
         "Nothing to base favourites on yet — the products you order most often "
         "will show up here."
     ),
-    "BTN_BUY": "🛒 {product}",
-    "BTN_BUY_ALL": "🛒 Order everything in stock ({count})",
-    "MSG_BUY_HINT": "🛒 number — go to checkout",
+    "BTN_BUY_PRODUCT": "🛒 {name} · {price} ₴",
+    "BTN_NOTIFY_PRODUCT": "🔔 {name} — out of stock",
+    "BTN_NOTIFY_WAITING": "🔕 {name} — waiting",
+    "BTN_BUY_ALL": "🛒 All of it · {total} ₴",
+    "MSG_FAVOURITES_ALSO": "You have also bought: {names}",
     "BTN_WANT_DISCOUNT": "💰 I'd like a discount on these",
     "MSG_DISCOUNT_SENT": (
         "We've passed your discount request to a manager. We'll get back to you "
