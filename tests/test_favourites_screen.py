@@ -22,6 +22,7 @@ from core.repos.schema import init_db
 from core.repos.stock import add_stock_subscription, save_stock_levels
 
 CHAT = 4242
+T = Texts("uk")
 SHOP = "https://koreanstory.com.ua"
 
 
@@ -52,6 +53,11 @@ def _view(orders, lang="uk"):
     )
     buttons = [b for row in kb.inline_keyboard for b in row]
     return re.sub(r"<[^>]+>", "", text), buttons
+
+
+def _plain(html: str) -> str:
+    """The string as the customer sees it, without the markup."""
+    return re.sub(r"<[^>]+>", "", html)
 
 
 def _labels(buttons):
@@ -151,7 +157,7 @@ def test_where_neither_source_knows_the_screen_says_nothing(db):
     assert _labels(_products(buttons)) == ["💰 Хочу знижку на ці товари"]
     # ...but it is still named, or it would vanish off a screen whose whole job
     # is to list what this person buys.
-    assert "Також ви купували: Product 1" in text
+    assert _plain(T.MSG_FAVOURITES_ALSO.format(names="Product 1")) in text
 
 
 def test_a_subscription_already_taken_shows_as_cancellable(db):
@@ -170,8 +176,8 @@ def test_the_message_is_a_heading_and_an_instruction(db):
     before anything actionable."""
     asyncio.run(save_offers({"1": _offer("1")}))
     text, _buttons = _view([_order("1"), _order("1")])
-    assert text.splitlines()[0] == "⭐ Ваші постійні засоби"
-    assert "Натисніть, щоб замовити ще раз" in text
+    assert text.splitlines()[0] == _plain(T.MSG_FAVOURITES_HEADER).splitlines()[0]
+    assert text.splitlines()[1] == _plain(T.MSG_FAVOURITES_HEADER).splitlines()[1]
     assert "замовлень:" not in text
 
 
@@ -180,7 +186,7 @@ def test_a_one_off_purchase_is_not_called_a_favourite(db):
     does not support — a quarter of customers have only ever bought one thing."""
     asyncio.run(save_offers({"1": _offer("1")}))
     text, _buttons = _view([_order("1")])
-    assert text.splitlines()[0] == "🛍 Ви це вже купували"
+    assert text.splitlines()[0] == _plain(T.MSG_FAVOURITES_HEADER_ONCE).splitlines()[0]
 
 
 # --- the way to the rest of the list ---------------------------------------
@@ -192,7 +198,7 @@ def test_the_panel_is_the_first_button_on_the_screen(db):
     client puts "@bot " in the field and draws the list over the keyboard."""
     asyncio.run(save_offers({"1": _offer("1")}))
     _text, buttons = _view([_order("1")])
-    assert buttons[0].text == "🔍 Усе, що ви купували · з фото"
+    assert buttons[0].text == T.BTN_FAVOURITES_ALL
     assert buttons[0].switch_inline_query_current_chat == ""
 
 

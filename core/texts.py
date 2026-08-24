@@ -1,6 +1,19 @@
 """All Ukrainian UI strings as module-level constants.
 
 No string literals should appear in handler files — import from here instead.
+
+**The voice is the brand's, and it is written on «ти».** From the 2026 strategy
+(Tone of voice, p. 199): "Ми звертаємось до людини як до рівної, на «ти»", and
+every example dialogue there is on «ти». The brand character is a friend who
+knows K-beauty — expert but never above you — so these strings say "Натисни",
+not "Натисніть", and "твої замовлення", not "Ваші".
+
+Three don'ts from the same section, worth keeping in view when adding a string:
+no talking down, no diminutives, and no excessive emoji. One per screen is a
+signpost; three is decoration.
+
+The operator surface below — the support chat, the admin alerts — is *not*
+written in this voice. It is read by whoever is working, next to the logs.
 """
 import re
 from datetime import datetime
@@ -11,10 +24,10 @@ from urllib.parse import quote
 # Use .format(brand_name=config.brand_name) at runtime
 GREETING = (
     "Вітаємо у {brand_name}! 🌸\n\n"
-    "Я покажу, де ваше замовлення, що ви вже купували і коли улюблений засіб "
+    "Покажу, де твоє замовлення, що ти вже купувала і коли улюблений засіб "
     "знову зʼявиться.\n\n"
-    "Щоб знайти ваші замовлення, поділіться, будь ласка, номером телефону — "
-    "тим самим, що ви вказували при покупці."
+    "Щоб знайти твої замовлення, поділись, будь ласка, номером телефону — "
+    "тим самим, що вказувала при покупці."
 )
 
 BTN_SHARE_PHONE = "📱 Поділитися номером"
@@ -23,22 +36,22 @@ BTN_SHARE_PHONE = "📱 Поділитися номером"
 # only). Manual entry / forwarded contacts are rejected to prevent viewing
 # someone else's orders and delivery address (IDOR).
 ERR_CONTACT_NOT_OWN = (
-    "❗ Поділіться, будь ласка, своїм власним номером через кнопку "
+    "❗ Поділись, будь ласка, своїм власним номером через кнопку "
     "«📱 Поділитися номером» нижче.\nПереслані або чужі контакти не приймаються."
 )
 MSG_USE_SHARE_BUTTON = (
     "З міркувань безпеки номер не можна вводити вручну.\n"
-    "Скористайтеся кнопкою «📱 Поділитися номером» нижче 👇"
+    "Скористайся кнопкою «📱 Поділитися номером» нижче 👇"
 )
 
 # Error messages (neutral/factual tone)
-ERR_GENERIC = "Виникла технічна помилка. Спробуйте пізніше."
-ERR_API_UNAVAILABLE = "Сервіс тимчасово недоступний. Спробуйте через кілька хвилин."
+ERR_GENERIC = "Виникла технічна помилка. Спробуй, будь ласка, трохи згодом."
+ERR_API_UNAVAILABLE = "Сервіс тимчасово недоступний. Спробуй через кілька хвилин."
 ERR_PHONE_NOT_FOUND = (
     "На жаль, ми не знайшли замовлень за цим номером.\n"
-    "Перевірте номер або зверніться до підтримки."
+    "Перевір номер або напиши менеджеру — розберемось разом."
 )
-ERR_INVALID_PHONE = "Невірний формат номера. Введіть у міжнародному форматі, наприклад +380XXXXXXXXX."
+ERR_INVALID_PHONE = "Невірний формат номера. Введи у міжнародному форматі, наприклад +380XXXXXXXXX."
 
 # Main menu buttons. Short by design: the menu is laid out two and three to a
 # row, and a long label there wraps to two lines and makes the grid ragged.
@@ -59,7 +72,7 @@ BTN_CHANGE_PHONE = "📱 Змінити номер"
 BTN_LANGUAGE = "🌍 Мова"
 
 # Order display
-MSG_ORDERS_HEADER = "<b>📦 Ваші замовлення</b>"
+MSG_ORDERS_HEADER = "<b>📦 Твої замовлення</b>"
 MSG_ORDER_SOURCE_WEB = "🌐 Сайт"
 MSG_ORDER_SOURCE_INSTAGRAM = "📸 Instagram"
 
@@ -294,22 +307,22 @@ MSG_ORDER_LOCATION = "📍 {location}"
 
 # Status messages
 MSG_NO_ORDERS = (
-    "У вас поки немає замовлень за номером, яким ви поділилися.\n\n"
-    "Якщо ви робили замовлення, можливо, воно оформлене на інший номер — "
-    "той, що ви вказали під час покупки, а не той, до якого прив'язаний Telegram. "
-    "Напишіть нам, і ми знайдемо його вручну."
+    "За номером, яким ти поділилася, замовлень поки немає.\n\n"
+    "Якщо замовлення було, можливо, воно оформлене на інший номер — той, що ти "
+    "вказала під час покупки, а не той, до якого прив'язаний Telegram. "
+    "Напиши нам — знайдемо його вручну."
 )
-MSG_SUPPORT_FORWARDED = "Ваше повідомлення надіслано менеджеру. Очікуйте відповідь."
+MSG_SUPPORT_FORWARDED = "Передали менеджеру — відповімо тут."
 
 # Menu headers
 MSG_MAIN_MENU = "Чим допомогти?"
 # Sits inside the input field while the menu keyboard is open, in place of
 # "Write a message" — the field is not what we want tapped.
-MSG_MENU_PLACEHOLDER = "Оберіть дію"
+MSG_MENU_PLACEHOLDER = "Обери дію"
 # Carries the menu that lives in a message rather than under the input field.
 # Its own line, because Telegram gives a message one keyboard and these are two
 # kinds of keyboard — so the menu always arrives as the second of two messages.
-MSG_MENU_PICK = "Оберіть у меню 👇"
+MSG_MENU_PICK = "Обери в меню 👇"
 MSG_WEBSITE_INTRO = "Наш магазин — тут 👇"
 # Both used to be a single short line above a keyboard, which draws a bubble
 # the size of the words in it — a screen that looks like an afterthought next
@@ -319,11 +332,11 @@ MSG_INFO_MENU = (
     "<b>ℹ️ Довідка</b>\n\n"
     "Коротко про магазин, доставку й оплату.\n"
     "Потрібна людина — «💬 Менеджер» у меню.\n\n"
-    "Оберіть розділ 👇"
+    "Обери розділ 👇"
 )
 MSG_SETTINGS_MENU = (
     "<b>⚙️ Налаштування</b>\n\n"
-    "Номер телефону, за яким ми знаходимо ваші замовлення, і мова бота."
+    "Номер телефону, за яким ми знаходимо твої замовлення, і мова бота."
 )
 
 # Menu content
@@ -334,7 +347,7 @@ MSG_PHONE_CHANGED = "Номер телефону змінено! \u2705"
 
 # Onboarding responses
 MSG_WELCOME_BACK = "З поверненням! \U0001f338"
-MSG_WELCOME_BACK_NAME = "{name}, раді бачити вас знову! \U0001f338"
+MSG_WELCOME_BACK_NAME = "{name}, рада тебе бачити! \U0001f338"
 MSG_PHONE_VERIFIED = "Дякуємо! Номер підтверджено \u2705"
 
 # Support relay (admin-side)
@@ -350,8 +363,8 @@ MSG_SUPPORT_REPLY_INSTRUCTION = "↩️ Відповідайте на перес
 MSG_SUPPORT_NO_REPLY_TARGET = "Будь ласка, відповідайте на переслане повідомлення клієнта."
 
 # Broadcast opt-out
-MSG_OPT_OUT_CONFIRM = "Ви відписались від розсилки. Щоб підписатись знову, надішліть /start"
-MSG_OPT_IN_CONFIRM = "Ви знову підписані на розсилку!"
+MSG_OPT_OUT_CONFIRM = "Ти відписалась від розсилки. Щоб підписатись знову, надішли /start"
+MSG_OPT_IN_CONFIRM = "Ти знову підписана на розсилку!"
 
 # Admin broadcast
 MSG_BROADCAST_PROMPT = "Введіть текст розсилки:"
@@ -376,20 +389,20 @@ BTN_FAVOURITES = "⭐ Улюблені"
 # that says the same thing again in other words is the second of three lines
 # before anything actionable appears.
 MSG_FAVOURITES_HEADER = (
-    "<b>⭐ Ваші постійні засоби</b>\n"
-    "Те, що ви замовляєте найчастіше. Натисніть, щоб замовити ще раз 👇"
+    "<b>⭐ Твої постійні засоби</b>\n"
+    "Те, що ти замовляєш найчастіше. Натисни, щоб замовити ще раз 👇"
 )
 # When nothing has been bought twice, calling it a favourite is a small lie:
 # a quarter of customers have only ever ordered one product.
 MSG_FAVOURITES_HEADER_ONCE = (
-    "<b>🛍 Ви це вже купували</b>\n"
-    "Натисніть, щоб замовити ще раз 👇"
+    "<b>🛍 Ти це вже купувала</b>\n"
+    "Натисни, щоб замовити ще раз 👇"
 )
 # Counts rather than "N разів" to sidestep Ukrainian plural agreement.
 MSG_FAVOURITE_LINE = "замовлень: {orders} · {qty} шт · востаннє {date}"
 MSG_NO_FAVOURITES = (
-    "Поки що нема з чого скласти улюблене — тут з'являться товари, "
-    "які ви замовляєте найчастіше."
+    "Поки що нема з чого скласти улюблене — тут зʼявиться те, "
+    "що ти замовляєш найчастіше."
 )
 # Numbered like the notify buttons above and for the same reason: a row of
 # glyph-and-number buttons fits, a row of 40-character product names does not.
@@ -413,24 +426,24 @@ BTN_BUY_ALL = "🛒 Усе разом · {total} ₴"
 # Products the shop can say nothing about — no offer, no stock figure — get no
 # button, because there is nothing to press. Naming them here keeps them from
 # vanishing off a screen that is supposed to list what someone buys.
-MSG_FAVOURITES_ALSO = "Також ви купували: {names}"
+MSG_FAVOURITES_ALSO = "Також ти купувала: {names}"
 BTN_WANT_DISCOUNT = "💰 Хочу знижку на ці товари"
 # On a card there is one product and its name is the line above the button, so
 # the button says neither.
 BTN_WANT_DISCOUNT_CARD = "💰 Хочу знижку"
 MSG_DISCOUNT_SENT = (
-    "Передали менеджеру ваш запит на знижку. Ми звʼяжемось із вами тут, у боті."
+    "Передали менеджеру твій запит на знижку. Відповімо тут, у боті."
 )
-MSG_DISCOUNT_ALREADY = "Ваш запит уже в роботі — менеджер відповість найближчим часом."
+MSG_DISCOUNT_ALREADY = "Твій запит уже в роботі — менеджер відповість найближчим часом."
 # Said when the message did not reach the manager. It used to say the opposite:
 # the send was attempted, the failure was logged, and the customer was thanked
 # for a request nobody received. A shop that says "passed on" when nothing was
 # passed on is worse than one that admits a hiccup.
-MSG_DISCOUNT_FAILED = "Не вдалося передати запит. Спробуйте, будь ласка, за кілька хвилин."
+MSG_DISCOUNT_FAILED = "Не вдалося передати запит. Спробуй, будь ласка, за кілька хвилин."
 MSG_SUPPORT_NOT_DELIVERED = (
     "Не вдалося передати повідомлення менеджеру 😔\n"
-    "Спробуйте, будь ласка, ще раз за кілька хвилин — ваш текст нікуди не зник, "
-    "просто надішліть його знову."
+    "Спробуй, будь ласка, ще раз за кілька хвилин — твій текст нікуди не зник, "
+    "просто надішли його знову."
 )
 # Goes to the support chat, so Ukrainian regardless of the customer's language.
 MSG_DISCOUNT_ADMIN = "💰 Запит на знижку\n👤 {who}"
@@ -440,8 +453,8 @@ MSG_DISCOUNT_ADMIN = "💰 Запит на знижку\n👤 {who}"
 # is remember, which is the part a shop usually forgets.
 MSG_BIRTHDAY = (
     "🎂 З днем народження!\n\n"
-    "Дякуємо, що ви з нами — і нехай цей рік буде до вас добрим 🌸\n"
-    "Ось те, що ви любите найбільше:"
+    "Дякуємо, що ти з нами — і нехай цей рік буде до тебе добрим 🌸\n"
+    "Ось те, що ти любиш найбільше:"
 )
 BTN_BIRTHDAY_FAVOURITES = "⭐ Мої улюблені"
 MSG_BACK_IN_STOCK_HEADER = "🔔 Знову в наявності:"
@@ -460,7 +473,7 @@ MSG_FAVOURITE_OUT_OF_STOCK = "зараз немає"
 # they type. It is the first button on that screen because it is as close as
 # the menu key can get to opening the panel itself: a reply-keyboard key sends
 # text and nothing else.
-BTN_FAVOURITES_ALL = "🔍 Усе, що ви купували · з фото"
+BTN_FAVOURITES_ALL = "🔍 Усе, що ти купувала · з фото"
 # Two lines under the product's name in the panel. The first is today's price
 # and whether it can be bought; the second is MSG_FAVOURITE_LINE, the same
 # "замовлень: 3 · 4 шт · востаннє 15.06.2026" the manager sees.
@@ -480,13 +493,13 @@ BTN_OPEN_PRODUCT = "🌐 Дивитися на сайті"
 # The panel can answer with a button above the results instead of results.
 # These three are what it says when there is nothing to show: in somebody
 # else's chat, before the number is shared, and before the first order.
-MSG_INLINE_NOT_HERE = "Відкрийте цей список у чаті з ботом"
-MSG_INLINE_NEED_PHONE = "Поділіться номером — і побачите свої товари"
-MSG_INLINE_EMPTY = "Тут зʼявиться те, що ви замовляли"
+MSG_INLINE_NOT_HERE = "Цей список відкривається в чаті з ботом"
+MSG_INLINE_NEED_PHONE = "Поділись номером — і побачиш свої товари"
+MSG_INLINE_EMPTY = "Тут зʼявиться те, що ти замовляла"
 # The list holds every product the customer has bought, so the only nothing it
 # can answer with is "nothing was typed that matches" — MSG_INLINE_NOT_IN_
 # CATALOGUE lived here until the products without an offer became rows too.
-MSG_INLINE_NOTHING_FOUND = "Нічого не знайшли — спробуйте іншу назву"
+MSG_INLINE_NOTHING_FOUND = "Нічого не знайшли — спробуй іншу назву"
 # The bar above the list. It is the way back to the favourites screen, which is
 # where the two things the list cannot carry live: the discount request and the
 # back-in-stock subscription. Neither can be a button in the list — a message
@@ -509,14 +522,14 @@ MSG_INLINE_ORDER_DETAIL = "{status} · {total} {currency}"
 BTN_REORDER = "🛒 Замовити ще раз"
 BTN_REORDER_PARTIAL = "🛒 Замовити ще раз · {available} з {total}"
 BTN_TRACK_PARCEL = "🚚 Відстежити посилку"
-MSG_INLINE_ORDERS_EMPTY = "Тут зʼявляться ваші замовлення"
+MSG_INLINE_ORDERS_EMPTY = "Тут зʼявляться твої замовлення"
 MSG_INLINE_ORDERS_SCREEN = "📦 Відкрити екран замовлень"
 BTN_DELIVERY_STATUS = "🚚 Відслідкувати замовлення"
 # The carrier's own mark rather than a lorry: every parcel here is a Nova
 # Poshta one, and the screen is recognised by that red square before a word of
 # it is read. Safe in this string because only the delivery screen uses it —
 # see core/emoji.py for why an inline result must never carry one.
-MSG_DELIVERY_HEADER = f"<b>{custom_emoji(NOVA_POSHTA, '🚚')} Ваші відправлення</b>"
+MSG_DELIVERY_HEADER = f"<b>{custom_emoji(NOVA_POSHTA, '🚚')} Твої відправлення</b>"
 MSG_NO_DELIVERIES = "Наразі немає відправлень для відстеження."
 MSG_DELIVERY_STATUS = "Статус: {status}"
 MSG_DELIVERY_SCHEDULED = "📅 Очікувана дата: {date}"
