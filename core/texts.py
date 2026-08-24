@@ -300,6 +300,9 @@ BTN_BUY_ALL = "🛒 Усе разом · {total} ₴"
 # vanishing off a screen that is supposed to list what someone buys.
 MSG_FAVOURITES_ALSO = "Також ви купували: {names}"
 BTN_WANT_DISCOUNT = "💰 Хочу знижку на ці товари"
+# On a card there is one product and its name is the line above the button, so
+# the button says neither.
+BTN_WANT_DISCOUNT_CARD = "💰 Хочу знижку"
 MSG_DISCOUNT_SENT = (
     "Передали менеджеру ваш запит на знижку. Ми звʼяжемось із вами тут, у боті."
 )

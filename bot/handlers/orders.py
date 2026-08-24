@@ -56,6 +56,16 @@ _BUTTON_NAME_LEN = 30
 # keeps almost as much room as it has on a buy button.
 _NOTIFY_NAME_LEN = 28
 
+# How far the ranking runs for the inline list — Telegram's own cap on one
+# answer. Lives here because bot/handlers/inline.py imports this module and the
+# two have to agree on what "everything you have bought" means: a card from the
+# fortieth row asks this file for a discount on a product the top five never
+# mention.
+INLINE_LIMIT = 50
+
+# How many favourites the screen itself lists.
+_ON_SCREEN = 5
+
 # Orders per page. Five of these blocks is a wall of text you get lost in —
 # on a phone it is over a screen and a half, and nothing in it stands out. Three
 # fit on one screen, and the rest is one tap away.
@@ -464,7 +474,7 @@ async def _favourites_view(
     for a product the storefront has no offer for: roughly a fifth of the
     catalogue, mostly samples and sets that are sold but never listed.
     """
-    favourites = favourite_products(cached)
+    favourites = favourite_products(cached, limit=_ON_SCREEN)
     if not favourites:
         return (t.MSG_NO_FAVOURITES if cached else t.MSG_NO_ORDERS), _no_orders_kb(t), 0
 
@@ -614,7 +624,18 @@ async def request_discount(
         await callback.answer(t.MSG_DISCOUNT_ALREADY, show_alert=True)
         return
 
-    favourites = favourite_products(await get_cached_orders(chat_id))
+    # One product when the ask came from its card in the inline list, the whole
+    # list when it came from the screen. Either way the products are read from
+    # this customer's own history, so a forged sku asks for nothing rather than
+    # for somebody else's product — and ranked as deep as the list goes, since
+    # a card can come from a row the screen never showed.
+    favourites = favourite_products(await get_cached_orders(chat_id),
+                                    limit=INLINE_LIMIT)
+    if callback_data.sku:
+        favourites = [f for f in favourites
+                      if str(f.get("sku") or "") == callback_data.sku]
+    else:
+        favourites = favourites[:_ON_SCREEN]
     if not favourites:
         await callback.answer()
         return
@@ -623,7 +644,8 @@ async def request_discount(
         [{"sku": f["sku"], "name": f["name"], "orders": f["orders"]} for f in favourites],
         ensure_ascii=False,
     ))
-    track(chat_id, "discount_requested", products=len(favourites))
+    track(chat_id, "discount_requested", products=len(favourites),
+          source="card" if callback_data.sku else "screen")
 
     op = operator_texts()
     lines = [op.MSG_DISCOUNT_ADMIN.format(chat_id=chat_id), ""]

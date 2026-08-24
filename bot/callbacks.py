@@ -49,9 +49,15 @@ class StockAction(CallbackData, prefix="stk"):
 
 
 class DiscountAction(CallbackData, prefix="disc"):
-    """Customer asking for a discount on the products they buy most."""
+    """Customer asking for a discount on the products they buy most.
+
+    `sku` names one product when the ask came from its card in the inline list,
+    and is empty when it came from the favourites screen, where the button sits
+    under the whole list and means all of it.
+    """
 
     action: str
+    sku: str = ""
 
 
 class DeliveryAction(CallbackData, prefix="dlvr"):

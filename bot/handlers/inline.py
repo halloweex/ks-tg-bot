@@ -44,17 +44,18 @@ from core.repos.stock import (add_stock_subscription, get_stock_levels,
                               get_subscribed_skus, remove_stock_subscription)
 from core.repos.users import get_user_phone
 from bot.analytics import track
-from bot.callbacks import StockAction
+from bot.callbacks import DiscountAction, StockAction
 from bot.handlers.common import FAVOURITES_DEEP_LINK
-from bot.handlers.orders import favourite_products
+from bot.handlers.orders import INLINE_LIMIT, favourite_products
 from bot.keyboards import cart_url, product_url
 
 router = Router()
 
 # Telegram accepts fifty results in one answer. Ranking more favourites than
 # that would only produce rows nobody scrolls to — and typing filters the list,
-# which is the way past fifty.
-_MAX_RESULTS = 50
+# which is the way past fifty. Defined in bot/handlers/orders.py, which ranks
+# them, and which a card's discount button asks the same question of.
+_MAX_RESULTS = INLINE_LIMIT
 
 # The panel has room for more of a product name than a button does: the row is
 # as wide as the screen and the price sits on its own line underneath.
@@ -243,28 +244,38 @@ def _card_kb(sku: str, offer: Offer | None, t: Texts, website_url: str,
     when it is back, and look at it on the shop, where the shop says in its own
     words what happened to it. A product the shop lists no offer for has only
     the first of those, and one that nothing can be said about — no offer, no
-    stock figure — has neither, which is a card with no buttons rather than a
-    button that does nothing.
+    stock figure — has neither. All of them can ask for a discount, which is
+    the one thing that is true of a product whatever the shop knows about it.
     """
+    rows: list[list[InlineKeyboardButton]] = []
+
     if offer is not None and offer.available:
-        return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+        rows.append([InlineKeyboardButton(
             text=t.BTN_BUY,
             url=cart_url(website_url, [offer.variant_id], t.lang, _CAMPAIGN),
-        )]])
+        )])
+    else:
+        if sku and (offer is not None or out_of_stock):
+            rows.append([InlineKeyboardButton(
+                text=t.BTN_WAITING_CARD if waiting else t.BTN_NOTIFY_CARD,
+                callback_data=StockAction(
+                    action="unsub" if waiting else "sub", sku=sku).pack(),
+            )])
+        if offer is not None:
+            rows.append([InlineKeyboardButton(
+                text=t.BTN_OPEN_PRODUCT,
+                url=product_url(website_url, offer.handle, t.lang, _CAMPAIGN),
+            )])
 
-    rows: list[list[InlineKeyboardButton]] = []
-    if sku and (offer is not None or out_of_stock):
-        rows.append([InlineKeyboardButton(
-            text=t.BTN_WAITING_CARD if waiting else t.BTN_NOTIFY_CARD,
-            callback_data=StockAction(
-                action="unsub" if waiting else "sub", sku=sku).pack(),
-        )])
-    if offer is not None:
-        rows.append([InlineKeyboardButton(
-            text=t.BTN_OPEN_PRODUCT,
-            url=product_url(website_url, offer.handle, t.lang, _CAMPAIGN),
-        )])
-    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+    # Last, under whatever else this product allows. It carries the sku, so the
+    # manager is asked about the product the customer is looking at rather than
+    # about their top five — which is what the same button means on the screen,
+    # where it sits under the whole list.
+    rows.append([InlineKeyboardButton(
+        text=t.BTN_WANT_DISCOUNT_CARD,
+        callback_data=DiscountAction(action="ask", sku=sku).pack(),
+    )])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 @router.callback_query(StockAction.filter(), F.inline_message_id)

@@ -20,11 +20,12 @@ import pytest
 
 from bot.handlers.common import FAVOURITES_DEEP_LINK, cmd_start
 from bot.handlers.inline import favourites_inline
+from bot.handlers.orders import request_discount
 from core.config import AppConfig
 from core.domain.offer import Offer
 from core.i18n import Texts
 from core.repos import base as repos_base
-from bot.callbacks import StockAction
+from bot.callbacks import DiscountAction, StockAction
 from core.repos.catalogue import save_offers
 from core.repos.orders import upsert_orders
 from core.repos.schema import init_db
@@ -34,6 +35,7 @@ from core.repos.users import save_user
 CHAT = 7171
 SHOP = "https://koreanstory.com.ua"
 PHOTO = "https://cdn.example/a.jpg?v=1"
+SUPPORT = -100500
 
 
 @pytest.fixture()
@@ -67,6 +69,10 @@ class _Query:
         self.kwargs = kwargs
 
 
+def _labels(row) -> list[str]:
+    return [b.text for line in row.reply_markup.inline_keyboard for b in line]
+
+
 def _order(*products, order_id: int = 1, at: str = "2026-08-01T10:00:00") -> dict:
     return {
         "chat_id": CHAT, "source": "keycrm", "source_order_id": str(order_id),
@@ -89,7 +95,7 @@ def _offer(sku, *, variant=111, available=True, price="680.00",
 
 
 def _config() -> AppConfig:
-    return SimpleNamespace(website_url=SHOP)
+    return SimpleNamespace(website_url=SHOP, support_chat_id=SUPPORT)
 
 
 def _ask(query: _Query, lang: str = "uk") -> _Query:
@@ -192,7 +198,9 @@ def test_a_product_the_shop_has_no_offer_for_is_a_row_without_a_price(db):
     assert sorted(row.id for row in rows) == ["1", "2"]
     plain = next(row for row in rows if row.id == "2")
     assert "₴" not in plain.description
-    assert plain.reply_markup is None
+    # Nothing to buy and nothing to wait for, but a discount can be asked about
+    # anything — see test_a_card_asks_for_a_discount_on_its_own_product.
+    assert _labels(plain) == [Texts("uk").BTN_WANT_DISCOUNT_CARD]
 
 
 def test_a_product_with_no_offer_but_no_stock_can_still_be_waited_for(db):
@@ -233,7 +241,7 @@ def test_a_sold_out_product_offers_the_two_things_left_to_do(db):
     _registered_customer(_order("1"),
                          offers={"1": _offer("1", available=False, handle="serum")})
     row = _ask(_Query()).results[0]
-    notify, site = (r[0] for r in row.reply_markup.inline_keyboard)
+    notify, site, _discount = (r[0] for r in row.reply_markup.inline_keyboard)
     assert notify.text == Texts("uk").BTN_NOTIFY_CARD
     assert StockAction.unpack(notify.callback_data) == StockAction(action="sub", sku="1")
     assert urlparse(site.url).path == "/products/serum"
@@ -332,3 +340,55 @@ def test_the_deep_link_opens_the_favourites_screen(db):
     buttons = [b for row in markup.inline_keyboard for b in row]
     assert any(b.text.startswith("🛒 Product 1") for b in buttons)
     assert any(b.text == Texts("uk").BTN_WANT_DISCOUNT for b in buttons)
+
+
+# --- asking for a discount from a card --------------------------------------
+
+def _ask_for_discount(sku: str) -> dict:
+    """Press 💰 on a card and report what the manager was sent."""
+    told = {}
+
+    async def send_message(chat_id, text, **kwargs):
+        told["chat_id"], told["text"] = chat_id, text
+        return SimpleNamespace(message_id=1)
+
+    async def answer(text=None, **kwargs):
+        told.setdefault("popup", text)
+
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=CHAT),
+        answer=answer,
+        bot=SimpleNamespace(send_message=send_message),
+    )
+    asyncio.run(request_discount(
+        callback, DiscountAction(action="ask", sku=sku), _config(), Texts("uk")
+    ))
+    return told
+
+
+def test_a_card_asks_for_a_discount_on_its_own_product(db):
+    """The same button on the screen sits under the whole list and means all of
+    it. On a card there is one product in front of the customer, and that is
+    what the manager should be asked about."""
+    _registered_customer(_order("1", "2"),
+                         offers={"1": _offer("1"), "2": _offer("2")})
+    told = _ask_for_discount("2")
+    assert told["chat_id"] == SUPPORT
+    assert "Product 2" in told["text"]
+    assert "Product 1" not in told["text"]
+    assert told["popup"] == Texts("uk").MSG_DISCOUNT_SENT
+
+
+def test_a_discount_can_be_asked_for_beyond_the_top_five(db):
+    """A card can come from the fortieth row. Asking the screen's question of
+    the top five would answer "you have not bought that"."""
+    skus = [str(n) for n in range(1, 9)]
+    _registered_customer(_order(*skus), offers={s: _offer(s) for s in skus})
+    assert "Product 8" in _ask_for_discount("8")["text"]
+
+
+def test_a_sku_this_customer_never_bought_asks_nothing(db):
+    """The products are read from their own history, which is what makes a
+    forged sku a request for nothing rather than for somebody else's product."""
+    _registered_customer(_order("1"), offers={"1": _offer("1")})
+    assert "text" not in _ask_for_discount("999")
