@@ -94,8 +94,17 @@ NOVAPOSHTA_TRACKING_URL = "https://novaposhta.ua/tracking/?cargo_number={ttn}"
 # back through getStickerSet. They are Telegram's own identifiers for the
 # stickers and are stable as long as the pack is.
 
-# 🚚 Nova Poshta — the only carrier this shop ships with.
+# 🚚 Nova Poshta — the only carrier this shop ships with. From the UIcons pack.
 NOVA_POSHTA = "5266999677340890591"
+# 💳 The ways to pay, from UIcons_Fin. Only the ones the payment page actually
+# names: neither pack has an Apple Pay or a Google Pay mark, and inventing one
+# out of a similar logo would put the wrong brand next to a payment method.
+# Privat24 is here unused on purpose — the day the page mentions PrivatBank it
+# is one tag away, and it is the icon the owner asked for by name.
+VISA = "5436170489145871132"
+MASTERCARD = "5436051454127262267"
+MONOBANK = "5436006709157974440"
+PRIVAT24 = "5436010252505992225"
 
 _CUSTOM_EMOJI = re.compile(r'<tg-emoji\s+emoji-id="\d+">(.*?)</tg-emoji>', re.S)
 

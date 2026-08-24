@@ -32,7 +32,8 @@ contacts_text: |
 payment_text: |
   <b>💳 Оплата</b>
 
-  <b>1. Онлайн</b> — без комісії, прямо на сайті одразу після оформлення замовлення, або за прямим посиланням, якщо замовляєте в соцмережах. Карта (Visa, Mastercard), Apple Pay, Google Pay, Monopay.
+  <b>1. Онлайн</b> — без комісії, прямо на сайті одразу після оформлення замовлення, або за прямим посиланням, якщо замовляєте в соцмережах.
+  <tg-emoji emoji-id="5436170489145871132">💳</tg-emoji> Visa · <tg-emoji emoji-id="5436051454127262267">💳</tg-emoji> Mastercard · <tg-emoji emoji-id="5436006709157974440">💳</tg-emoji> Monopay · Apple Pay · Google Pay
 
   <b>2. Накладений платіж</b> (200 грн).
 delivery_text: |

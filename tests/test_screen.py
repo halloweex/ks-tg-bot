@@ -182,3 +182,13 @@ def test_any_other_refusal_travels_up_untouched():
         asyncio.run(DropCustomEmoji()(
             make_request, None,
             SendMessage(chat_id=1, text=texts.custom_emoji("42", "🚚"))))
+
+
+def test_every_custom_emoji_id_is_a_telegram_id():
+    """A typo here is a logo that never draws — the middleware strips the tag,
+    the message goes out plain, and nobody hears about it. These four were read
+    back from the packs through getStickerSet and checked against the live bot;
+    what this guards is a hand edit."""
+    for name in ("NOVA_POSHTA", "VISA", "MASTERCARD", "MONOBANK", "PRIVAT24"):
+        value = getattr(texts, name)
+        assert value.isdigit() and len(value) >= 18, name
