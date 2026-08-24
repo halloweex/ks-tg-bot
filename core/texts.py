@@ -249,8 +249,12 @@ MSG_NO_FAVOURITES = (
 # numbers meant — and a screen that has to explain its own buttons has already
 # lost the argument.
 BTN_BUY_PRODUCT = "🛒 {name} · {price} ₴"
-BTN_NOTIFY_PRODUCT = "🔔 {name} — немає"
-BTN_NOTIFY_WAITING = "🔕 {name} — чекаєте"
+# The verb first, and the verb is the bot's promise rather than the product's
+# state: "немає" told the customer something they could already see and offered
+# them nothing. Every shop that does this well — Rozetka, MAKEUP, Zara — puts
+# the undertaking on the button and the availability in the text.
+BTN_NOTIFY_PRODUCT = "🔔 Повідомити, коли зʼявиться: {name}"
+BTN_NOTIFY_WAITING = "✅ Повідомимо: {name}"
 BTN_BUY_ALL = "🛒 Усе разом · {total} ₴"
 # Products the shop can say nothing about — no offer, no stock figure — get no
 # button, because there is nothing to press. Naming them here keeps them from

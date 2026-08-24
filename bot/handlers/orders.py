@@ -52,6 +52,8 @@ _COLLAPSED_ITEMS = 2
 # a longer label onto a second line rather than cutting it, which costs the row
 # its shape but never hides the price.
 _BUTTON_NAME_LEN = 30
+# The notify button spends its first half on "Повідомити, коли зʼявиться:".
+_NOTIFY_NAME_LEN = 22
 
 # Orders per page. Five of these blocks is a wall of text you get lost in —
 # on a phone it is over a screen and a half, and nothing in it stands out. Three
@@ -575,8 +577,11 @@ def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
             continue
         waiting = sku in subscribed
         builder.button(
+            # A shorter name here: this label spends its first half on the
+            # promise, so the product gets what is left rather than pushing the
+            # whole thing onto a third line.
             text=(t.BTN_NOTIFY_WAITING if waiting else t.BTN_NOTIFY_PRODUCT).format(
-                name=label
+                name=texts.product_label(item["name"], _NOTIFY_NAME_LEN)
             ),
             callback_data=StockAction(action="unsub" if waiting else "sub", sku=sku),
         )
