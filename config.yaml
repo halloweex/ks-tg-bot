@@ -4,7 +4,7 @@ website_url: "https://koreanstory.com.ua"
 # .github/workflows/pages.yml). Empty means the key stays an ordinary text key
 # and opens the favourites screen instead of the inline list — which is what to
 # leave it as until the page is actually live.
-webapp_url: ""
+webapp_url: "https://halloweex.github.io/ks-tg-bot/"
 support_chat_id: 129462784
 
 # Info pages — text shown in Phase 3 menus
