@@ -67,6 +67,15 @@ MSG_ORDER_SOURCE_INSTAGRAM = "📸 Instagram"
 NOVAPOSHTA_TRACKING_URL = "https://novaposhta.ua/tracking/?cargo_number={ttn}"
 
 
+def tracking_url(ttn: str) -> str:
+    """Where a parcel with this TTN can be looked up.
+
+    Its own function because a url button needs the address and nothing else,
+    while the line in a message needs it wrapped in an anchor.
+    """
+    return NOVAPOSHTA_TRACKING_URL.format(ttn=quote(ttn, safe=""))
+
+
 def tracking_link(ttn: str) -> str:
     """A TTN rendered as a link to the Nova Poshta tracking page.
 
@@ -75,8 +84,7 @@ def tracking_link(ttn: str) -> str:
     (5k+ of them: "Differ & Deeper", "Skin&Lab"), which is what made an earlier
     version give up on markup entirely.
     """
-    safe = escape(ttn)
-    return f'<a href="{NOVAPOSHTA_TRACKING_URL.format(ttn=quote(ttn, safe=""))}">{safe}</a>'
+    return f'<a href="{tracking_url(ttn)}">{escape(ttn)}</a>'
 
 
 # KeyCRM product names average 85 characters and reach 147 — brand, description
@@ -357,6 +365,25 @@ MSG_INLINE_NOTHING_FOUND = "Нічого не знайшли — спробуй�
 # back-in-stock subscription. Neither can be a button in the list — a message
 # sent through inline mode has no callback message to redraw.
 MSG_INLINE_SCREEN = "⭐ Знижка та сповіщення про наявність"
+
+# Orders as the same inline list. Two lists, one bot, so the query says which:
+# the button inserts this word after the bot's username and the handler reads
+# it. Localised like every label, and matched in every language it can be
+# rendered in — a button sent months ago outlives a language change.
+MSG_INLINE_ORDERS_PREFIX = "замовлення"
+BTN_ORDERS_ALL = "🔍 Усі замовлення · з пошуком"
+# The two lines under an order in the list: what happened to it and what it
+# cost, then what was in it.
+MSG_INLINE_ORDER_DETAIL = "{status} · {total} {currency}"
+# The button the whole thing is for. A cart permalink with everything that
+# order held — one tap and the basket is what it was that day. The second form
+# is for an order some of whose products the shop no longer sells: it says how
+# much of it can be repeated rather than quietly repeating less.
+BTN_REORDER = "🛒 Замовити ще раз"
+BTN_REORDER_PARTIAL = "🛒 Замовити ще раз · {available} з {total}"
+BTN_TRACK_PARCEL = "🚚 Відстежити посилку"
+MSG_INLINE_ORDERS_EMPTY = "Тут зʼявляться ваші замовлення"
+MSG_INLINE_ORDERS_SCREEN = "📦 Відкрити екран замовлень"
 BTN_DELIVERY_STATUS = "🚚 Відслідкувати замовлення"
 MSG_DELIVERY_HEADER = "<b>🚚 Ваші відправлення</b>"
 MSG_NO_DELIVERIES = "Наразі немає відправлень для відстеження."

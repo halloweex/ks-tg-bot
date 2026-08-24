@@ -93,7 +93,7 @@ def _as_number(value) -> float:
         return 0.0
 
 
-def _order_products(row: dict) -> list[dict]:
+def order_products(row: dict) -> list[dict]:
     """Cached product lines for an order, or [] if the JSON is unusable."""
     try:
         return json.loads(row.get("products_json", "[]")) or []
@@ -111,20 +111,22 @@ def _item_line(product: dict, t: Texts) -> str:
     return f"• {escape(name)} ×{escape(str(product.get('qty', '')))}"
 
 
-def _format_cached_order(
+def format_cached_order(
     row: dict, t: Texts, *, number: int, is_latest: bool = False, expanded: bool = False
 ) -> str:
     """Format a single cached order (from DB dict) as a text block.
 
     `number` is the order's position in the whole list, counted across pages. It
-    is what the expand button carries, so the two can be matched by eye.
+    is what the expand button carries, so the two can be matched by eye. Zero
+    leaves it off, which is what a card picked out of the inline list needs:
+    there is no list around it to be the third of.
 
     Orders with more than _MAX_INLINE_ITEMS lines are shortened — 22% of orders
     have that many — and the caller offers a button to expand this one.
     """
     source_label = t.order_source_label(row)
 
-    products = _order_products(row)
+    products = order_products(row)
     if not products:
         item_lines = ["-"]
     elif expanded or len(products) <= _MAX_INLINE_ITEMS:
@@ -149,8 +151,9 @@ def _format_cached_order(
 
     mark = t.MSG_ORDER_LATEST_MARK if is_latest else ""
 
+    heading = f"{number}. " if number else ""
     lines = [
-        f"<b>{number}. {escape(source_label)}</b>{mark}",
+        f"<b>{heading}{escape(source_label)}</b>{mark}",
         f"{t.LBL_STATUS}: <b>{status}</b>",
         f"{t.LBL_PRODUCTS}:",
         *item_lines,
@@ -202,7 +205,7 @@ def _format_orders_from_cache(
         )
     # A row of "🔎 3" buttons is unreadable without saying once what the number
     # refers to; the line only appears when such a button exists.
-    if any(len(_order_products(row)) > _MAX_INLINE_ITEMS for row in visible):
+    if any(len(order_products(row)) > _MAX_INLINE_ITEMS for row in visible):
         header += "\n" + t.MSG_ORDERS_EXPAND_HINT
     header += "\n\n"
 
@@ -213,7 +216,7 @@ def _format_orders_from_cache(
     current_len = len(header)
 
     for i, row in enumerate(visible):
-        block = _format_cached_order(
+        block = format_cached_order(
             row, t,
             number=start + i + 1,
             is_latest=(start + i == 0),
@@ -239,12 +242,19 @@ def _orders_kb(
     when two Instagram orders share a day.
     """
     builder = InlineKeyboardBuilder()
+    # First, as on the favourites screen: the whole history as an inline list,
+    # with a photo per order, a search that runs as you type, and a button that
+    # puts a whole past basket back together (bot/handlers/inline.py). The word
+    # after the username is what tells that list to answer with orders.
+    builder.button(text=t.BTN_ORDERS_ALL,
+                   switch_inline_query_current_chat=f"{t.MSG_INLINE_ORDERS_PREFIX} ")
+
     visible, page = _page_slice(orders, page)
     start = page * _ORDERS_PER_PAGE
 
     expand_buttons = 0
     for i, row in enumerate(visible):
-        if len(_order_products(row)) <= _MAX_INLINE_ITEMS:
+        if len(order_products(row)) <= _MAX_INLINE_ITEMS:
             continue
         row_id = row.get("id", 0)
         number = start + i + 1
@@ -273,10 +283,13 @@ def _orders_kb(
             callback_data=OrderAction(action="items", order_id=expanded_id, page=target),
         )
 
-    # All expand buttons on one row — there are at most _ORDERS_PER_PAGE of
-    # them and each is a glyph and a number — then paging. No Menu button:
-    # the menu is the keyboard under the input field, always there.
-    layout = [expand_buttons] if expand_buttons else []
+    # The way into the inline list on its own row, then all expand buttons on
+    # one — there are at most _ORDERS_PER_PAGE of them and each is a glyph and
+    # a number — then paging. No Menu button: the menu is the keyboard under
+    # the input field, always there.
+    layout = [1]
+    if expand_buttons:
+        layout.append(expand_buttons)
     if nav:
         layout.append(len(nav))
     builder.adjust(*layout)
@@ -313,7 +326,7 @@ def favourite_products(orders: list[dict], limit: int = 5) -> list[dict]:
         if row.get("status_group_id") == CANCELLED_STATUS_GROUP:
             continue
         ordered_at = row.get("ordered_at", "")
-        for product in _order_products(row):
+        for product in order_products(row):
             name = str(product.get("name", "")).strip()
             if not name:
                 continue
@@ -696,7 +709,7 @@ async def toggle_stock_subscription(
     # forged sku subscribes to nothing rather than to somebody else's product.
     name = ""
     for row in await get_cached_orders(chat_id):
-        for product in _order_products(row):
+        for product in order_products(row):
             if str(product.get("sku") or "") == sku:
                 name = str(product.get("name", ""))
                 break

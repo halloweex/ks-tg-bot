@@ -1,11 +1,16 @@
-"""Favourites as Telegram's own inline list — the panel above the input field.
+"""Both inline lists — the panel above the input field.
 
-The favourites *screen* shows the top five products with a buy button each, and
-that is the right shape for a screen: it fits a phone without scrolling and
-needs no search box. This is the other half of the same question. The panel
-opens over the keyboard, lists everything the customer has ever bought with a
-photo beside each row, and filters as they type — which is what a customer with
-thirty orders behind them actually needs, and what five buttons cannot be.
+The *screens* show the top five products and three orders a page, which is the
+right shape for a screen: it fits a phone and needs no search box. This is the
+other half of the same question. The panel opens over the keyboard, holds
+everything — every product ever bought, every order still cached — with a photo
+beside each row, and filters as the customer types.
+
+Two lists, one bot, so the query says which. Telegram gives inline mode a
+single entry point, and the button that opens it inserts a word after the bot's
+username: with it, orders; without it, favourites. The word is localised and
+matched in every language it can be rendered in, because a button sent months
+ago outlives a language change.
 
 Two things about inline mode decide most of the code below.
 
@@ -15,10 +20,11 @@ with the bot the answer is a button and no data.
 
 And picking a result sends a message — from the customer, into whatever chat
 they are in. That is the mechanism and it cannot be turned off, so the message
-is made worth having: the product's name, today's price, and the one button
-that does something about it. It is also why this screen alone breaks the "one
-live message" rule the rest of the bot keeps (bot/screen.py); nothing here can
-be edited in place, because it is the customer's own message.
+is made worth having: what was picked, and the buttons that do something about
+it — buy it, wait for it, ask about it, order that whole basket again. It is
+also why this module alone breaks the "one live message" rule the rest of the
+bot keeps (bot/screen.py); nothing here can be edited in place, because it is
+the customer's own message.
 """
 from __future__ import annotations
 
@@ -37,7 +43,7 @@ from loguru import logger
 from core import texts
 from core.config import AppConfig
 from core.domain.offer import Offer
-from core.i18n import Texts
+from core.i18n import Texts, variants
 from core.repos.catalogue import get_offers
 from core.repos.orders import get_cached_orders
 from core.repos.stock import (add_stock_subscription, get_stock_levels,
@@ -45,8 +51,9 @@ from core.repos.stock import (add_stock_subscription, get_stock_levels,
 from core.repos.users import get_user_phone
 from bot.analytics import track
 from bot.callbacks import DiscountAction, StockAction
-from bot.handlers.common import FAVOURITES_DEEP_LINK
-from bot.handlers.orders import INLINE_LIMIT, favourite_products
+from bot.handlers.common import FAVOURITES_DEEP_LINK, ORDERS_DEEP_LINK
+from bot.handlers.orders import (INLINE_LIMIT, favourite_products,
+                                 format_cached_order, order_products)
 from bot.keyboards import cart_url, product_url
 
 router = Router()
@@ -69,6 +76,10 @@ _THUMB_WIDTH = 200
 # both open the shop, and the shop's analytics is the only place a url button
 # can be counted at all.
 _CAMPAIGN = "favourites_inline"
+# The same, for a basket ordered again out of the orders list. Its own campaign
+# because it answers a different question in the shop's analytics: not "does
+# the list sell", but "do people repeat whole orders".
+_ORDERS_CAMPAIGN = "orders_inline"
 
 # Payload for the button above the list. Telegram sends it to /start, which
 # reads it and draws the favourites screen — the same screen the key below the
@@ -77,10 +88,19 @@ _CAMPAIGN = "favourites_inline"
 # coincidence stop agreeing the first time one of them is edited.
 _START_PARAM = FAVOURITES_DEEP_LINK
 
+# What the button on the orders screen inserts, in every language it can be
+# rendered in. Matched rather than compared: the word on a button sent months
+# ago is the word of the language the customer had then.
+_ORDER_WORDS = {word.casefold() for word in variants("MSG_INLINE_ORDERS_PREFIX")}
+
+# How much of a product name goes on the second line of an order's row, where
+# three or four of them are listed side by side.
+_ITEM_LEN = 22
+
 
 @router.inline_query()
-async def favourites_inline(query: InlineQuery, t: Texts, config: AppConfig) -> None:
-    """Answer the inline panel with this customer's own products."""
+async def inline_list(query: InlineQuery, t: Texts, config: AppConfig) -> None:
+    """Answer the panel with this customer's own products, or their orders."""
     chat_id = query.from_user.id
 
     # "sender" is Telegram's word for the private chat with this bot. A group,
@@ -88,19 +108,71 @@ async def favourites_inline(query: InlineQuery, t: Texts, config: AppConfig) -> 
     # gets a button back and nothing else. Fail closed: this is a purchase
     # history, and the panel is opened in front of whoever is in the room.
     if query.chat_type != "sender":
-        await _button_only(query, t.MSG_INLINE_NOT_HERE)
+        await _button_only(query, t.MSG_INLINE_NOT_HERE, _START_PARAM)
         return
 
     if not await get_user_phone(chat_id):
-        await _button_only(query, t.MSG_INLINE_NEED_PHONE)
+        await _button_only(query, t.MSG_INLINE_NEED_PHONE, _START_PARAM)
         return
 
-    # Read from the cache and never refresh from the CRM: an inline answer has
-    # seconds, every keystroke arrives as its own query, and the screen this
-    # button sits on is what fills a cold cache.
+    orders, needle = _route(query.query)
+    if orders:
+        results, empty, screen = await _order_results(chat_id, needle, t, config)
+        param, event = ORDERS_DEEP_LINK, "orders_inline_opened"
+    else:
+        results, empty, screen = await _favourite_results(chat_id, needle, t, config)
+        param, event = _START_PARAM, "favourites_inline_opened"
+
+    # Counted when the panel opens, not on every keystroke: each character
+    # typed arrives here as its own query, and the question worth answering is
+    # how many people open a list at all.
+    if not needle:
+        track(chat_id, event, found=len(results))
+
+    if not results:
+        await _button_only(query, empty, param)
+        return
+
+    # Personal and uncached: the list is one customer's own, and Telegram must
+    # not serve it to the next person who types the same query.
+    #
+    # The button above it leads to the screen this list came from. «⭐ Улюблені»
+    # and «📦 Замовлення» both open a list now, so the screens — and with them
+    # the discount request, the subscription, the paging — would otherwise have
+    # nothing left pointing at them.
+    await query.answer(
+        results,
+        cache_time=0,
+        is_personal=True,
+        button=InlineQueryResultsButton(text=screen, start_parameter=param),
+    )
+
+
+def _route(raw: str) -> tuple[bool, str]:
+    """Which list was asked for, and what was typed after the asking.
+
+    The first word decides, and only if it is the orders word in one of the
+    languages it can be rendered in. Anything else is a product search, which
+    is what an empty query is too — favourites is the list that opens when
+    nothing says otherwise.
+    """
+    text = raw.strip()
+    head, _, rest = text.partition(" ")
+    if head.casefold() in _ORDER_WORDS:
+        return True, rest.strip().casefold()
+    return False, text.casefold()
+
+
+async def _favourite_results(chat_id: int, needle: str, t: Texts,
+                             config: AppConfig) -> tuple[list, str, str]:
+    """Every product this customer has bought, best-loved first.
+
+    Read from the cache and never refreshed from the CRM: an inline answer has
+    seconds, every keystroke arrives as its own query, and the screen the
+    button sits on is what fills a cold cache.
+    """
     ranked = favourite_products(await get_cached_orders(chat_id),
                                 limit=_MAX_RESULTS)
-    needle = query.query.strip().casefold()
     favourites = [item for item in ranked
                   if not needle or needle in str(item["name"]).casefold()]
 
@@ -119,30 +191,7 @@ async def favourites_inline(query: InlineQuery, t: Texts, config: AppConfig) -> 
                 out_of_stock=_is_out_of_stock(item, levels))
         for item in favourites
     ]
-
-    # Counted when the panel opens, not on every keystroke: each character
-    # typed arrives here as its own query, and the question worth answering is
-    # how many people open the list at all.
-    if not needle:
-        track(chat_id, "favourites_inline_opened", found=len(results))
-
-    if not results:
-        await _button_only(query, _nothing_to_show(ranked, needle, t))
-        return
-    # Personal and uncached: the list is one customer's own, and Telegram must
-    # not serve it to the next person who types the same query.
-    #
-    # The button above it is the way back to the favourites screen. Since
-    # «⭐ Улюблені» opens this list from both menus, that screen — and with it
-    # the discount request and the back-in-stock subscription — would otherwise
-    # have nothing left pointing at it.
-    await query.answer(
-        results,
-        cache_time=0,
-        is_personal=True,
-        button=InlineQueryResultsButton(text=t.MSG_INLINE_SCREEN,
-                                        start_parameter=_START_PARAM),
-    )
+    return results, _nothing_to_show(ranked, needle, t), t.MSG_INLINE_SCREEN
 
 
 def _nothing_to_show(ranked: list[dict], needle: str, t: Texts) -> str:
@@ -154,6 +203,120 @@ def _nothing_to_show(ranked: list[dict], needle: str, t: Texts) -> str:
     samples and sets used to open this and be told they had never ordered.
     """
     return t.MSG_INLINE_NOTHING_FOUND if needle and ranked else t.MSG_INLINE_EMPTY
+
+
+async def _order_results(chat_id: int, needle: str, t: Texts,
+                         config: AppConfig) -> tuple[list, str, str]:
+    """Every cached order, newest first, as rows that can be searched.
+
+    What the orders screen cannot be: it pages three at a time, and finding
+    "the one with that cream in it" there means reading. Here the typing does
+    it — the needle is matched against the order's number and against every
+    product in it, so a product name finds every order that ever held it.
+    """
+    cached = (await get_cached_orders(chat_id))[:_MAX_RESULTS]
+    orders = [row for row in cached if _order_matches(row, needle)]
+
+    # One lookup for every product on the page: the pictures come from it, and
+    # so do the variant ids the "order this again" basket is addressed to.
+    offers = await get_offers(
+        str(product.get("sku") or "")
+        for row in orders for product in order_products(row)
+    )
+    results = [_order_result(row, offers, t, config.website_url) for row in orders]
+    empty = t.MSG_INLINE_NOTHING_FOUND if needle and cached else t.MSG_INLINE_ORDERS_EMPTY
+    return results, empty, t.MSG_INLINE_ORDERS_SCREEN
+
+
+def _order_matches(row: dict, needle: str) -> bool:
+    """Whether what was typed picks this order out.
+
+    Matched against what a customer would type: the order's number, or the name
+    of something that was in it.
+    """
+    if not needle:
+        return True
+    if needle in str(row.get("order_name") or "").casefold():
+        return True
+    return any(needle in str(product.get("name") or "").casefold()
+               for product in order_products(row))
+
+
+def _order_result(row: dict, offers: dict[str, Offer], t: Texts,
+                  website_url: str) -> InlineQueryResultArticle:
+    """One order as a row, and as the card picking it sends.
+
+    The card is the same block the orders screen draws, expanded and without
+    its number — one formatter, so the two cannot come to disagree about what
+    an order looks like.
+    """
+    products = order_products(row)
+    date = texts.short_date(str(row.get("ordered_at") or ""))
+    detail = t.MSG_INLINE_ORDER_DETAIL.format(
+        status=t.status(str(row.get("status_name") or "")) or "-",
+        total=texts.price_label(row.get("grand_total", 0)),
+        currency=t.currency(str(row.get("currency") or "грн")),
+    )
+    items = ", ".join(texts.product_label(str(product.get("name") or ""), _ITEM_LEN)
+                      for product in products) or "-"
+
+    return InlineQueryResultArticle(
+        # The cache row id, which is what the screen's expand buttons carry too.
+        id=f"o{row.get('id', 0)}",
+        title=f"{t.order_source_label(row)} · {date}",
+        description=f"{detail}\n{items}",
+        # The first product's photo. An order has no picture of its own, and
+        # this is the one a customer recognises the order by.
+        thumbnail_url=_first_photo(products, offers),
+        input_message_content=InputTextMessageContent(
+            message_text=format_cached_order(row, t, number=0, expanded=True),
+            parse_mode="HTML",
+        ),
+        reply_markup=_order_kb(row, products, offers, t, website_url),
+    )
+
+
+def _first_photo(products: list[dict], offers: dict[str, Offer]) -> str | None:
+    """The picture of the first product in the order that has one."""
+    for product in products:
+        offer = offers.get(str(product.get("sku") or ""))
+        if offer is not None and offer.image_url:
+            return _thumbnail(offer.image_url)
+    return None
+
+
+def _order_kb(row: dict, products: list[dict], offers: dict[str, Offer],
+              t: Texts, website_url: str) -> InlineKeyboardMarkup | None:
+    """Order the same basket again, and see where the parcel is.
+
+    The basket is built from what the shop still sells, and the button says so
+    when that is less than the order held: repeating four items out of five
+    without a word would be a quiet substitution of a different order.
+
+    Deduplicated by variant, because a permalink line is `{variant}:1` and the
+    same product twice in one order would otherwise be two lines addressed to
+    the same variant.
+    """
+    variant_ids = list(dict.fromkeys(
+        offer.variant_id for product in products
+        if (offer := offers.get(str(product.get("sku") or ""))) is not None
+        and offer.available
+    ))
+    rows: list[list[InlineKeyboardButton]] = []
+    if variant_ids:
+        label = (t.BTN_REORDER if len(variant_ids) >= len(products)
+                 else t.BTN_REORDER_PARTIAL.format(available=len(variant_ids),
+                                                   total=len(products)))
+        rows.append([InlineKeyboardButton(
+            text=label,
+            url=cart_url(website_url, variant_ids, t.lang, _ORDERS_CAMPAIGN),
+        )])
+
+    tracking = str(row.get("tracking_code") or "")
+    if tracking:
+        rows.append([InlineKeyboardButton(text=t.BTN_TRACK_PARCEL,
+                                          url=texts.tracking_url(tracking))])
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
 
 
 def _is_out_of_stock(item: dict, levels: dict[str, int]) -> bool:
@@ -168,18 +331,18 @@ def _is_out_of_stock(item: dict, levels: dict[str, int]) -> bool:
     return bool(sku) and sku in levels and levels[sku] <= 0
 
 
-async def _button_only(query: InlineQuery, text: str) -> None:
+async def _button_only(query: InlineQuery, text: str, param: str) -> None:
     """Answer with a button above an empty list, and no data at all.
 
     A query that goes unanswered leaves the panel spinning until it times out,
     so every path answers. The button opens the chat with the bot, which is
-    where each of these three situations is actually resolved.
+    where each of these situations is actually resolved.
     """
     await query.answer(
         [],
         cache_time=0,
         is_personal=True,
-        button=InlineQueryResultsButton(text=text, start_parameter=_START_PARAM),
+        button=InlineQueryResultsButton(text=text, start_parameter=param),
     )
 
 

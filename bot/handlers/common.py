@@ -12,17 +12,18 @@ from core.config import AppConfig
 from core.repos.users import get_user, get_user_language, is_opted_out, opt_in_user
 from bot.keyboards import language_kb, share_phone_kb
 from bot.screen import send_main_menu
-from bot.handlers.orders import favourites_screen
+from bot.handlers.orders import favourites_screen, orders_screen
 from core.adapters.keycrm.client import KeyCRMClient
 from bot.profile import ensure_menu_button
 from bot.states import OnboardingStates
 
 router = Router()
 
-# What the button above the inline list sends to /start. Its own name because
-# two modules have to agree on the string: the one that puts it on the button
-# (bot/handlers/inline.py) and this one, which reads it.
+# What the buttons above the inline lists send to /start — one per list. Their
+# own names because two modules have to agree on the strings: the one that puts
+# them on the buttons (bot/handlers/inline.py) and this one, which reads them.
 FAVOURITES_DEEP_LINK = "favourites"
+ORDERS_DEEP_LINK = "orders"
 
 
 async def _maybe_offer_language(
@@ -76,14 +77,20 @@ async def cmd_start(
             greeting = t.MSG_WELCOME_BACK_NAME.format(name=user["full_name"])
         else:
             greeting = t.MSG_WELCOME_BACK
-        # Arriving from the button above the inline list: the customer is
-        # already looking at their products and asked for the one thing the
-        # list cannot carry. Straight to the screen, no menu in the way — the
-        # keyboard they tapped from is already on their screen.
-        if (command.args or "") == FAVOURITES_DEEP_LINK:
+        # Arriving from the button above an inline list: the customer is
+        # already looking at their products or their orders and asked for what
+        # the list cannot carry — the discount, the subscription, the paging.
+        # Straight to that screen, no menu in the way: the keyboard they tapped
+        # from is already on their screen.
+        payload = command.args or ""
+        if payload == FAVOURITES_DEEP_LINK:
             text, markup = await favourites_screen(
                 message.chat.id, t, keycrm, message, config.website_url
             )
+            await message.answer(text, reply_markup=markup)
+            return
+        if payload == ORDERS_DEEP_LINK:
+            text, markup = await orders_screen(message.chat.id, t, keycrm, message)
             await message.answer(text, reply_markup=markup)
             return
 

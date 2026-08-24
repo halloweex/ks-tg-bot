@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from bot.handlers.common import FAVOURITES_DEEP_LINK, cmd_start
-from bot.handlers.inline import favourites_inline
+from bot.handlers.inline import inline_list
 from bot.handlers.orders import request_discount
 from core.config import AppConfig
 from core.domain.offer import Offer
@@ -99,7 +99,7 @@ def _config() -> AppConfig:
 
 
 def _ask(query: _Query, lang: str = "uk") -> _Query:
-    asyncio.run(favourites_inline(query, Texts(lang), _config()))
+    asyncio.run(inline_list(query, Texts(lang), _config()))
     return query
 
 
