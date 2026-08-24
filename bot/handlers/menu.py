@@ -12,13 +12,15 @@ because the keyboard on someone's screen may predate their language change. The
 inline menu arrives as callbacks instead, and the pair below each section does
 the same thing from either.
 
-Each entry opens a *section*: the bot sends the screen as a new message, and
-from there the section's own inline buttons edit that message in place
-(`bot/screen.py`). Sending rather than editing is what leaves the menu message
-itself intact — tapping «📦 Замовлення» must not consume the menu the customer
-will want again, and «⭐ Улюблені» lives on it.
+A key below the input field opens a *section* as a new message: the tap already
+put the customer's own message in the chat, and there is nothing on screen to
+edit. A tap in the menu message edits that message instead — menu → довідка →
+оплата is one bubble changing three times, not three bubbles.
 
-No Back button anywhere: neither menu ever leaves the screen.
+Which means the menu message is consumed by the section it opens, so every
+screen reachable from it carries «📋 Меню» to bring it back in place. The
+keyboard below the input field is the other way back, and the one that always
+works; it just costs a new message.
 """
 from __future__ import annotations
 
@@ -33,7 +35,8 @@ from bot.analytics import track
 from core.config import AppConfig
 from bot.handlers.delivery import delivery_screen
 from bot.handlers.orders import favourites_screen, orders_screen
-from bot.keyboards import info_menu_kb, settings_menu_kb, website_kb
+from bot.keyboards import (info_menu_kb, main_menu_inline_kb,
+                           settings_menu_kb, website_kb)
 from bot.screen import render, send_main_menu
 from core.adapters.keycrm.client import KeyCRMClient
 from core.adapters.novaposhta.client import NovaPoshtaClient
@@ -160,7 +163,7 @@ async def orders_from_menu(
     text, markup = await orders_screen(
         callback.from_user.id, t, keycrm, callback.message
     )
-    await callback.message.answer(text, reply_markup=markup)
+    await render(callback, text, markup)
 
 
 @router.callback_query(MenuAction.filter(F.action == "open_delivery"))
@@ -176,7 +179,7 @@ async def delivery_from_menu(
     text, markup = await delivery_screen(
         callback.from_user.id, t, novaposhta, callback.message
     )
-    await callback.message.answer(text, reply_markup=markup)
+    await render(callback, text, markup)
 
 
 @router.callback_query(MenuAction.filter(F.action == "open_settings"))
@@ -186,7 +189,7 @@ async def settings_from_menu(
     """⚙️ from the menu in the message."""
     await callback.answer()
     await state.clear()
-    await callback.message.answer(t.MSG_SETTINGS_MENU, reply_markup=settings_menu_kb(t))
+    await render(callback, t.MSG_SETTINGS_MENU, settings_menu_kb(t))
 
 
 @router.callback_query(MenuAction.filter(F.action == "open_info"))
@@ -194,7 +197,7 @@ async def info_from_menu(callback: CallbackQuery, state: FSMContext, t: Texts) -
     """ℹ️ from the menu in the message."""
     await callback.answer()
     await state.clear()
-    await callback.message.answer(t.MSG_INFO_MENU, reply_markup=info_menu_kb(t))
+    await render(callback, t.MSG_INFO_MENU, info_menu_kb(t))
 
 
 @router.callback_query(MenuAction.filter(F.action == "open_support"))
@@ -205,7 +208,23 @@ async def support_from_menu(
     await callback.answer()
     track(callback.from_user.id, "support_opened")
     await state.set_state(SupportStates.waiting_message)
-    await callback.message.answer(t.MSG_SUPPORT_PROMPT)
+    await render(callback, t.MSG_SUPPORT_PROMPT)
+
+
+@router.callback_query(MenuAction.filter(F.action == "menu"))
+async def back_to_menu(
+    callback: CallbackQuery, state: FSMContext, config: AppConfig, t: Texts
+) -> None:
+    """«📋 Меню» — the menu again, in the message the section is occupying.
+
+    The section replaced the menu when it opened; this puts it back. Sending a
+    new one instead would leave the section on screen above it, which is the
+    trail all of this is here to avoid.
+    """
+    await callback.answer()
+    await state.clear()
+    await render(callback, t.MSG_MENU_PICK,
+                 main_menu_inline_kb(t, config.website_url))
 
 
 @router.callback_query(MenuAction.filter(F.action == "info"))

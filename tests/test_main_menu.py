@@ -142,3 +142,23 @@ def test_the_menu_arrives_as_two_messages_because_it_has_to():
     assert [text for text, _markup in sent] == ["Вітаємо", T.MSG_MENU_PICK]
     assert isinstance(sent[0][1], ReplyKeyboardMarkup)
     assert isinstance(sent[1][1], InlineKeyboardMarkup)
+
+
+# --- navigation is one message changing -------------------------------------
+
+def test_every_screen_the_menu_opens_can_bring_it_back():
+    """A menu entry replaces the menu message with the section, so each
+    section carries the way back. Without it the only route is the keyboard
+    below the input field, which answers with a new message — the trail all of
+    this exists to avoid."""
+    from bot.keyboards import info_menu_kb, settings_menu_kb
+
+    for keyboard in (info_menu_kb(T), settings_menu_kb(T)):
+        actions = {MenuAction.unpack(b.callback_data).action
+                   for row in keyboard.inline_keyboard for b in row
+                   if b.callback_data and b.callback_data.startswith("menu:")}
+        assert "menu" in actions
+
+
+def test_the_way_back_is_handled():
+    assert "menu" in _handled_actions()

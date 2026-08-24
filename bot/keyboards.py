@@ -183,17 +183,20 @@ def website_kb(t: Texts, website_url: str) -> InlineKeyboardMarkup:
 
 
 def info_menu_kb(t: Texts) -> InlineKeyboardMarkup:
-    """Build the info submenu inline keyboard (4 pages, 2+2).
+    """The four pages, and the way back to the menu they were opened from.
 
-    No Back button: the main menu is on screen at all times now, under the
-    input field, so there is nothing to go back *to*.
+    The Back button is here again because navigation edits one message now: the
+    menu that opened this list was replaced by it, so without this the way back
+    is the keyboard below the input field — which answers with a new message
+    and leaves the trail this screen exists to avoid.
     """
     builder = InlineKeyboardBuilder()
     builder.button(text=t.BTN_ABOUT, callback_data=InfoAction(page="about"))
     builder.button(text=t.BTN_CONTACTS, callback_data=InfoAction(page="contacts"))
     builder.button(text=t.BTN_PAYMENT, callback_data=InfoAction(page="payment"))
     builder.button(text=t.BTN_DELIVERY, callback_data=InfoAction(page="delivery"))
-    builder.adjust(2, 2)
+    builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="menu"))
+    builder.adjust(2, 2, 1)
     return builder.as_markup()
 
 
@@ -216,6 +219,7 @@ def settings_menu_kb(t: Texts) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text=t.BTN_CHANGE_PHONE, callback_data=SettingsAction(action="phone"))
     builder.button(text=t.BTN_LANGUAGE, callback_data=SettingsAction(action="language"))
+    builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="menu"))
     builder.adjust(1)
     return builder.as_markup()
 

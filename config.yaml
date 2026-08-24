@@ -17,9 +17,16 @@ support_chat_id: 7444906573
 # Info pages — text shown in Phase 3 menus
 # Placeholder content — owner will fill in real text
 about_text: |
+  <b>🌸 Про нас</b>
+
   Korean Story — магазин корейської косметики та догляду.
 contacts_text: |
-  Зв'яжіться з нами через бот або Instagram.
+  <b>📞 Контакти</b>
+
+  Найшвидше — написати сюди ж: «💬 Менеджер» у меню, відповідає людина.
+
+  Сайт: koreanstory.com.ua
+  Самовивіз: м. Луцьк
 # Sent with parse_mode=HTML like every other screen, hence the tags. The bold
 # first line is what every screen in this bot opens with.
 #

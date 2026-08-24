@@ -311,8 +311,20 @@ MSG_MENU_PLACEHOLDER = "Оберіть дію"
 # kinds of keyboard — so the menu always arrives as the second of two messages.
 MSG_MENU_PICK = "Оберіть у меню 👇"
 MSG_WEBSITE_INTRO = "Наш магазин — тут 👇"
-MSG_INFO_MENU = "Оберіть розділ:"
-MSG_SETTINGS_MENU = "Налаштування:"
+# Both used to be a single short line above a keyboard, which draws a bubble
+# the size of the words in it — a screen that looks like an afterthought next
+# to the four buttons under it. A heading and a sentence give the section the
+# weight the rest of them have.
+MSG_INFO_MENU = (
+    "<b>ℹ️ Довідка</b>\n\n"
+    "Коротко про магазин, доставку й оплату.\n"
+    "Потрібна людина — «💬 Менеджер» у меню.\n\n"
+    "Оберіть розділ 👇"
+)
+MSG_SETTINGS_MENU = (
+    "<b>⚙️ Налаштування</b>\n\n"
+    "Номер телефону, за яким ми знаходимо ваші замовлення, і мова бота."
+)
 
 # Menu content
 MSG_LANGUAGE_CURRENT = "Поточна мова: Українська \u2705"

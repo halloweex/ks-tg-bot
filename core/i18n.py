@@ -100,8 +100,16 @@ EN: dict[str, str] = {
     "MSG_MENU_PLACEHOLDER": "Choose an action",
     "MSG_MENU_PICK": "Pick from the menu 👇",
     "MSG_WEBSITE_INTRO": "Our shop is right here 👇",
-    "MSG_INFO_MENU": "Choose a section:",
-    "MSG_SETTINGS_MENU": "Settings:",
+    "MSG_INFO_MENU": (
+        "<b>ℹ️ Help</b>\n\n"
+        "The shop, delivery and payment, briefly.\n"
+        "Need a person — «💬 Manager» in the menu.\n\n"
+        "Pick a section 👇"
+    ),
+    "MSG_SETTINGS_MENU": (
+        "<b>⚙️ Settings</b>\n\n"
+        "The phone number we find your orders by, and the bot's language."
+    ),
     "MSG_LANGUAGE_CURRENT": "Current language: English ✅",
     "MSG_SUPPORT_PROMPT": "Send your question — we'll bring a manager in 💬",
     "MSG_NEW_PHONE_PROMPT": "To update your number, share it using the button below 👇",
