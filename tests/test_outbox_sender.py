@@ -25,12 +25,16 @@ class FakeBot:
 
     def __init__(self, *raises) -> None:
         self.calls: list[dict] = []
+        self.actions: list[str] = []
         self._raises = list(raises)
 
     async def send_message(self, chat_id: int, text: str, **kw):
         self.calls.append({"chat_id": chat_id, "text": text, **kw})
         if self._raises:
             raise self._raises.pop(0)
+
+    async def send_chat_action(self, chat_id: int, action: str, **kw):
+        self.actions.append(action)
 
 
 @pytest.fixture(autouse=True)
@@ -197,3 +201,33 @@ def test_a_payload_that_is_only_an_attachment_still_sends():
     _send(bot, {"copy": {"from_chat_id": 1, "message_id": 7}})
 
     assert bot.calls == [] and bot.copied == [{"message_id": 7}]
+
+
+# --- the answer that looks typed --------------------------------------------
+
+def test_an_answer_a_person_wrote_is_typed_first():
+    """It carries no "reply from a manager" label any more, so this is what is
+    left to say a person is on the other end."""
+    bot = FakeBot()
+    _send(bot, {"text": "вже відправили", "typing": True})
+    assert bot.actions == ["typing"]
+    assert bot.calls[0]["text"] == "вже відправили"
+
+
+def test_the_bot_does_not_pretend_to_type_its_own_notifications():
+    """A restock notice is the bot's own idea, and miming somebody typing it
+    would be a small lie."""
+    bot = FakeBot()
+    _send(bot, {"text": "back in stock"})
+    assert bot.actions == []
+
+
+def test_a_refused_chat_action_does_not_cost_the_answer():
+    """The send right after it raises the same thing properly, if it is real."""
+    class _NoTyping(FakeBot):
+        async def send_chat_action(self, chat_id, action, **kw):
+            raise TelegramBadRequest(method=None, message="Bad Request: chat not found")
+
+    bot = _NoTyping()
+    _send(bot, {"text": "вже відправили", "typing": True})
+    assert bot.calls[0]["text"] == "вже відправили"

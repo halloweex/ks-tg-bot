@@ -64,6 +64,12 @@ _PRUNE_EVERY = timedelta(days=1)
 # repeating faster than anybody can act on it is how alerts get muted.
 _REALERT_AFTER = timedelta(hours=1)
 
+# How long the "typing…" shows before a manager's answer arrives. Long enough
+# for the client to draw it, short enough that nobody waits: support answers are
+# rare next to broadcasts, so this costs the single sender nothing worth
+# measuring.
+_TYPING_SECONDS = 1.2
+
 
 class TelegramNotifier:
     """core.ports.notifier.Notifier over aiogram."""
@@ -72,6 +78,8 @@ class TelegramNotifier:
         self._bot = bot
 
     async def send(self, chat_id: int, payload: dict, *, silent: bool) -> None:
+        if payload.get("typing"):
+            await self._typing(chat_id)
         text = payload.get("text") or ""
         copy = payload.get("copy") or None
         if not text and not copy:
@@ -105,6 +113,24 @@ class TelegramNotifier:
             # Paced whatever the outcome: a 400 costs the same rate budget as a
             # delivered message.
             await asyncio.sleep(_PACE_SECONDS)
+
+    async def _typing(self, chat_id: int) -> None:
+        """A moment of "typing…" ahead of an answer a person wrote.
+
+        Only for those: a restock notice is the bot's own idea and pretending
+        somebody typed it would be a small lie. The pause is what makes the
+        indicator visible at all — without it the message arrives in the same
+        breath and the client has nothing to draw.
+
+        Failures are ignored. The send right after this one will raise the same
+        thing properly, and a chat action is not worth an exception of its own.
+        """
+        try:
+            await self._bot.send_chat_action(chat_id, "typing")
+        except Exception as exc:  # noqa: BLE001 — decoration, never a failure
+            logger.debug("Could not show typing to {}: {}", chat_id, exc)
+            return
+        await asyncio.sleep(_TYPING_SECONDS)
 
     async def _send(self, chat_id: int, text: str, payload: dict, *, silent: bool) -> None:
         """One call, with the message effect dropped rather than obeyed.

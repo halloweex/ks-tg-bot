@@ -42,12 +42,15 @@ async def queue_reply(
     be given: the prefix line and then whatever was actually sent, in one row so
     they cannot arrive out of order or half.
     """
-    payload: dict = {}
+    # Shown as "typing…" for a moment before it lands. A manager's answer is a
+    # person talking, and since it carries no label saying so any more, this is
+    # what is left to say it — see bot/outbox.py, which owns the pause.
+    payload: dict = {"typing": True}
     if text:
         payload["text"] = text
     if copy_from:
         payload["copy"] = {"from_chat_id": copy_from[0], "message_id": copy_from[1]}
-    if not payload:
+    if not (text or copy_from):
         raise ValueError("a support reply with nothing in it")
 
     return await enqueue(

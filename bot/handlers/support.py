@@ -8,14 +8,13 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from loguru import logger
 
-from core.i18n import Texts, customer_texts, operator_texts
+from core.i18n import Texts, operator_texts
 from bot.alerts import tell_admins_once
 from bot.analytics import track
 from core.config import AppConfig
 from core.repos.support import (album_in_progress, remember_support_thread, start_album,
                                 support_thread_owner)
 from core.usecases.support import queue_reply
-from core.repos.users import get_user_language
 from bot.screen import ephemeral, seen
 from bot.states import SupportStates
 
@@ -193,16 +192,13 @@ async def admin_reply(
             await message.answer(operator_texts().MSG_SUPPORT_NO_REPLY_TARGET)
         return
 
-    # This one goes to the customer, so it must be in *their* language. `t` here
-    # belongs to the manager who typed the reply — using it sent a Ukrainian
-    # customer an English prefix whenever the manager's Telegram was English.
-    ct = customer_texts(await get_user_language(user_chat_id))
-
+    # Nothing is added to what the manager typed. It used to arrive under
+    # "Відповідь від менеджера:", which announced the relay every single time —
+    # the customer wrote to the shop and the shop answers, and a label saying so
+    # is only in the way. What they see now is the answer, from the chat they
+    # wrote to, as if the person were sitting in it.
     if message.text:
-        await queue_reply(
-            user_chat_id,
-            text=f"{ct.MSG_SUPPORT_REPLY_PREFIX}\n\n{message.text}",
-        )
+        await queue_reply(user_chat_id, text=message.text)
     else:
         # A photo, a voice note or a document. An older version sent
         # `message.text` regardless, and for anything but text that is None —
@@ -212,7 +208,6 @@ async def admin_reply(
         # support chat.
         await queue_reply(
             user_chat_id,
-            text=ct.MSG_SUPPORT_REPLY_PREFIX,
             copy_from=(message.chat.id, message.message_id),
         )
 

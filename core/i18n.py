@@ -109,7 +109,6 @@ EN: dict[str, str] = {
     "MSG_WELCOME_BACK": "Welcome back! 🌸",
     "MSG_WELCOME_BACK_NAME": "{name}, lovely to see you again! 🌸",
     "MSG_PHONE_VERIFIED": "Thank you! Number verified ✅",
-    "MSG_SUPPORT_REPLY_PREFIX": "Reply from a manager:",
     "MSG_SUPPORT_ADMIN_NOTE": "📩 Message from a user (chat_id: {chat_id}):",
     "MSG_SUPPORT_REPLY_INSTRUCTION": "↩️ Reply to the forwarded message to answer the customer.",
     "MSG_SUPPORT_NO_REPLY_TARGET": "Please reply to the customer's forwarded message.",

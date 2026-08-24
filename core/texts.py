@@ -237,7 +237,6 @@ MSG_WELCOME_BACK_NAME = "{name}, раді бачити вас знову! \U0001
 MSG_PHONE_VERIFIED = "Дякуємо! Номер підтверджено \u2705"
 
 # Support relay (admin-side)
-MSG_SUPPORT_REPLY_PREFIX = "Відповідь від менеджера:"
 MSG_SUPPORT_ADMIN_NOTE = "📩 Повідомлення від користувача (chat_id: {chat_id}):"
 MSG_SUPPORT_REPLY_INSTRUCTION = "↩️ Відповідайте на переслане повідомлення, щоб відповісти клієнту."
 MSG_SUPPORT_NO_REPLY_TARGET = "Будь ласка, відповідайте на переслане повідомлення клієнта."

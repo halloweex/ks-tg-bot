@@ -187,8 +187,7 @@ def test_a_photo_reply_is_copied_instead_of_becoming_the_word_None(db, config):
     """Pinned defect, now fixed.
 
     The old handler always sent `message.text`, which is None for a photo, so
-    the customer received the prefix followed by "None" and the manager saw
-    nothing wrong.
+    the customer received the word "None" and the manager saw nothing wrong.
     """
     asyncio.run(db.remember_support_thread([11], CUSTOMER))
     bot = _FakeBot()
@@ -199,7 +198,20 @@ def test_a_photo_reply_is_copied_instead_of_becoming_the_word_None(db, config):
     assert reply["payload"]["copy"] == {"from_chat_id": SUPPORT_CHAT,
                                         "message_id": 500}, \
         "the attachment itself must reach the customer"
-    assert "None" not in reply["payload"]["text"]
+    assert "text" not in reply["payload"], "the copy travels alone now"
+
+
+def test_a_managers_answer_arrives_as_itself(db, config):
+    """No "Відповідь від менеджера:" over it. The customer wrote to the shop
+    and the shop is answering — a label announcing the relay every time is only
+    in the way, and it made a person sound like a system."""
+    asyncio.run(db.remember_support_thread([11], CUSTOMER))
+    bot = _FakeBot()
+    msg = _manager_message(bot, text="🥰🥰🥰", replied=_replied(11, text="?"))
+    asyncio.run(support.admin_reply(msg, config, None))
+
+    [reply] = _queued_replies()
+    assert reply["payload"]["text"] == "🥰🥰🥰"
 
 
 def test_a_reply_in_another_chat_is_ignored(db, config):
