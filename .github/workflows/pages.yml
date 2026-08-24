@@ -26,7 +26,13 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      # enablement: the action defaults to "assume Pages is already on" and
+      # fails with a bare 404 when it is not. Turning it on from here is the
+      # only way it gets turned on at all in this repository — a fine-grained
+      # PAT cannot write the Pages settings, the workflow's own token can.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: webapp
