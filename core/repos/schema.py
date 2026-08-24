@@ -292,6 +292,29 @@ CREATE TABLE IF NOT EXISTS sync_state (
 """
 
 
+# What the storefront sells, refreshed from its public feed. Only the fields a
+# buy button needs: the variant id a cart link is addressed to, the price shown
+# next to the product, and whether it can be bought at all.
+#
+# Not the same question as stock_levels above, and deliberately a second table
+# rather than more columns on it. That one is the CRM's unit count, written by
+# the restock poller and compared against itself to spot a restock; this one is
+# the shop's own answer to "is this on sale", and a product can have units and
+# be unpublished. Merging them would make one poller overwrite the other's idea
+# of availability every fifteen minutes.
+_CREATE_OFFERS = """
+CREATE TABLE IF NOT EXISTS offers (
+    sku        TEXT PRIMARY KEY,
+    variant_id INTEGER NOT NULL,
+    handle     TEXT NOT NULL DEFAULT '',
+    title      TEXT NOT NULL DEFAULT '',
+    price      TEXT NOT NULL DEFAULT '',
+    available  INTEGER NOT NULL DEFAULT 0,
+    checked_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
+
 # --------------------------------------------------------------------------
 # Schema versions
 # --------------------------------------------------------------------------
@@ -317,7 +340,7 @@ CREATE TABLE IF NOT EXISTS sync_state (
 # It could not express this change (SQLite cannot alter a UNIQUE constraint),
 # and it silently swallowed real failures — a full disk logged success.
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 
 async def _columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -501,6 +524,16 @@ async def _migration_8_user_crm_buyers(db: aiosqlite.Connection) -> None:
     await db.execute(_CREATE_USER_CRM_BUYERS)
 
 
+async def _migration_12_offers(db: aiosqlite.Connection) -> None:
+    """Add the storefront's offers table.
+
+    Nothing to backfill: it is a cache of somebody else's catalogue, and the
+    first sweep after start fills it. Until then the favourites screen simply
+    shows no buy buttons, which is what it did before this table existed.
+    """
+    await db.execute(_CREATE_OFFERS)
+
+
 async def _migration_7_sync_state(db: aiosqlite.Connection) -> None:
     """Add the row the incremental sync keeps its cursor in.
 
@@ -524,6 +557,7 @@ _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (9, "crm lookup timestamp", _migration_9_crm_checked_at),
     (10, "outbox", _migration_10_outbox),
     (11, "quiet hours per message", _migration_11_respect_quiet),
+    (12, "storefront offers", _migration_12_offers),
 )
 
 
@@ -581,6 +615,7 @@ async def init_db() -> None:
         await db.execute(_CREATE_SYNC_STATE)
         await db.execute(_CREATE_USER_CRM_BUYERS)
         await db.execute(_CREATE_OUTBOX)
+        await db.execute(_CREATE_OFFERS)
 
         if fresh:
             # The CREATE statements above deliberately keep their original
