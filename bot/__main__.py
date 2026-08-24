@@ -26,10 +26,12 @@ from bot.handlers.settings import router as settings_router
 from bot.handlers.support import router as support_router
 from core.adapters.keycrm.client import KeyCRMClient
 from core.adapters.shopify.catalog import ShopifyStorefront
+from core.adapters.telegram.profile import TelegramProfiles
 from core.adapters.novaposhta.client import NovaPoshtaClient
 from bot.middlewares import DropCustomEmoji, LanguageMiddleware
 from bot import profile
 from bot.outbox import watch as watch_outbox
+from bot.birthdays import watch as watch_birthdays
 from bot.catalogue import watch as watch_catalogue
 from bot.stock import watch as watch_stock
 from bot.sync import watch as watch_orders, watch_for_silence
@@ -107,6 +109,11 @@ async def main() -> None:
         # Keep the storefront's offers fresh, so the favourites screen can
         # offer to buy one and address the cart link to the right variant.
         loops.append(spawn(watch_catalogue(dp["storefront"]), name="catalogue_watcher"))
+        # Ask Telegram who has a birthday, and greet whoever is celebrating.
+        # The profile reader is an adapter like any other, which is what keeps
+        # the sweep itself testable without a bot.
+        loops.append(spawn(watch_birthdays(TelegramProfiles(bot)),
+                           name="birthday_watcher"))
         # Pull whatever changed in the CRM into the local cache, and — as a
         # separate task, so it survives that one dying — watch that it keeps
         # happening (docs/architecture.md §5.5).

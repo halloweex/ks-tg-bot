@@ -160,6 +160,12 @@ EN: dict[str, str] = {
     ),
     "MSG_DISCOUNT_ADMIN": "💰 Discount request\n👤 {who}",
     "MSG_CUSTOMER_UNKNOWN": "a customer",
+    "MSG_BIRTHDAY": (
+        "🎂 Happy birthday!\n\n"
+        "Thank you for being with us — may this year be kind to you 🌸\n"
+        "Here are the ones you love most:"
+    ),
+    "BTN_BIRTHDAY_FAVOURITES": "⭐ My favourites",
     "MSG_BACK_IN_STOCK_HEADER": "🔔 Back in stock:",
     "BTN_NOTIFY_ME": "🔔 {product}",
     "BTN_NOTIFY_CANCEL": "🔕 {product}",

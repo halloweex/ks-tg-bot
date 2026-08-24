@@ -51,6 +51,15 @@ _LATE_COLUMNS: tuple[tuple[str, str, str], ...] = (
     # delivering that without a sound at 23:00 is the bot deciding the customer
     # can read it tomorrow.
     ("outbox", "respect_quiet", "INTEGER NOT NULL DEFAULT 1"),
+    # "MM-DD", because that is all a birthday greeting needs and the year is
+    # somebody's age. Empty means Telegram told us there is none to see —
+    # either they never set one or their privacy hides it from bots — and NULL
+    # means nobody has asked yet.
+    ("users", "birthdate", "TEXT"),
+    # When Telegram was last asked. Stamped whether or not there was an answer,
+    # so the sweep works through the people it has never asked about instead of
+    # asking the same ones every hour.
+    ("users", "birthdate_checked_at", "TEXT"),
 )
 
 _CREATE_OPT_OUT = """
@@ -341,7 +350,7 @@ CREATE TABLE IF NOT EXISTS offers (
 # It could not express this change (SQLite cannot alter a UNIQUE constraint),
 # and it silently swallowed real failures — a full disk logged success.
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 
 async def _columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -547,6 +556,17 @@ async def _migration_13_offer_images(db: aiosqlite.Connection) -> None:
             "ALTER TABLE offers ADD COLUMN image_url TEXT NOT NULL DEFAULT ''")
 
 
+async def _migration_14_birthdays(db: aiosqlite.Connection) -> None:
+    """Room for the date a birthday greeting is sent on.
+
+    Nothing to backfill: Telegram is the only source, it is asked one customer
+    at a time, and the sweep fills the column in over the first days it runs.
+    Until a row has been asked about, that customer gets no greeting — which is
+    what happened before the column existed.
+    """
+    await _add_late_columns(db)
+
+
 async def _migration_7_sync_state(db: aiosqlite.Connection) -> None:
     """Add the row the incremental sync keeps its cursor in.
 
@@ -572,6 +592,7 @@ _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (11, "quiet hours per message", _migration_11_respect_quiet),
     (12, "storefront offers", _migration_12_offers),
     (13, "offer images", _migration_13_offer_images),
+    (14, "birthdays", _migration_14_birthdays),
 )
 
 

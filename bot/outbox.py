@@ -24,6 +24,8 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
+from aiogram.types import InlineKeyboardMarkup
+from pydantic import ValidationError
 from aiogram.exceptions import (TelegramBadRequest, TelegramForbiddenError,
                                 TelegramRetryAfter)
 from loguru import logger
@@ -140,17 +142,42 @@ class TelegramNotifier:
         confetti was added.
         """
         effect = payload.get("effect_id")
+        keyboard = _keyboard(payload)
         try:
             await self._bot.send_message(
                 chat_id, text,
                 message_effect_id=effect or None,
+                reply_markup=keyboard,
                 disable_notification=silent,
             )
         except TelegramBadRequest as exc:
             if not effect or "effect" not in exc.message.lower():
                 raise
             logger.debug("Message effect rejected ({}), sending plain", exc.message)
-            await self._bot.send_message(chat_id, text, disable_notification=silent)
+            await self._bot.send_message(chat_id, text, reply_markup=keyboard,
+                                         disable_notification=silent)
+
+
+def _keyboard(payload: dict) -> InlineKeyboardMarkup | None:
+    """The buttons a queued message asked to carry, if any.
+
+    A dict rather than an object in the payload because the payload is JSON in
+    a table: whatever queues the message is a scenario in `core`, which knows
+    Telegram's shapes (it already writes "effect_id" and "copy") but not
+    aiogram's classes. Rebuilt here, at the transport, where aiogram lives.
+
+    A malformed keyboard costs the buttons rather than the message: this runs
+    inside the sender, and a birthday greeting without its button is still a
+    birthday greeting.
+    """
+    raw = payload.get("keyboard")
+    if not raw:
+        return None
+    try:
+        return InlineKeyboardMarkup.model_validate(raw)
+    except ValidationError as exc:
+        logger.warning("Queued message has an unusable keyboard: {}", exc)
+        return None
 
 
 async def watch(bot: Bot, admin_ids: list[int] | None = None) -> None:

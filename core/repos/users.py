@@ -220,3 +220,65 @@ async def get_broadcast_recipients() -> list[int]:
         )
         rows = await cursor.fetchall()
         return [row[0] for row in rows]
+
+
+# --------------------------------------------------------------------------
+# Birthdays
+# --------------------------------------------------------------------------
+#
+# Telegram is the only source: `getChat` carries a `birthdate` for a private
+# chat when the person has set one and their privacy lets a bot see it. Most
+# have not, so the column is empty for most people and the greeting simply does
+# not happen for them — see core/usecases/birthdays.py.
+
+
+async def save_birthday(chat_id: int, birthdate: str) -> None:
+    """Record "MM-DD", or "" for a customer Telegram shows us no date for.
+
+    Both stamp `birthdate_checked_at`, which is what stops the sweep asking the
+    same people every hour: an answer of "there is none" is an answer.
+    """
+    async with connect() as db:
+        await db.execute(
+            "UPDATE users SET birthdate = ?, birthdate_checked_at = datetime('now') "
+            "WHERE chat_id = ?",
+            (birthdate, chat_id),
+        )
+        await db.commit()
+
+
+async def chats_without_birthday(limit: int, *, stale_days: int = 90) -> list[int]:
+    """Customers to ask Telegram about, never-asked ones first.
+
+    Re-asked every few months rather than once, because a birthday is something
+    people fill in long after they sign up — and the cost of asking is one API
+    call for somebody the bot already talks to.
+    """
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT chat_id FROM users "
+            " WHERE birthdate_checked_at IS NULL "
+            "    OR birthdate_checked_at < datetime('now', ?) "
+            " ORDER BY birthdate_checked_at IS NOT NULL, birthdate_checked_at "
+            " LIMIT ?",
+            (f"-{stale_days} days", limit),
+        )
+        return [row[0] for row in await cursor.fetchall()]
+
+
+async def chats_with_birthday_on(month_day: str) -> list[int]:
+    """Everyone whose birthday is "MM-DD", opt-outs excluded.
+
+    The opt-out check belongs here rather than in the caller for the same
+    reason get_broadcast_recipients does: "may this person be written to" is a
+    question about users, and a greeting is still something the bot decided to
+    send.
+    """
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT u.chat_id FROM users u "
+            " LEFT JOIN opt_out o ON o.chat_id = u.chat_id "
+            " WHERE u.birthdate = ? AND o.chat_id IS NULL",
+            (month_day,),
+        )
+        return [row[0] for row in await cursor.fetchall()]

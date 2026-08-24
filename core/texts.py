@@ -434,6 +434,16 @@ MSG_SUPPORT_NOT_DELIVERED = (
 )
 # Goes to the support chat, so Ukrainian regardless of the customer's language.
 MSG_DISCOUNT_ADMIN = "💰 Запит на знижку\n👤 {who}"
+# Sent on the day, and deliberately promising nothing. There is no discount
+# policy yet, and a bot inventing one commits the shop to it — the same reason
+# the discount button asks a manager instead of issuing a code. What this does
+# is remember, which is the part a shop usually forgets.
+MSG_BIRTHDAY = (
+    "🎂 З днем народження!\n\n"
+    "Дякуємо, що ви з нами — і нехай цей рік буде до вас добрим 🌸\n"
+    "Ось те, що ви любите найбільше:"
+)
+BTN_BIRTHDAY_FAVOURITES = "⭐ Мої улюблені"
 MSG_BACK_IN_STOCK_HEADER = "🔔 Знову в наявності:"
 # Numbered like the order buttons, for the same reason: a 40-character product
 # name does not fit on a button next to another one.

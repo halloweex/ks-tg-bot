@@ -231,3 +231,24 @@ def test_a_refused_chat_action_does_not_cost_the_answer():
     bot = _NoTyping()
     _send(bot, {"text": "вже відправили", "typing": True})
     assert bot.calls[0]["text"] == "вже відправили"
+
+
+# --- a queued message with buttons on it ------------------------------------
+
+def test_a_queued_keyboard_reaches_telegram():
+    """The birthday greeting is the first queued message with something to
+    press. The payload carries the shape, the transport rebuilds the object."""
+    bot = FakeBot()
+    _send(bot, {"text": "🎂", "keyboard": {"inline_keyboard": [[
+        {"text": "⭐ Мої улюблені", "switch_inline_query_current_chat": ""}]]}})
+    markup = bot.calls[0]["reply_markup"]
+    assert markup.inline_keyboard[0][0].text == "⭐ Мої улюблені"
+
+
+def test_an_unusable_keyboard_costs_the_buttons_and_not_the_message():
+    """A greeting without its button is still a greeting; a greeting that
+    raised inside the sender is a message nobody gets."""
+    bot = FakeBot()
+    _send(bot, {"text": "🎂", "keyboard": {"nonsense": True}})
+    assert bot.calls[0]["text"] == "🎂"
+    assert bot.calls[0]["reply_markup"] is None
