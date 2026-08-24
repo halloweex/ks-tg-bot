@@ -7,6 +7,7 @@ cannot catch a field the store sends that nobody thought to include.
 """
 from __future__ import annotations
 
+from core.domain.offer import Offer
 from core.domain.order import Order, shopify_external_id
 
 
@@ -69,3 +70,40 @@ def parse_orders(body: dict) -> list[Order]:
 # shopify_order_to_dict lived here and is gone, for the same reason its KeyCRM
 # twin did: the cache row is core.domain.order_row now, one function instead of
 # two that had to be kept in step by hand.
+
+
+def parse_offers_page(body: dict) -> dict[str, Offer]:
+    """One page of the storefront's public product list into offers by sku.
+
+    Variants without a sku are skipped rather than keyed by something invented:
+    the sku is the only join to the order history, and an offer nothing can
+    match to is an offer no screen will ever show.
+
+    A sku appearing twice — the same product listed in two variants, which this
+    catalogue does have — keeps whichever copy can actually be bought. Taking
+    the last one blindly would hide a buyable product behind a sold-out twin.
+    """
+    offers: dict[str, Offer] = {}
+    for product in body.get("products", []):
+        handle = str(product.get("handle") or "")
+        title = str(product.get("title") or "")
+        for variant in product.get("variants", []):
+            sku = str(variant.get("sku") or "").strip()
+            if not sku:
+                continue
+            try:
+                variant_id = int(variant.get("id"))
+            except (TypeError, ValueError):
+                continue
+            offer = Offer(
+                sku=sku,
+                variant_id=variant_id,
+                handle=handle,
+                title=title,
+                price=str(variant.get("price") or ""),
+                available=bool(variant.get("available")),
+            )
+            existing = offers.get(sku)
+            if existing is None or (offer.available and not existing.available):
+                offers[sku] = offer
+    return offers

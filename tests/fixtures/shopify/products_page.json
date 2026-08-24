@@ -1,0 +1,167 @@
+{
+ "_fixture_note": "RECORDED from https://koreanstory.com.ua/products.json?limit=3 on 2026-08-24. The public storefront feed needs no credentials, so unlike the Admin API fixtures beside it this one is a real response. body_html and image src were emptied for size; no other field was touched.",
+ "products": [
+  {
+   "id": 16011578605900,
+   "title": "MD'S Pick Гель-пінка для очищення шкіри, 150 мл – MD'S Pick TecaTeca Calming Jelly Foam Cleanser",
+   "handle": "mds-pick-tecateca-calming-jelly-foam-cleanser",
+   "body_html": "<p>…</p>",
+   "published_at": "2026-08-21T09:40:06-04:00",
+   "created_at": "2026-08-21T09:40:04-04:00",
+   "updated_at": "2026-08-24T05:29:23-04:00",
+   "vendor": "Korean Story",
+   "product_type": "",
+   "tags": [],
+   "variants": [
+    {
+     "id": 58505164259660,
+     "title": "Default Title",
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null,
+     "sku": "1729",
+     "requires_shipping": true,
+     "taxable": true,
+     "featured_image": null,
+     "available": true,
+     "price": "680.00",
+     "grams": 0,
+     "compare_at_price": null,
+     "position": 1,
+     "product_id": 16011578605900,
+     "created_at": "2026-08-21T09:40:05-04:00",
+     "updated_at": "2026-08-24T05:29:23-04:00"
+    }
+   ],
+   "images": [
+    {
+     "id": 76592417472844,
+     "created_at": "2026-08-21T09:32:27-04:00",
+     "position": 1,
+     "updated_at": "2026-08-21T09:32:29-04:00",
+     "product_id": 16011578605900,
+     "variant_ids": [],
+     "width": 589,
+     "height": 699
+    }
+   ],
+   "options": [
+    {
+     "name": "Title",
+     "position": 1,
+     "values": [
+      "Default Title"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 16011516150092,
+   "title": "MD'S Pick Заспокійлива сироватка з екстрактом центелли азіатської, 30 мл – MD'S Pick TecaTeca Calming Deep Ampoule",
+   "handle": "mds-pick-tecateca-calming-deep-ampoule",
+   "body_html": "<p>…</p>",
+   "published_at": "2026-08-21T09:29:47-04:00",
+   "created_at": "2026-08-21T09:29:45-04:00",
+   "updated_at": "2026-08-24T05:29:23-04:00",
+   "vendor": "Korean Story",
+   "product_type": "",
+   "tags": [],
+   "variants": [
+    {
+     "id": 58505088303436,
+     "title": "Default Title",
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null,
+     "sku": "1728",
+     "requires_shipping": true,
+     "taxable": true,
+     "featured_image": null,
+     "available": true,
+     "price": "760.00",
+     "grams": 0,
+     "compare_at_price": null,
+     "position": 1,
+     "product_id": 16011516150092,
+     "created_at": "2026-08-21T09:29:45-04:00",
+     "updated_at": "2026-08-24T05:29:23-04:00"
+    }
+   ],
+   "images": [
+    {
+     "id": 76592175350092,
+     "created_at": "2026-08-21T09:21:34-04:00",
+     "position": 1,
+     "updated_at": "2026-08-21T09:21:36-04:00",
+     "product_id": 16011516150092,
+     "variant_ids": [],
+     "width": 585,
+     "height": 565
+    }
+   ],
+   "options": [
+    {
+     "name": "Title",
+     "position": 1,
+     "values": [
+      "Default Title"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 16011377017164,
+   "title": "MD'S Pick Заспокійливі тонер-педи з кислотами, 70 шт/150 мл – MD'S Pick TecaTeca Calming Gauze Pad",
+   "handle": "mds-pick-tecateca-calming-gauze-pad",
+   "body_html": "<p>…</p>",
+   "published_at": "2026-08-21T09:07:01-04:00",
+   "created_at": "2026-08-21T09:07:00-04:00",
+   "updated_at": "2026-08-24T05:29:23-04:00",
+   "vendor": "Korean Story",
+   "product_type": "",
+   "tags": [],
+   "variants": [
+    {
+     "id": 58504828715340,
+     "title": "Default Title",
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null,
+     "sku": "1732",
+     "requires_shipping": true,
+     "taxable": true,
+     "featured_image": null,
+     "available": true,
+     "price": "860.00",
+     "grams": 0,
+     "compare_at_price": null,
+     "position": 1,
+     "product_id": 16011377017164,
+     "created_at": "2026-08-21T09:07:00-04:00",
+     "updated_at": "2026-08-24T05:29:23-04:00"
+    }
+   ],
+   "images": [
+    {
+     "id": 76591667708236,
+     "created_at": "2026-08-21T08:59:56-04:00",
+     "position": 1,
+     "updated_at": "2026-08-21T08:59:58-04:00",
+     "product_id": 16011377017164,
+     "variant_ids": [],
+     "width": 709,
+     "height": 599
+    }
+   ],
+   "options": [
+    {
+     "name": "Title",
+     "position": 1,
+     "values": [
+      "Default Title"
+     ]
+    }
+   ]
+  }
+ ]
+}

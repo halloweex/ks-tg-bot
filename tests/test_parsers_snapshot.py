@@ -228,14 +228,18 @@ def test_a_graphql_error_envelope_carries_no_orders():
     assert parse_shopify_orders(_shopify("graphql_errors.json")) == []
 
 
-def test_shopify_fixtures_are_marked_as_reconstructed():
-    """No Shopify credentials are configured, so none of these are recordings.
+def test_every_shopify_fixture_says_where_it_came_from():
+    """Reconstruction or recording — the file has to say which, and why.
 
-    Left explicit in the files: a reconstructed fixture cannot catch a field
-    Shopify sends that we never thought to include.
+    The Admin API ones are reconstructions: no Shopify credentials are
+    configured, and a reconstructed fixture cannot catch a field Shopify sends
+    that we never thought to include. The storefront feed needs no credentials,
+    so products_page.json is a real response and says so. The distinction is
+    what tells a reader how much a green test here is worth.
     """
     for path in (FIXTURES / "shopify").glob("*.json"):
-        assert "RECONSTRUCTED" in json.loads(path.read_text())["_fixture_note"]
+        note = json.loads(path.read_text())["_fixture_note"]
+        assert "RECONSTRUCTED" in note or "RECORDED" in note, path.name
 
 
 def test_keycrm_reports_one_shipment_per_order():
