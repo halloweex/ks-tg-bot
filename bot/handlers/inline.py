@@ -86,12 +86,11 @@ async def favourites_inline(query: InlineQuery, t: Texts, config: AppConfig) -> 
     # Read from the cache and never refresh from the CRM: an inline answer has
     # seconds, every keystroke arrives as its own query, and the screen this
     # button sits on is what fills a cold cache.
-    favourites = favourite_products(await get_cached_orders(chat_id),
-                                    limit=_MAX_RESULTS)
+    ranked = favourite_products(await get_cached_orders(chat_id),
+                                limit=_MAX_RESULTS)
     needle = query.query.strip().casefold()
-    if needle:
-        favourites = [item for item in favourites
-                      if needle in str(item["name"]).casefold()]
+    favourites = [item for item in ranked
+                  if not needle or needle in str(item["name"]).casefold()]
 
     offers = await get_offers(str(item.get("sku") or "") for item in favourites)
     results = [_result(item, offers[str(item["sku"])], t, config.website_url)
@@ -104,11 +103,27 @@ async def favourites_inline(query: InlineQuery, t: Texts, config: AppConfig) -> 
         track(chat_id, "favourites_inline_opened", found=len(results))
 
     if not results:
-        await _button_only(query, t.MSG_INLINE_EMPTY)
+        await _button_only(query, _nothing_to_show(ranked, needle, t))
         return
     # Personal and uncached: the list is one customer's own, and Telegram must
     # not serve it to the next person who types the same query.
     await query.answer(results, cache_time=0, is_personal=True)
+
+
+def _nothing_to_show(ranked: list[dict], needle: str, t: Texts) -> str:
+    """Which kind of nothing this is.
+
+    The panel is one tap from the favourites screen, which offers it without
+    knowing whether it has rows — so the empty answer has to say why it is
+    empty. Telling a customer whose whole history is samples and sets that they
+    have never ordered anything would be a plain falsehood, and they are the
+    fifth of the catalogue the shop publishes no offer for.
+    """
+    if not ranked:
+        return t.MSG_INLINE_EMPTY
+    if needle:
+        return t.MSG_INLINE_NOTHING_FOUND
+    return t.MSG_INLINE_NOT_IN_CATALOGUE
 
 
 async def _button_only(query: InlineQuery, text: str) -> None:

@@ -127,6 +127,16 @@ def test_a_customer_with_nothing_bought_yet_gets_a_button(db):
     assert query.kwargs["button"].text == Texts("uk").MSG_INLINE_EMPTY
 
 
+def test_a_history_the_shop_lists_no_offer_for_is_not_called_empty(db):
+    """The screen offers this panel without knowing whether it has rows, so an
+    empty answer has to say why. A customer whose whole history is samples and
+    sets has ordered plenty — telling them otherwise would be false."""
+    _registered_customer(_order("1"))
+    query = _ask(_Query())
+    assert query.results == []
+    assert query.kwargs["button"].text == Texts("uk").MSG_INLINE_NOT_IN_CATALOGUE
+
+
 def test_the_answer_is_personal_and_never_cached(db):
     """Telegram must not serve one customer's products to the next person who
     types the same query."""
@@ -227,11 +237,11 @@ def test_typing_filters_the_list(db):
     assert [row.id for row in _ask(_Query("product 2")).results] == ["2"]
 
 
-def test_a_query_matching_nothing_answers_with_a_button(db):
+def test_a_query_matching_nothing_says_so(db):
     _registered_customer(_order("1"), offers={"1": _offer("1")})
     query = _ask(_Query("тонер"))
     assert query.results == []
-    assert query.kwargs["button"].text == Texts("uk").MSG_INLINE_EMPTY
+    assert query.kwargs["button"].text == Texts("uk").MSG_INLINE_NOTHING_FOUND
 
 
 def test_opening_the_panel_is_counted_once_and_keystrokes_are_not(db, no_tracking):

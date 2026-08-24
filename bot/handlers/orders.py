@@ -56,16 +56,6 @@ _BUTTON_NAME_LEN = 30
 # keeps almost as much room as it has on a buy button.
 _NOTIFY_NAME_LEN = 28
 
-# How many favourites the screen itself lists — the same five it always did.
-# Spelled out here because the ranking now runs deeper than the screen does:
-# the inline panel shows the tail, and the button that opens it is only worth
-# offering when there is a tail to show.
-_ON_SCREEN = 5
-# How deep that ranking goes, which is Telegram's own cap on one inline answer.
-# Lives here rather than in bot/handlers/inline.py because that module imports
-# this one, and the two must agree on what "everything" means.
-INLINE_LIMIT = 50
-
 # Orders per page. Five of these blocks is a wall of text you get lost in —
 # on a phone it is over a screen and a half, and nothing in it stands out. Three
 # fit on one screen, and the rest is one tap away.
@@ -474,10 +464,7 @@ async def _favourites_view(
     for a product the storefront has no offer for: roughly a fifth of the
     catalogue, mostly samples and sets that are sold but never listed.
     """
-    # Ranked deeper than the screen shows, and sliced: the same one pass answers
-    # both what to draw and whether the inline panel would add anything.
-    ranked = favourite_products(cached, limit=INLINE_LIMIT)
-    favourites = ranked[:_ON_SCREEN]
+    favourites = favourite_products(cached)
     if not favourites:
         return (t.MSG_NO_FAVOURITES if cached else t.MSG_NO_ORDERS), _no_orders_kb(t), 0
 
@@ -498,8 +485,7 @@ async def _favourites_view(
 
     return (
         "\n".join(lines),
-        _favourites_kb(favourites, offers, levels, subscribed, t, website_url,
-                       more=len(ranked) > len(favourites)),
+        _favourites_kb(favourites, offers, levels, subscribed, t, website_url),
         len(favourites),
     )
 
@@ -541,8 +527,9 @@ def _is_missing(item: dict, offers: dict[str, Offer], levels: dict[str, int]) ->
 
 
 def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
-                   website_url: str, more: bool = False) -> InlineKeyboardMarkup:
-    """One button per product, then one for the lot, then the discount ask.
+                   website_url: str) -> InlineKeyboardMarkup:
+    """The way into the inline list, one button per product, one for the lot,
+    then the discount ask.
 
     Every button says what it does to which product, so the screen needs no
     legend. One per row: the labels carry a product name and a price, and two of
@@ -553,7 +540,15 @@ def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
     the shop's analytics is the only place this can be counted.
     """
     builder = InlineKeyboardBuilder()
-    rows = 0
+    # First, because it is the closest thing there is to what the menu key
+    # cannot do. «⭐ Улюблені» is a reply-keyboard key, and such a key can only
+    # send its own text — no API writes into the input field, and only an
+    # inline button carries switch_inline_query_current_chat. So the panel is
+    # one tap from the screen the key opens: this button puts "@bot " in the
+    # field, and the client draws the list over the keyboard
+    # (bot/handlers/inline.py).
+    builder.button(text=t.BTN_FAVOURITES_ALL, switch_inline_query_current_chat="")
+    rows = 1
     basket: list[int] = []
     total = 0.0
 
@@ -588,15 +583,6 @@ def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
     if len(basket) > 1:
         builder.button(text=t.BTN_BUY_ALL.format(total=texts.price_label(total)),
                        url=cart_url(website_url, basket, t.lang))
-        rows += 1
-
-    # Everything below the five is in the inline panel, which opens over the
-    # keyboard with a photo beside each product and filters as the customer
-    # types (bot/handlers/inline.py). Offered only when there is more to see
-    # than the screen already shows — otherwise the button leads back to the
-    # same five products, with pictures.
-    if more:
-        builder.button(text=t.BTN_FAVOURITES_ALL, switch_inline_query_current_chat="")
         rows += 1
 
     builder.button(text=t.BTN_WANT_DISCOUNT, callback_data=DiscountAction(action="ask"))

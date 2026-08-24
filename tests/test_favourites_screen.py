@@ -58,12 +58,21 @@ def _labels(buttons):
     return [b.text for b in buttons]
 
 
+def _products(buttons):
+    """Everything but the way into the inline panel.
+
+    That one is the first button on the screen and is about the whole list
+    rather than about any one product, so the tests below — which are all about
+    one product — count from after it."""
+    return [b for b in buttons if b.switch_inline_query_current_chat is None]
+
+
 # --- the buy button --------------------------------------------------------
 
 def test_a_sellable_favourite_gets_a_cart_link_to_its_own_variant(db):
     asyncio.run(save_offers({"1": _offer("1", variant=99)}))
     _text, buttons = _view([_order("1")])
-    buy = buttons[0]
+    buy = _products(buttons)[0]
     assert urlparse(buy.url).path == "/cart/99:1"
     assert buy.text.startswith("🛒 Product 1")
     assert buy.text.endswith("680 ₴")
@@ -74,7 +83,8 @@ def test_a_button_names_its_own_product(db):
     what the numbers meant. Nothing here has to be matched to anything else."""
     asyncio.run(save_offers({"1": _offer("1"), "2": _offer("2", variant=22)}))
     text, buttons = _view([_order("1", "2")])
-    assert [b.text.split(" · ")[0] for b in buttons[:2]] == ["🛒 Product 1", "🛒 Product 2"]
+    named = [b.text.split(" · ")[0] for b in _products(buttons)[:2]]
+    assert named == ["🛒 Product 1", "🛒 Product 2"]
     assert "номер" not in text
 
 
@@ -83,7 +93,7 @@ def test_the_cart_link_is_tagged_so_the_shop_can_count_it(db):
     analytics is the only place this purchase can ever be attributed."""
     asyncio.run(save_offers({"1": _offer("1")}))
     _text, buttons = _view([_order("1")])
-    tags = parse_qs(urlparse(buttons[0].url).query)
+    tags = parse_qs(urlparse(_products(buttons)[0].url).query)
     assert tags["utm_source"] == ["telegram"]
     assert tags["utm_campaign"] == ["favourites"]
 
@@ -91,7 +101,7 @@ def test_the_cart_link_is_tagged_so_the_shop_can_count_it(db):
 def test_the_checkout_opens_in_the_customers_own_language(db):
     asyncio.run(save_offers({"1": _offer("1")}))
     _text, buttons = _view([_order("1")], lang="en")
-    assert parse_qs(urlparse(buttons[0].url).query)["locale"] == ["en"]
+    assert parse_qs(urlparse(_products(buttons)[0].url).query)["locale"] == ["en"]
 
 
 def test_one_basket_holds_everything_available(db):
@@ -110,7 +120,7 @@ def test_a_single_available_product_gets_no_order_everything_button(db):
     """It would be the button directly above it, worded at greater length."""
     asyncio.run(save_offers({"1": _offer("1")}))
     _text, buttons = _view([_order("1")])
-    assert [b.text.split(" · ")[0] for b in buttons] == [
+    assert [b.text.split(" · ")[0] for b in _products(buttons)] == [
         "🛒 Product 1", "💰 Хочу знижку на ці товари"]
 
 
@@ -138,7 +148,7 @@ def test_where_neither_source_knows_the_screen_says_nothing(db):
     """Older cached order lines carry no sku at all. Claiming 'out of stock' for
     something we simply cannot look up would be worse than staying quiet."""
     text, buttons = _view([_order("1")])
-    assert _labels(buttons) == ["💰 Хочу знижку на ці товари"]
+    assert _labels(_products(buttons)) == ["💰 Хочу знижку на ці товари"]
     # ...but it is still named, or it would vanish off a screen whose whole job
     # is to list what this person buys.
     assert "Також ви купували: Product 1" in text
@@ -175,20 +185,21 @@ def test_a_one_off_purchase_is_not_called_a_favourite(db):
 
 # --- the way to the rest of the list ---------------------------------------
 
-def test_the_screen_offers_the_inline_panel_once_there_is_more_than_it_shows(db):
-    """The screen lists five products. The inline panel lists everything the
-    customer has bought, with a photo each and filtering as they type — worth a
-    button exactly when there is a sixth product it would show."""
-    skus = [str(n) for n in range(1, 7)]
-    asyncio.run(save_offers({s: _offer(s) for s in skus}))
-    _text, buttons = _view([_order(*skus)])
-    panel = next(b for b in buttons if b.text == "🔍 Усе, що ви купували")
-    assert panel.switch_inline_query_current_chat == ""
+def test_the_panel_is_the_first_button_on_the_screen(db):
+    """«⭐ Улюблені» is a reply-keyboard key: it can send its own text and
+    nothing else, and no API writes into the input field. This button is as
+    close as the menu key gets to opening the panel itself — one tap, and the
+    client puts "@bot " in the field and draws the list over the keyboard."""
+    asyncio.run(save_offers({"1": _offer("1")}))
+    _text, buttons = _view([_order("1")])
+    assert buttons[0].text == "🔍 Усе, що ви купували · з фото"
+    assert buttons[0].switch_inline_query_current_chat == ""
 
 
-def test_five_products_or_fewer_get_no_button_to_the_panel(db):
-    """It would open a list of the same five products, with pictures."""
-    skus = [str(n) for n in range(1, 6)]
-    asyncio.run(save_offers({s: _offer(s) for s in skus}))
-    _text, buttons = _view([_order(*skus)])
-    assert not any(b.text == "🔍 Усе, що ви купували" for b in buttons)
+def test_the_panel_is_offered_even_where_nothing_can_be_bought(db):
+    """A screen whose products the shop knows nothing about has no buy buttons
+    at all, and the panel is then the only thing on it worth pressing. It
+    answers for itself when it turns out to have no rows either — see
+    test_a_history_the_shop_lists_no_offer_for_is_not_called_empty."""
+    _text, buttons = _view([_order("1")])
+    assert buttons[0].switch_inline_query_current_chat == ""

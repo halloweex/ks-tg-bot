@@ -313,11 +313,12 @@ MSG_UNSUBSCRIBED = "Більше не сповіщатимемо про цей �
 MSG_FAVOURITE_OUT_OF_STOCK = "зараз немає"
 
 # Favourites as Telegram's own inline list — the panel that opens above the
-# input field, with a photo beside every product. The screen above shows the
-# top five; this shows everything the customer has ever bought and filters as
-# they type, which is the whole reason it exists next to a screen that already
-# lists their favourites.
-BTN_FAVOURITES_ALL = "🔍 Усе, що ви купували"
+# input field, with a photo beside every product. The screen shows the top five
+# as buttons; this shows everything the customer has ever bought and filters as
+# they type. It is the first button on that screen because it is as close as
+# the menu key can get to opening the panel itself: a reply-keyboard key sends
+# text and nothing else.
+BTN_FAVOURITES_ALL = "🔍 Усе, що ви купували · з фото"
 # Two lines under the product's name in the panel. The first is today's price
 # and whether it can be bought; the second is MSG_FAVOURITE_LINE, the same
 # "замовлень: 3 · 4 шт · востаннє 15.06.2026" the manager sees.
@@ -335,6 +336,13 @@ BTN_OPEN_PRODUCT = "🌐 Дивитися на сайті"
 MSG_INLINE_NOT_HERE = "Відкрийте цей список у чаті з ботом"
 MSG_INLINE_NEED_PHONE = "Поділіться номером — і побачите свої товари"
 MSG_INLINE_EMPTY = "Тут зʼявиться те, що ви замовляли"
+# The panel is one tap from the favourites screen and does not know in advance
+# whether it has anything to show, so it has to say which kind of nothing this
+# is. A customer whose whole history is samples and sets — the fifth of the
+# catalogue the shop lists no offer for — would otherwise be told they have
+# never ordered anything.
+MSG_INLINE_NOT_IN_CATALOGUE = "Цих товарів зараз немає в каталозі"
+MSG_INLINE_NOTHING_FOUND = "Нічого не знайшли — спробуйте іншу назву"
 BTN_DELIVERY_STATUS = "🚚 Відслідкувати замовлення"
 MSG_DELIVERY_HEADER = "<b>🚚 Ваші відправлення</b>"
 MSG_NO_DELIVERIES = "Наразі немає відправлень для відстеження."
