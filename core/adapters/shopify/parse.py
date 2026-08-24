@@ -72,6 +72,23 @@ def parse_orders(body: dict) -> list[Order]:
 # two that had to be kept in step by hand.
 
 
+def _image_for(product: dict, variant: dict) -> str:
+    """The one picture to show for this variant, or "" if the feed has none.
+
+    Shopify resolves the variant-to-image link itself: a variant with its own
+    photo carries it as `featured_image`, and this store leaves that null on
+    everything — one photo per product, no per-shade shots. So the product's
+    first image is the answer in practice, and the variant's own is honoured
+    where it exists rather than being second-guessed from `images[].variant_ids`.
+    """
+    featured = variant.get("featured_image") or {}
+    src = str(featured.get("src") or "")
+    if src:
+        return src
+    images = product.get("images") or []
+    return str(images[0].get("src") or "") if images else ""
+
+
 def parse_offers_page(body: dict) -> dict[str, Offer]:
     """One page of the storefront's public product list into offers by sku.
 
@@ -102,6 +119,7 @@ def parse_offers_page(body: dict) -> dict[str, Offer]:
                 title=title,
                 price=str(variant.get("price") or ""),
                 available=bool(variant.get("available")),
+                image_url=_image_for(product, variant),
             )
             existing = offers.get(sku)
             if existing is None or (offer.available and not existing.available):

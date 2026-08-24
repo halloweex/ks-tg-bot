@@ -1,5 +1,5 @@
 {
- "_fixture_note": "RECORDED from https://koreanstory.com.ua/products.json?limit=3 on 2026-08-24. The public storefront feed needs no credentials, so unlike the Admin API fixtures beside it this one is a real response. body_html and image src were emptied for size; no other field was touched.",
+ "_fixture_note": "RECORDED from https://koreanstory.com.ua/products.json?limit=3 on 2026-08-24. The public storefront feed needs no credentials, so unlike the Admin API fixtures beside it this one is a real response. body_html was emptied for size; no other field was touched.",
  "products": [
   {
    "id": 16011578605900,
@@ -41,6 +41,7 @@
      "updated_at": "2026-08-21T09:32:29-04:00",
      "product_id": 16011578605900,
      "variant_ids": [],
+     "src": "https://cdn.shopify.com/s/files/1/0858/3230/2924/files/Foam.jpg?v=1787319149",
      "width": 589,
      "height": 699
     }
@@ -95,6 +96,7 @@
      "updated_at": "2026-08-21T09:21:36-04:00",
      "product_id": 16011516150092,
      "variant_ids": [],
+     "src": "https://cdn.shopify.com/s/files/1/0858/3230/2924/files/Ampoule_3_add14f77-3c64-4455-9b1f-aebd3b4eafe8.jpg?v=1787318496",
      "width": 585,
      "height": 565
     }
@@ -149,6 +151,7 @@
      "updated_at": "2026-08-21T08:59:58-04:00",
      "product_id": 16011377017164,
      "variant_ids": [],
+     "src": "https://cdn.shopify.com/s/files/1/0858/3230/2924/files/00099f6915e1841027c95e564d53d841.jpg?v=1787317198",
      "width": 709,
      "height": 599
     }

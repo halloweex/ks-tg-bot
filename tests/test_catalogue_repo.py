@@ -17,9 +17,10 @@ def db(tmp_path, monkeypatch):
     asyncio.run(init_db())
 
 
-def _offer(sku, *, variant=1, available=True, price="100.00", title="T") -> Offer:
+def _offer(sku, *, variant=1, available=True, price="100.00", title="T",
+           image="") -> Offer:
     return Offer(sku=sku, variant_id=variant, handle="h", title=title,
-                 price=price, available=available)
+                 price=price, available=available, image_url=image)
 
 
 def test_offers_survive_a_round_trip(db):
@@ -28,6 +29,19 @@ def test_offers_survive_a_round_trip(db):
     assert got["1"].variant_id == 9
     assert got["1"].price == "680.00"
     assert got["1"].available is True
+
+
+def test_the_picture_survives_the_round_trip(db):
+    """It is what the inline list shows beside the product name."""
+    asyncio.run(save_offers({"1": _offer("1", image="https://cdn.example/a.jpg")}))
+    assert asyncio.run(get_offers(["1"]))["1"].image_url == "https://cdn.example/a.jpg"
+
+
+def test_a_row_written_before_pictures_existed_reads_as_no_picture(db):
+    """Migration 13 adds the column empty and the next sweep fills it. Until it
+    runs, every cached offer is one without a thumbnail."""
+    asyncio.run(save_offers({"1": _offer("1")}))
+    assert asyncio.run(get_offers(["1"]))["1"].image_url == ""
 
 
 def test_a_later_sweep_overwrites_what_the_earlier_one_knew(db):

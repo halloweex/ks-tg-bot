@@ -20,6 +20,7 @@ def _row_to_offer(row) -> Offer:
         title=row[3],
         price=row[4],
         available=bool(row[5]),
+        image_url=row[6],
     )
 
 
@@ -34,15 +35,17 @@ async def save_offers(offers: dict[str, Offer]) -> None:
     async with connect() as db:
         await db.executemany(
             "INSERT INTO offers (sku, variant_id, handle, title, price, available, "
-            "                    checked_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, datetime('now')) "
+            "                    image_url, checked_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now')) "
             "ON CONFLICT(sku) DO UPDATE SET variant_id = excluded.variant_id, "
             "                               handle     = excluded.handle, "
             "                               title      = excluded.title, "
             "                               price      = excluded.price, "
             "                               available  = excluded.available, "
+            "                               image_url  = excluded.image_url, "
             "                               checked_at = excluded.checked_at",
-            [(o.sku, o.variant_id, o.handle, o.title, o.price, int(o.available))
+            [(o.sku, o.variant_id, o.handle, o.title, o.price, int(o.available),
+              o.image_url)
              for o in offers.values()],
         )
         await db.commit()
@@ -60,7 +63,7 @@ async def get_offers(skus: Iterable[str]) -> dict[str, Offer]:
     placeholders = ",".join("?" * len(wanted))
     async with connect() as db:
         cursor = await db.execute(
-            "SELECT sku, variant_id, handle, title, price, available "
+            "SELECT sku, variant_id, handle, title, price, available, image_url "
             f"FROM offers WHERE sku IN ({placeholders})",
             wanted,
         )

@@ -310,6 +310,7 @@ CREATE TABLE IF NOT EXISTS offers (
     title      TEXT NOT NULL DEFAULT '',
     price      TEXT NOT NULL DEFAULT '',
     available  INTEGER NOT NULL DEFAULT 0,
+    image_url  TEXT NOT NULL DEFAULT '',
     checked_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 """
@@ -340,7 +341,7 @@ CREATE TABLE IF NOT EXISTS offers (
 # It could not express this change (SQLite cannot alter a UNIQUE constraint),
 # and it silently swallowed real failures — a full disk logged success.
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 
 async def _columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -534,6 +535,18 @@ async def _migration_12_offers(db: aiosqlite.Connection) -> None:
     await db.execute(_CREATE_OFFERS)
 
 
+async def _migration_13_offer_images(db: aiosqlite.Connection) -> None:
+    """Add the picture a product is shown with in the inline list.
+
+    Nothing to backfill and nothing to wait for: the column starts empty, the
+    hourly catalogue sweep fills it on its next pass, and a row without a
+    picture is a result without a thumbnail rather than a missing result.
+    """
+    if "image_url" not in await _columns(db, "offers"):
+        await db.execute(
+            "ALTER TABLE offers ADD COLUMN image_url TEXT NOT NULL DEFAULT ''")
+
+
 async def _migration_7_sync_state(db: aiosqlite.Connection) -> None:
     """Add the row the incremental sync keeps its cursor in.
 
@@ -558,6 +571,7 @@ _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (10, "outbox", _migration_10_outbox),
     (11, "quiet hours per message", _migration_11_respect_quiet),
     (12, "storefront offers", _migration_12_offers),
+    (13, "offer images", _migration_13_offer_images),
 )
 
 

@@ -65,6 +65,30 @@ def test_a_non_numeric_variant_id_is_skipped_rather_than_guessed():
     assert parse_offers_page(_page({"id": "not-a-number", "sku": "7"})) == {}
 
 
+# --- the picture -----------------------------------------------------------
+
+def test_an_offer_carries_the_product_photo_from_the_saved_page():
+    """The url comes out of the feed whole, query string included: Shopify's
+    `?v=` is a cache buster, and a url without it can serve a stale image."""
+    offers = parse_offers_page(FIXTURE)
+    assert offers["1729"].image_url.endswith("/files/Foam.jpg?v=1787319149")
+
+
+def test_a_variant_with_its_own_photo_gets_that_one():
+    """A per-variant shot beats the product's first image where it exists —
+    this store has none, but the feed has the field and Shopify fills it."""
+    page = _page({**_variant("7", 1),
+                  "featured_image": {"src": "https://cdn.example/variant.jpg"}})
+    page["products"][0]["images"] = [{"src": "https://cdn.example/product.jpg"}]
+    assert parse_offers_page(page)["7"].image_url == "https://cdn.example/variant.jpg"
+
+
+def test_a_product_with_no_photo_is_still_an_offer():
+    """No picture is a result without a thumbnail, not a product the customer
+    stops being able to reorder."""
+    assert parse_offers_page(_page(_variant("7", 1)))["7"].image_url == ""
+
+
 # --- what a failed read means ----------------------------------------------
 
 @pytest.fixture()
