@@ -115,9 +115,15 @@ def _item_line(product: dict, t: Texts) -> str:
 
 
 def format_cached_order(
-    row: dict, t: Texts, *, number: int, is_latest: bool = False, expanded: bool = False
+    row: dict, t: Texts, *, number: int, is_latest: bool = False,
+    expanded: bool = False, rich: bool = True
 ) -> str:
     """Format a single cached order (from DB dict) as a text block.
+
+    `rich` decides whether the block may wear the real logos — Instagram's on
+    the heading, Nova Poshta's on the tracking line. On for the screens, which
+    the bot sends itself; off for the card a customer sends by picking a row out
+    of the inline list, which is not the bot's message to decorate.
 
     `number` is the order's position in the whole list, counted across pages. It
     is what the expand button carries, so the two can be matched by eye. Zero
@@ -155,8 +161,13 @@ def format_cached_order(
     mark = t.MSG_ORDER_LATEST_MARK if is_latest else ""
 
     heading = f"{number}. " if number else ""
+    # Escaped first — an order number comes from the CRM — and only then handed
+    # the logo, which is a tag and must survive the escaping rather than be it.
+    named = escape(source_label)
+    if rich:
+        named = texts.with_logo(named, texts.INSTAGRAM, "📸")
     lines = [
-        f"<b>{heading}{escape(source_label)}</b>{mark}",
+        f"<b>{heading}{named}</b>{mark}",
         f"{t.LBL_STATUS}: <b>{status}</b>",
         f"{t.LBL_PRODUCTS}:",
         *item_lines,
@@ -166,7 +177,8 @@ def format_cached_order(
 
     tracking = row.get("tracking_code", "")
     if tracking:
-        lines.append(f"{t.MSG_ORDER_TRACKING.format(code=texts.tracking_link(tracking))}")
+        line = t.MSG_ORDER_TRACKING.format(code=texts.tracking_link(tracking))
+        lines.append(texts.with_logo(line, texts.NOVA_POSHTA, "🚚") if rich else line)
 
     location_parts = [p for p in (row.get("delivery_city", ""), row.get("receive_point", "")) if p]
     if location_parts:

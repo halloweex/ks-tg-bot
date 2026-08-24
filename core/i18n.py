@@ -319,7 +319,13 @@ class Texts:
         return CURRENCY_NAMES.get(self.lang, {}).get(raw.strip().lower(), raw)
 
     def order_source_label(self, row: dict) -> str:
-        """Language-aware version of the shared order label."""
+        """Language-aware version of the shared order label.
+
+        Always the plain form. A message that may wear Instagram's own logo
+        puts it on afterwards with texts.with_logo — after escaping, because
+        the order number in here comes from the CRM — and the surfaces that may
+        not, an inline result's title among them, simply do not.
+        """
         order_name = row.get("order_name", "")
         if order_name:
             return f"{self.MSG_ORDER_SOURCE_WEB} {order_name}".strip()

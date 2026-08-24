@@ -269,7 +269,8 @@ def _order_result(row: dict, offers: dict[str, Offer], t: Texts,
         # this is the one a customer recognises the order by.
         thumbnail_url=_first_photo(products, offers),
         input_message_content=InputTextMessageContent(
-            message_text=format_cached_order(row, t, number=0, expanded=True),
+            message_text=format_cached_order(row, t, number=0, expanded=True,
+                                             rich=False),
             parse_mode="HTML",
         ),
         reply_markup=_order_kb(row, products, offers, t, website_url),

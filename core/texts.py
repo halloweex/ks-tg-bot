@@ -109,6 +109,8 @@ NOVAPOSHTA_TRACKING_URL = "https://novaposhta.ua/tracking/?cargo_number={ttn}"
 
 # 🚚 Nova Poshta — the only carrier this shop ships with. From the UIcons pack.
 NOVA_POSHTA = "5266999677340890591"
+# 📸 Instagram, where most of these orders are actually placed.
+INSTAGRAM = "5454400924510334242"
 # 💳 The ways to pay, from UIcons_Fin. Only the ones the payment page actually
 # names: neither pack has an Apple Pay or a Google Pay mark, and inventing one
 # out of a similar logo would put the wrong brand next to a payment method.
@@ -131,6 +133,17 @@ def custom_emoji(emoji_id: str, fallback: str) -> str:
     stripped.
     """
     return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
+
+
+def with_logo(text: str, emoji_id: str, plain: str) -> str:
+    """The same line with its first `plain` emoji wearing a real logo.
+
+    Written this way round because the plain emoji is what a custom one carries
+    inside it anyway: the line is composed once, in one string table, and the
+    surfaces that may use a logo wrap it afterwards. The ones that may not — an
+    inline result's title, the card a customer sends — leave it alone.
+    """
+    return text.replace(plain, custom_emoji(emoji_id, plain), 1)
 
 
 def strip_custom_emoji(text: str) -> str:
@@ -302,6 +315,10 @@ MSG_ORDERS_EXPAND_HINT = "🔎 номер — усі товари цього з�
 # bot/sync.py. "год" needs no plural form, which is the reason it is written
 # that way: 1, 2 and 5 hours all read correctly.
 MSG_ORDERS_STALE = "⏳ Дані оновлювалися понад {hours} год тому"
+# Two forms of the same line. The rich one carries the carrier's own logo and
+# goes into messages the bot sends itself; the plain one goes into the card a
+# customer sends by picking a row out of the inline list, where a custom emoji
+# is not ours to use. Same rule as the label above.
 MSG_ORDER_TRACKING = "🚚 ТТН: {code}"
 MSG_ORDER_LOCATION = "📍 {location}"
 

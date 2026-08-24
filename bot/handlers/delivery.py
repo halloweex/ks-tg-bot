@@ -18,7 +18,7 @@ from core.adapters.novaposhta.client import NovaPoshtaClient
 
 def _format_order_label(row: dict, t: Texts) -> str:
     """Short label for an order: source + products summary."""
-    label = escape(t.order_source_label(row))
+    label = texts.with_logo(escape(t.order_source_label(row)), texts.INSTAGRAM, "📸")
 
     try:
         products = json.loads(row.get("products_json", "[]"))
@@ -51,7 +51,9 @@ def _format_delivery_block(row: dict, tracking_info: dict | None, t: Texts) -> s
     label = _format_order_label(row, t)
     ttn = row.get("tracking_code", "")
 
-    lines = [label, f"{t.MSG_ORDER_TRACKING.format(code=texts.tracking_link(ttn))}"]
+    lines = [label, texts.with_logo(
+        t.MSG_ORDER_TRACKING.format(code=texts.tracking_link(ttn)),
+        texts.NOVA_POSHTA, "🚚")]
 
     if tracking_info:
         ts = tracking_info
