@@ -209,6 +209,10 @@ MSG_MAIN_MENU = "Чим допомогти?"
 # Sits inside the input field while the menu keyboard is open, in place of
 # "Write a message" — the field is not what we want tapped.
 MSG_MENU_PLACEHOLDER = "Оберіть дію"
+# Carries the menu that lives in a message rather than under the input field.
+# Its own line, because Telegram gives a message one keyboard and these are two
+# kinds of keyboard — so the menu always arrives as the second of two messages.
+MSG_MENU_PICK = "Оберіть у меню 👇"
 MSG_WEBSITE_INTRO = "Наш магазин — тут 👇"
 MSG_INFO_MENU = "Оберіть розділ:"
 MSG_SETTINGS_MENU = "Налаштування:"

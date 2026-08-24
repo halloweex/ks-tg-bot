@@ -6,7 +6,8 @@ from urllib.parse import urlencode, urlparse
 from aiogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
-from bot.callbacks import BroadcastAction, InfoAction, SettingsAction
+from bot.callbacks import (BroadcastAction, InfoAction, MenuAction,
+                           SettingsAction)
 from collections.abc import Sequence
 
 from core.i18n import LANGUAGE_NAMES, SUPPORTED, Texts
@@ -116,6 +117,49 @@ def main_menu_kb(t: Texts) -> ReplyKeyboardMarkup:
         one_time_keyboard=False,
         input_field_placeholder=t.MSG_MENU_PLACEHOLDER,
     )
+
+
+def main_menu_inline_kb(t: Texts, website_url: str) -> InlineKeyboardMarkup:
+    """The main menu as buttons inside a message, beside the keyboard below.
+
+    It exists for one button the keyboard below cannot carry. «⭐ Улюблені»
+    here is a switch_inline_query_current_chat button: tapping it makes the
+    client write "@bot " into the input field and open the inline list over the
+    keyboard (bot/handlers/inline.py). A KeyboardButton has no such field — it
+    carries text, a web app or a contact request, and nothing else — and no API
+    writes into anybody's input field.
+
+    Both menus lead to the same screens. Only favourites differs, and that is
+    the whole reason this one exists: from the keyboard below it opens the
+    screen, from here it opens the list with photos.
+
+    The keyboard below stays where it is. It is what draws the ☰ toggle in the
+    input row — no API creates that — and it is what the customer reaches for
+    when this message has scrolled away.
+
+    Layout 2+1+2+2: an inline keyboard is only as wide as the message bubble.
+    «🚚 Відслідкувати замовлення» beside anything else wraps onto a second
+    line, which is what took this menu off the screen the last time it was
+    inline (CHANGELOG, 2026-07-31).
+    """
+    builder = InlineKeyboardBuilder()
+    # "open_*" rather than the bare section names: MenuAction("info") and
+    # MenuAction("support") already mean "go back to the page list" and "ask
+    # for a person" *inside* a screen, and those two edit the message they came
+    # from. A menu entry must not — it would replace the menu with the section.
+    builder.button(text=t.BTN_ORDERS, callback_data=MenuAction(action="open_orders"))
+    # The one button this menu is for.
+    builder.button(text=t.BTN_FAVOURITES, switch_inline_query_current_chat="")
+    builder.button(text=t.BTN_DELIVERY_STATUS,
+                   callback_data=MenuAction(action="open_delivery"))
+    builder.button(text=t.BTN_SUPPORT,
+                   callback_data=MenuAction(action="open_support"))
+    builder.button(text=t.BTN_WEBSITE, url=tagged_website_url(website_url))
+    builder.button(text=t.BTN_INFO, callback_data=MenuAction(action="open_info"))
+    builder.button(text=t.BTN_SETTINGS,
+                   callback_data=MenuAction(action="open_settings"))
+    builder.adjust(2, 1, 2, 2)
+    return builder.as_markup()
 
 
 def website_kb(t: Texts, website_url: str) -> InlineKeyboardMarkup:

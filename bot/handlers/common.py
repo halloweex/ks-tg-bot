@@ -10,7 +10,8 @@ from core.i18n import LANGUAGE_NAMES, Texts
 from bot.analytics import track
 from core.config import AppConfig
 from core.repos.users import get_user, get_user_language, is_opted_out, opt_in_user
-from bot.keyboards import language_kb, main_menu_kb, share_phone_kb
+from bot.keyboards import language_kb, share_phone_kb
+from bot.screen import send_main_menu
 from bot.profile import ensure_menu_button
 from bot.states import OnboardingStates
 
@@ -66,11 +67,11 @@ async def cmd_start(
             greeting = t.MSG_WELCOME_BACK_NAME.format(name=user["full_name"])
         else:
             greeting = t.MSG_WELCOME_BACK
-        # One message: the greeting carries the menu keyboard, and sending a
-        # keyboard replaces whatever the chat had before it.
-        await message.answer(
-            f"{greeting}\n\n{t.MSG_MAIN_MENU}", reply_markup=main_menu_kb(t)
-        )
+        # The greeting carries the menu keyboard — sending a keyboard replaces
+        # whatever the chat had before it — and the menu itself follows as
+        # buttons in a message, which is the only kind that can hand the input
+        # field to the inline list.
+        await send_main_menu(message, t, config.website_url, greeting)
         await _maybe_offer_language(message, t, lang, tg_lang)
         return
 

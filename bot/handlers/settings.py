@@ -11,8 +11,8 @@ from bot.analytics import track
 from core.config import AppConfig
 from core.repos.users import save_user, set_user_language
 from bot.handlers.onboarding import own_contact_phone
-from bot.keyboards import language_kb, main_menu_kb, share_phone_kb
-from bot.screen import render
+from bot.keyboards import language_kb, share_phone_kb
+from bot.screen import render, send_main_menu
 from bot.states import SettingsStates
 
 router = Router()
@@ -53,9 +53,7 @@ async def process_new_contact(
     await save_user(message.chat.id, phone.e164)
     await state.clear()
     # Sending the menu keyboard replaces the share-phone one it is answering.
-    await message.answer(
-        f"{t.MSG_PHONE_CHANGED}\n\n{t.MSG_MAIN_MENU}", reply_markup=main_menu_kb(t)
-    )
+    await send_main_menu(message, t, config.website_url, t.MSG_PHONE_CHANGED)
 
 
 @router.message(SettingsStates.waiting_new_phone)
@@ -92,8 +90,9 @@ async def set_language(
     track(callback.from_user.id, "language_changed", to=chosen)
     await callback.answer()
 
-    # The keyboard carries the button labels, so a language change has to send
-    # a new one — an edit cannot touch the keyboard under the input field.
+    # Both menus carry the button labels, so a language change has to send them
+    # again — an edit cannot touch the keyboard under the input field, and the
+    # menu in the message is the one this callback just overwrote.
     t = Texts(chosen)
     await render(callback, t.MSG_LANGUAGE_SET)
-    await callback.message.answer(t.MSG_MAIN_MENU, reply_markup=main_menu_kb(t))
+    await send_main_menu(callback.message, t, config.website_url)

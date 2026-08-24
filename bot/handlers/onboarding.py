@@ -9,8 +9,8 @@ from loguru import logger
 from core.i18n import Texts
 from bot.analytics import track
 from core.config import AppConfig
-from bot.keyboards import main_menu_kb, share_phone_kb
-from bot.screen import typing
+from bot.keyboards import share_phone_kb
+from bot.screen import send_main_menu, typing
 from core.adapters.keycrm.client import KeyCRMClient
 from core.domain.phone import VerifiedPhone, verified_phone
 from core.usecases.register import register_customer
@@ -54,10 +54,9 @@ async def _register_user(
     await state.clear()
     track(message.chat.id, "registered")
     # Sending a reply keyboard replaces the share-phone one, so registration
-    # ends with the menu already under the customer's thumb.
-    await message.answer(
-        f"{t.MSG_PHONE_VERIFIED}\n\n{t.MSG_MAIN_MENU}", reply_markup=main_menu_kb(t)
-    )
+    # ends with the menu already under the customer's thumb — and with the same
+    # menu in a message above it, where «⭐ Улюблені» opens the inline list.
+    await send_main_menu(message, t, config.website_url, t.MSG_PHONE_VERIFIED)
 
 
 @router.message(OnboardingStates.waiting_phone, F.contact)

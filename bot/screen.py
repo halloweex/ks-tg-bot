@@ -16,10 +16,31 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from aiogram.exceptions import TelegramBadRequest
 from loguru import logger
 
+from core.i18n import Texts
+from bot.keyboards import main_menu_inline_kb, main_menu_kb
+
 # Telegram's wording when the new text and markup are identical to the old ones.
 # It means the screen is already showing what we asked for, which is a success,
 # not a failure — a double tap should not spawn a duplicate message.
 _NOT_MODIFIED = "message is not modified"
+
+
+async def send_main_menu(message: Message, t: Texts, website_url: str,
+                         intro: str = "") -> None:
+    """Put both menus on screen: the keyboard below, and the one in a message.
+
+    Two messages because Telegram allows a message only one markup, and these
+    are two kinds: the keyboard under the input field and the buttons in the
+    bubble. The first carries whatever we were going to say anyway — a
+    greeting, a confirmation — and the second is the menu itself.
+
+    Why both at all: only an inline button can hand the input field to the
+    inline list (bot/keyboards.py), and only a reply keyboard draws the ☰
+    toggle in the input row.
+    """
+    await message.answer(intro or t.MSG_MAIN_MENU, reply_markup=main_menu_kb(t))
+    await message.answer(t.MSG_MENU_PICK,
+                         reply_markup=main_menu_inline_kb(t, website_url))
 
 
 async def render(

@@ -20,13 +20,16 @@ from core.i18n import DEFAULT_LANG
 # Telegram matches these against the user's language_code; the entry without a
 # language is the fallback for everyone else.
 CUSTOMER_COMMANDS = {
-    "uk": [("start", "Головне меню"), ("stop", "Відписатися від розсилки")],
-    "en": [("start", "Main menu"), ("stop", "Unsubscribe from updates")],
+    "uk": [("start", "Почати"), ("menu", "Головне меню"),
+           ("stop", "Відписатися від розсилки")],
+    "en": [("start", "Start"), ("menu", "Main menu"),
+           ("stop", "Unsubscribe from updates")],
 }
 
 # Operator surface, English by convention.
 ADMIN_COMMANDS = [
-    ("start", "Main menu"),
+    ("start", "Start"),
+    ("menu", "Main menu"),
     ("stats", "Funnel and event stats"),
     ("broadcast", "Send a message to all subscribers"),
     ("demo", "Seed demo orders (/demo clear to remove)"),

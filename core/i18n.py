@@ -98,6 +98,7 @@ EN: dict[str, str] = {
     "MSG_SUPPORT_FORWARDED": "Your message has been sent to a manager. Please wait for a reply.",
     "MSG_MAIN_MENU": "How can I help?",
     "MSG_MENU_PLACEHOLDER": "Choose an action",
+    "MSG_MENU_PICK": "Pick from the menu 👇",
     "MSG_WEBSITE_INTRO": "Our shop is right here 👇",
     "MSG_INFO_MENU": "Choose a section:",
     "MSG_SETTINGS_MENU": "Settings:",
