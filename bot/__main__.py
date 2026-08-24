@@ -23,10 +23,12 @@ from bot.handlers.orders import router as orders_router
 from bot.handlers.settings import router as settings_router
 from bot.handlers.support import router as support_router
 from core.adapters.keycrm.client import KeyCRMClient
+from core.adapters.shopify.catalog import ShopifyStorefront
 from core.adapters.novaposhta.client import NovaPoshtaClient
 from bot.middlewares import LanguageMiddleware
 from bot import profile
 from bot.outbox import watch as watch_outbox
+from bot.catalogue import watch as watch_catalogue
 from bot.stock import watch as watch_stock
 from bot.sync import watch as watch_orders, watch_for_silence
 from bot.tasks import drain, spawn
@@ -68,6 +70,10 @@ async def main() -> None:
     # Dependency injection via dp workflow_data
     dp["config"] = config
     dp["keycrm"] = KeyCRMClient(api_key=config.env.keycrm_api_key)
+    # The shop's public product feed. No credentials: /products.json is served
+    # to anyone, which is the only reason the buy button is possible at all —
+    # no Shopify Admin token has ever been configured for this store.
+    dp["storefront"] = ShopifyStorefront(config.website_url)
 
     # Conditional Nova Poshta client
     np_keys = config.env.novaposhta_keys
@@ -92,6 +98,9 @@ async def main() -> None:
         # No bot argument any more: since stage 6 the sweep queues and the
         # outbox sends, so nothing in that path knows about Telegram.
         loops.append(spawn(watch_stock(dp["keycrm"]), name="stock_watcher"))
+        # Keep the storefront's offers fresh, so the favourites screen can
+        # offer to buy one and address the cart link to the right variant.
+        loops.append(spawn(watch_catalogue(dp["storefront"]), name="catalogue_watcher"))
         # Pull whatever changed in the CRM into the local cache, and — as a
         # separate task, so it survives that one dying — watch that it keeps
         # happening (docs/architecture.md §5.5).

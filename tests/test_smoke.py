@@ -85,7 +85,7 @@ def test_the_background_loops_are_started_and_cancelled(tmp_path):
 
     source = inspect.getsource(entry.main)
     for started in ("watch_stock(", "watch_orders(", "watch_for_silence(",
-                    "watch_outbox("):
+                    "watch_outbox(", "watch_catalogue("):
         assert started in source, f"{started} is not started at startup"
     # They loop forever, so drain() would sit out its whole timeout on every
     # deploy instead of exiting.
