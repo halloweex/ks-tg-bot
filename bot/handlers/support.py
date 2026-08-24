@@ -14,6 +14,7 @@ from core.repos.support import (album_in_progress, remember_support_thread, star
                                 support_thread_owner)
 from core.usecases.support import queue_reply
 from core.repos.users import get_user_language
+from bot.screen import ephemeral, seen
 from bot.states import SupportStates
 
 router = Router()
@@ -88,8 +89,13 @@ async def forward_to_support(
     # Confirm to user and return to main menu
     await state.clear()
     track(message.chat.id, "support_message_sent")
+    # The durable half of the confirmation is the reaction on their own
+    # message: it sits where the customer is already looking and is still there
+    # next week. The line of text is the transient half — it answers the tap
+    # and is noise a day later, so it takes itself back.
+    await seen(message)
     # No keyboard to attach: the menu is already under the input field.
-    await message.answer(t.MSG_SUPPORT_FORWARDED)
+    await ephemeral(message, t.MSG_SUPPORT_FORWARDED)
 
 
 @router.message(StateFilter(None), F.media_group_id)
@@ -190,3 +196,10 @@ async def admin_reply(
     # Telegram is busy, and shelves it with an alert if it truly cannot be
     # delivered — instead of raising inside this handler where nobody sees it.
     logger.info("Support reply queued for chat_id={}", user_chat_id)
+
+    # And the manager gets the same mark the customer does, on their own reply:
+    # it says the thread was matched to a customer and the answer is on its way.
+    # Without it, a reply that found no target and one that did look identical
+    # in the support chat — the only difference was a message that appears in
+    # the first case.
+    await seen(message)

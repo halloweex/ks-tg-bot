@@ -11,7 +11,7 @@ from bot.analytics import track
 from core.config import AppConfig
 from core.repos.users import get_user, get_user_language, is_opted_out, opt_in_user
 from bot.keyboards import language_kb, share_phone_kb
-from bot.screen import send_main_menu
+from bot.screen import ephemeral, send_main_menu
 from bot.handlers.orders import favourites_screen, orders_screen
 from core.adapters.keycrm.client import KeyCRMClient
 from bot.profile import ensure_menu_button
@@ -67,7 +67,9 @@ async def cmd_start(
     if await is_opted_out(message.chat.id):
         await opt_in_user(message.chat.id)
         track(message.chat.id, "opted_in")
-        await message.answer(t.MSG_OPT_IN_CONFIRM)
+        # A status notice, not something the shop said: it answers the /start
+        # that caused it and means nothing an hour later.
+        await ephemeral(message, t.MSG_OPT_IN_CONFIRM)
 
     # Returning user — already verified, show main menu
     user = await get_user(message.chat.id)

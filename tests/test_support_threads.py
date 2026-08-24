@@ -105,11 +105,18 @@ class _FakeBot:
 
 
 def _manager_message(bot, *, text, replied):
-    return SimpleNamespace(
+    reactions: list[str] = []
+
+    async def react(reaction, **kw):
+        reactions.extend(item.emoji for item in reaction)
+
+    msg = SimpleNamespace(
         bot=bot, chat=SimpleNamespace(id=SUPPORT_CHAT), text=text,
         message_id=500, reply_to_message=replied,
-        answer=lambda *a, **k: asyncio.sleep(0),
+        answer=lambda *a, **k: asyncio.sleep(0), react=react,
     )
+    msg.reactions = reactions
+    return msg
 
 
 @pytest.fixture()
@@ -207,15 +214,23 @@ class _ForwardingBot(_FakeBot):
 
 def _customer_message(bot, *, message_id, media_group_id=None):
     answered: list[str] = []
+    reactions: list[str] = []
 
     async def answer(text, **kw):
         answered.append(text)
+        # Deleted later by ephemeral(), which is a background task that the
+        # test loop cancels long before it wakes up.
+        return SimpleNamespace(delete=lambda: asyncio.sleep(0))
+
+    async def react(reaction, **kw):
+        reactions.extend(item.emoji for item in reaction)
 
     msg = SimpleNamespace(
         bot=bot, chat=SimpleNamespace(id=CUSTOMER), message_id=message_id,
-        media_group_id=media_group_id, answer=answer,
+        media_group_id=media_group_id, answer=answer, react=react,
     )
     msg.answered = answered
+    msg.reactions = reactions
     return msg
 
 
@@ -335,3 +350,24 @@ def test_attachments_travel_in_both_directions(db, config, texts):
     [queued] = _queued_replies()
     assert queued["chat_id"] == CUSTOMER
     assert queued["payload"]["copy"]["message_id"] == 500
+
+
+def test_a_forwarded_message_is_marked_as_arrived(db, config, texts):
+    """The durable half of the confirmation. It sits on the customer's own
+    message, where they are already looking, and is still there next week —
+    unlike the line of text beside it, which deletes itself."""
+    bot = _ForwardingBot()
+    message = _customer_message(bot, message_id=1)
+    asyncio.run(support.forward_to_support(message, _NoState(), config, texts))
+    assert message.reactions == ["👀"]
+
+
+def test_a_managers_reply_is_marked_when_it_finds_its_customer(db, config):
+    """A reply that matched a thread and one that matched nothing looked the
+    same in the support chat: the only difference was a message that appears in
+    the second case, which nobody reads in a busy chat."""
+    asyncio.run(db.remember_support_thread([10], CUSTOMER))
+    bot = _FakeBot()
+    message = _manager_message(bot, text="hello", replied=_replied(10))
+    asyncio.run(support.admin_reply(message, config, None))
+    assert message.reactions == ["👀"]

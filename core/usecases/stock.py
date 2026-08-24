@@ -32,6 +32,7 @@ from loguru import logger
 
 from core.domain.campaign import daily
 from core.domain.stock import restocked
+from core.effects import CONFETTI
 from core.i18n import customer_texts
 from core.ports.catalog import StockLevels
 from core.repos.outbox import enqueue
@@ -44,7 +45,10 @@ from core.texts import shorten_name
 # news for the person reading it — their product is back — and the only place an
 # effect is not noise. Best effort: the sender drops it rather than the message
 # if Telegram stops recognising the id.
-CONFETTI_EFFECT_ID = "5046509860389126442"
+# Kept as a name here because this is where the notification is built, but the
+# id itself lives in core/effects.py now — a second sender needed it, and an id
+# spelled twice is an id that gets edited once.
+CONFETTI_EFFECT_ID = CONFETTI
 
 # What the outbox calls these, and what §6.2's policy is read for. A restock
 # notification would rather arrive twice than not at all: the customer asked to

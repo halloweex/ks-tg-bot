@@ -9,6 +9,7 @@ from loguru import logger
 from core.i18n import Texts
 from bot.analytics import track
 from core.config import AppConfig
+from core.effects import CONFETTI
 from bot.keyboards import share_phone_kb
 from bot.screen import send_main_menu, typing
 from core.adapters.keycrm.client import KeyCRMClient
@@ -56,7 +57,11 @@ async def _register_user(
     # Sending a reply keyboard replaces the share-phone one, so registration
     # ends with the menu already under the customer's thumb — and with the same
     # menu in a message above it, where «⭐ Улюблені» opens the inline list.
-    await send_main_menu(message, t, config, t.MSG_PHONE_VERIFIED)
+    #
+    # With confetti, which the restock notification has had for a while and
+    # this moment deserves more: it happens once per customer, and what it says
+    # is "we found you". Refused ids fall back to a plain message (bot/screen).
+    await send_main_menu(message, t, config, t.MSG_PHONE_VERIFIED, effect=CONFETTI)
 
 
 @router.message(OnboardingStates.waiting_phone, F.contact)
