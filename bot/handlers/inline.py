@@ -54,7 +54,7 @@ from bot.callbacks import DiscountAction, StockAction
 from bot.handlers.common import FAVOURITES_DEEP_LINK, ORDERS_DEEP_LINK
 from bot.handlers.orders import (INLINE_LIMIT, favourite_products,
                                  format_cached_order, order_products)
-from bot.keyboards import cart_url, product_url
+from bot.keyboards import STYLE_CART, STYLE_UNDO, cart_url, product_url
 
 router = Router()
 
@@ -310,6 +310,7 @@ def _order_kb(row: dict, products: list[dict], offers: dict[str, Offer],
         rows.append([InlineKeyboardButton(
             text=label,
             url=cart_url(website_url, variant_ids, t.lang, _ORDERS_CAMPAIGN),
+            style=STYLE_CART,
         )])
 
     tracking = str(row.get("tracking_code") or "")
@@ -416,6 +417,7 @@ def _card_kb(sku: str, offer: Offer | None, t: Texts, website_url: str,
         rows.append([InlineKeyboardButton(
             text=t.BTN_BUY,
             url=cart_url(website_url, [offer.variant_id], t.lang, _CAMPAIGN),
+            style=STYLE_CART,
         )])
     else:
         if sku and (offer is not None or out_of_stock):
@@ -423,6 +425,7 @@ def _card_kb(sku: str, offer: Offer | None, t: Texts, website_url: str,
                 text=t.BTN_WAITING_CARD if waiting else t.BTN_NOTIFY_CARD,
                 callback_data=StockAction(
                     action="unsub" if waiting else "sub", sku=sku).pack(),
+                style=STYLE_UNDO if waiting else None,
             )])
         if offer is not None:
             rows.append([InlineKeyboardButton(

@@ -28,7 +28,7 @@ from core.repos.catalogue import get_offers
 from core.repos.orders import (CANCELLED_STATUS_GROUP, get_cached_orders,
                                get_last_sync_time)
 from core.repos.users import get_user_phone
-from bot.keyboards import cart_url
+from bot.keyboards import STYLE_CART, STYLE_LIST, STYLE_UNDO, cart_url
 from bot.screen import render, typing
 from bot.sync import stale_notice
 from core.adapters.keycrm.client import KeyCRMClient
@@ -250,7 +250,8 @@ def _orders_kb(
     # puts a whole past basket back together (bot/handlers/inline.py). The word
     # after the username is what tells that list to answer with orders.
     builder.button(text=t.BTN_ORDERS_ALL,
-                   switch_inline_query_current_chat=f"{t.MSG_INLINE_ORDERS_PREFIX} ")
+                   switch_inline_query_current_chat=f"{t.MSG_INLINE_ORDERS_PREFIX} ",
+                   style=STYLE_LIST)
 
     visible, page = _page_slice(orders, page)
     start = page * _ORDERS_PER_PAGE
@@ -573,7 +574,8 @@ def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
     # one tap from the screen the key opens: this button puts "@bot " in the
     # field, and the client draws the list over the keyboard
     # (bot/handlers/inline.py).
-    builder.button(text=t.BTN_FAVOURITES_ALL, switch_inline_query_current_chat="")
+    builder.button(text=t.BTN_FAVOURITES_ALL, switch_inline_query_current_chat="",
+                   style=STYLE_LIST)
     rows = 1
     basket: list[int] = []
     total = 0.0
@@ -585,6 +587,7 @@ def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
             builder.button(
                 text=t.BTN_BUY_PRODUCT.format(name=label, price=texts.price_label(offer.price)),
                 url=cart_url(website_url, [offer.variant_id], t.lang),
+                style=STYLE_CART,
             )
             basket.append(offer.variant_id)
             total += _as_number(offer.price)
@@ -601,6 +604,10 @@ def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
                 name=texts.product_label(item["name"], _NOTIFY_NAME_LEN)
             ),
             callback_data=StockAction(action="unsub" if waiting else "sub", sku=sku),
+            # Red only in the waiting state, where pressing it cancels the
+            # promise the customer asked for. Offering that promise is not an
+            # undo, so the other half of this toggle stays uncoloured.
+            style=STYLE_UNDO if waiting else None,
         )
         rows += 1
 
@@ -608,7 +615,7 @@ def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
     # with one it is the button directly above it, worded at greater length.
     if len(basket) > 1:
         builder.button(text=t.BTN_BUY_ALL.format(total=texts.price_label(total)),
-                       url=cart_url(website_url, basket, t.lang))
+                       url=cart_url(website_url, basket, t.lang), style=STYLE_CART)
         rows += 1
 
     builder.button(text=t.BTN_WANT_DISCOUNT, callback_data=DiscountAction(action="ask"))

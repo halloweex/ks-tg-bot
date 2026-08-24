@@ -162,3 +162,46 @@ def test_every_screen_the_menu_opens_can_bring_it_back():
 
 def test_the_way_back_is_handled():
     assert "menu" in _handled_actions()
+
+
+# --- colour ------------------------------------------------------------------
+
+def test_the_same_action_wears_the_same_colour_everywhere():
+    """Colour is used by meaning, not by importance: green is "this spends
+    money", blue is the way into an inline list, red takes something away. A
+    screen where every button is coloured is a screen where none of them is."""
+    import asyncio
+
+    from bot.handlers.inline import _card_kb, _order_kb
+    from bot.handlers.orders import _favourites_kb, _orders_kb
+    from core.domain.offer import Offer
+
+    offer = Offer(sku="1", variant_id=11, handle="h", title="T", price="680",
+                  available=True)
+    sold_out = Offer(sku="2", variant_id=22, handle="h", title="T", price="680",
+                     available=False)
+    favourites = [{"name": "A", "sku": "1", "orders": 2, "qty": 2, "last": "2026-08-01"},
+                  {"name": "B", "sku": "2", "orders": 1, "qty": 1, "last": "2026-08-01"}]
+
+    screen = _favourites_kb(favourites, {"1": offer}, {"2": 0}, {"2"}, T, SHOP)
+    styles = {b.text.split(" ·")[0]: b.style
+              for row in screen.inline_keyboard for b in row}
+    assert styles[T.BTN_FAVOURITES_ALL.split(" ·")[0]] == "primary"
+    assert styles["🛒 A"] == "success"
+    assert styles["✅ Чекаєте: B"] == "danger"
+    assert styles[T.BTN_WANT_DISCOUNT] is None, "not everything is coloured"
+
+    card = _card_kb("1", offer, T, SHOP, waiting=False, out_of_stock=False)
+    assert card.inline_keyboard[0][0].style == "success", "a card's buy button"
+
+    waiting = _card_kb("2", sold_out, T, SHOP, waiting=True, out_of_stock=True)
+    assert waiting.inline_keyboard[0][0].style == "danger", "cancelling a wait"
+
+    offered = _card_kb("2", sold_out, T, SHOP, waiting=False, out_of_stock=True)
+    assert offered.inline_keyboard[0][0].style is None, \
+        "offering to notify takes nothing away"
+
+    row = {"tracking_code": ""}
+    products = [{"name": "A", "sku": "1", "qty": 1}]
+    basket = _order_kb(row, products, {"1": offer}, T, SHOP)
+    assert basket.inline_keyboard[0][0].style == "success", "ordering it again"

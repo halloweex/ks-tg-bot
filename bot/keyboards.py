@@ -27,6 +27,22 @@ def _tags(campaign: str, lang: str = "") -> str:
     return urlencode(tags)
 
 
+# Telegram draws a button in one of three colours; anything else is the
+# client's own default. They are used here by *meaning*, not by importance —
+# the same action wears the same colour on every screen, and a screen with five
+# ways to buy something is five green buttons because that is what it is.
+#
+#   success — opens a basket or a checkout, i.e. spends money
+#   primary — the way into an inline list, the one thing a screen is for
+#   danger  — takes away something the customer set up
+#
+# Everything else stays uncoloured. A screen where every button is coloured is
+# a screen where none of them is.
+STYLE_CART = "success"
+STYLE_LIST = "primary"
+STYLE_UNDO = "danger"
+
+
 def tagged_website_url(url: str) -> str:
     """Website URL with UTM tags.
 
