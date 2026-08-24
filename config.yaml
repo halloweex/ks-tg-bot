@@ -20,7 +20,23 @@ about_text: |
   Korean Story — магазин корейської косметики та догляду.
 contacts_text: |
   Зв'яжіться з нами через бот або Instagram.
+# Sent with parse_mode=HTML like every other screen, hence the tags. The bold
+# first line is what every screen in this bot opens with.
+#
+# `|` keeps every newline exactly as typed, so a paragraph stays on one line
+# here however long it gets: wrapping it in this file wraps it on the phone.
 payment_text: |
-  Оплата: Monobank, PrivatBank.
+  <b>💳 Оплата</b>
+
+  <b>1. Онлайн</b> — без комісії, прямо на сайті одразу після оформлення замовлення, або за прямим посиланням, якщо замовляєте в соцмережах. Карта (Visa, Mastercard), Apple Pay, Google Pay, Monopay.
+
+  <b>2. Накладений платіж</b> (200 грн).
 delivery_text: |
-  Доставка: Нова Пошта, Укрпошта.
+  <b>🚚 Доставка</b>
+
+  <b>Нова Пошта</b>
+  В обласне місто — 3 дні, у районне — до 5 днів.
+  Безкоштовна доставка від 3000 грн.
+
+  <b>Самовивіз</b>
+  м. Луцьк.
