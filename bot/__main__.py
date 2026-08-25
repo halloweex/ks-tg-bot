@@ -94,6 +94,10 @@ async def main() -> None:
     @dp.startup()
     async def on_startup() -> None:
         await init_db()
+        # The bot's own @name, for the deep links a shared card carries. Asked
+        # rather than configured: a username in a config file is a username
+        # that can quietly stop being true.
+        config.bot_username = (await bot.get_me()).username or ""
         # Nothing to resume any more: a broadcast interrupted by a redeploy is
         # rows in the outbox, and the sender picks them up on its next pass.
         # Commands, menu button and the text shown before the first /start.

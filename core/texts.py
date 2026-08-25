@@ -564,6 +564,26 @@ BTN_REORDER_PARTIAL = "🛒 Замовити ще раз · {available} з {tota
 BTN_TRACK_PARCEL = "🚚 Відстежити посилку"
 MSG_INLINE_ORDERS_EMPTY = "Тут зʼявляться твої замовлення"
 MSG_INLINE_ORDERS_SCREEN = "📦 Відкрити екран замовлень"
+
+# --- Порадити подрузі ------------------------------------------------------
+#
+# The third inline mode, and the only one allowed outside the chat with the
+# bot: it shows one product from the shop's own catalogue and nothing about
+# whoever is sharing it. The other two are a purchase history and are answered
+# in the private chat only.
+#
+# The word after the username, like «замовлення» for the orders list, plus the
+# sku. Matched in every language it can be rendered in, because the button that
+# writes it was built in whatever language the customer had at the time.
+MSG_INLINE_SHARE_PREFIX = "поділитися"
+BTN_SHARE_PRODUCT = "🎁 Порадити подрузі"
+# What the friend receives. Deliberately impersonal: the message is sent by the
+# customer, from their own account, and a line saying what they bought would be
+# the bot telling their friend something they did not.
+MSG_SHARE_CARD = "<b>{name}</b>\n{price} ₴ · {brand}"
+MSG_SHARE_ROW = "Надіслати подрузі"
+BTN_SHARE_BUY = "🛒 Купити"
+BTN_SHARE_ABOUT = "Що це за магазин"
 BTN_DELIVERY_STATUS = "🚚 Відслідкувати замовлення"
 # The carrier's own mark rather than a lorry: every parcel here is a Nova
 # Poshta one, and the screen is recognised by that red square before a word of

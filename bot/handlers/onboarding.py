@@ -50,7 +50,10 @@ async def _register_user(
     The phone is ownership-verified before this is called — see
     own_contact_phone above, which is the whole security boundary of the flow.
     """
-    await register_customer(message.chat.id, phone, keycrm)
+    # The deep link that brought them, put aside by /start a couple of messages
+    # ago. Written once, here, because this is where a chat becomes a customer.
+    source = str((await state.get_data()).get("source") or "")
+    await register_customer(message.chat.id, phone, keycrm, source=source)
 
     await state.clear()
     track(message.chat.id, "registered")

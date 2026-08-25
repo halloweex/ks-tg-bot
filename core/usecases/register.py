@@ -55,6 +55,8 @@ async def register_customer(
     chat_id: int,
     phone: VerifiedPhone,
     keycrm: (OrderSource | BuyerLookup) | None,
+    *,
+    source: str = "",
 ) -> None:
     """Bind the verified number to the chat, then fill the cache behind it."""
     # Unwrapped once, here: everything below stores or queries a number, and
@@ -62,7 +64,7 @@ async def register_customer(
     # guarantee has already done its work by the time the call is made.
     number = phone.e164
 
-    await save_user(chat_id, number)
+    await save_user(chat_id, number, source=source)
 
     # Enrich profile with KeyCRM buyer data (best-effort)
     if keycrm:

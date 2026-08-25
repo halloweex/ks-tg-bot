@@ -18,26 +18,41 @@ async def save_user(
     *,
     full_name: str | None = None,
     email: str | None = None,
+    source: str = "",
 ) -> None:
     """Persist a verified chat_id-to-phone mapping with optional profile fields.
 
     Uses INSERT OR REPLACE — chat_id is PRIMARY KEY, so re-verification
     overwrites the old row. Optional full_name/email are stored when provided.
 
-    REPLACE writes a whole new row, so any column not listed here would be reset
-    to its default. The chosen language and the original signup date are carried
-    over explicitly: losing them on a phone re-verification would silently flip
-    the user back to Ukrainian and destroy the signup cohort.
+    REPLACE writes a whole new row, so **any column not listed here is reset to
+    its default** — which is why every one of them is carried over by hand
+    below. Losing the language would flip the customer back to Ukrainian;
+    losing created_at would destroy the signup cohort; losing the birthday
+    would mean asking Telegram for it again and, until the next sweep, no
+    greeting; losing crm_checked_at would put the chat back in the queue of
+    "never looked up".
+
+    `source` is the deep link this person arrived through, and it is written
+    **once**: an empty column takes the new value, a filled one keeps what it
+    has. First touch is the question it answers — who brought them — and a
+    later visit through somebody else's link does not change that.
     """
     async with connect() as db:
         await db.execute(
             "INSERT OR REPLACE INTO users "
-            "(chat_id, phone, full_name, email, language, created_at, updated_at) "
+            "(chat_id, phone, full_name, email, language, source, crm_checked_at, "
+            " birthdate, birthdate_checked_at, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, "
             "  (SELECT language FROM users WHERE chat_id = ?), "
+            "  COALESCE(NULLIF((SELECT source FROM users WHERE chat_id = ?), ''), ?), "
+            "  (SELECT crm_checked_at FROM users WHERE chat_id = ?), "
+            "  (SELECT birthdate FROM users WHERE chat_id = ?), "
+            "  (SELECT birthdate_checked_at FROM users WHERE chat_id = ?), "
             "  COALESCE((SELECT created_at FROM users WHERE chat_id = ?), datetime('now')), "
             "  datetime('now'))",
-            (chat_id, phone, full_name, email, chat_id, chat_id),
+            (chat_id, phone, full_name, email, chat_id, chat_id, source,
+             chat_id, chat_id, chat_id, chat_id),
         )
         await db.commit()
 
@@ -282,3 +297,12 @@ async def chats_with_birthday_on(month_day: str) -> list[int]:
             (month_day,),
         )
         return [row[0] for row in await cursor.fetchall()]
+
+
+async def get_source(chat_id: int) -> str:
+    """The deep link this customer arrived through, or "" if they came alone."""
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT source FROM users WHERE chat_id = ?", (chat_id,))
+        row = await cursor.fetchone()
+        return (row[0] or "") if row else ""

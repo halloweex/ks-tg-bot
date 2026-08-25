@@ -200,6 +200,12 @@ EN: dict[str, str] = {
     "BTN_TRACK_PARCEL": "🚚 Track the parcel",
     "MSG_INLINE_ORDERS_EMPTY": "Your orders will show up here",
     "MSG_INLINE_ORDERS_SCREEN": "📦 Open the orders screen",
+    "MSG_INLINE_SHARE_PREFIX": "share",
+    "BTN_SHARE_PRODUCT": "🎁 Recommend to a friend",
+    "MSG_SHARE_CARD": "<b>{name}</b>\n{price} ₴ · {brand}",
+    "MSG_SHARE_ROW": "Send it to a friend",
+    "BTN_SHARE_BUY": "🛒 Buy",
+    "BTN_SHARE_ABOUT": "About this shop",
     "BTN_DELIVERY_STATUS": "🚚 Track order",
     "MSG_DELIVERY_HEADER": (
         f"<b>{texts.custom_emoji(texts.NOVA_POSHTA, '🚚')} Your parcels</b>"),

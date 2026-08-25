@@ -27,6 +27,12 @@ router = Router()
 FAVOURITES_DEEP_LINK = "favourites"
 ORDERS_DEEP_LINK = "orders"
 
+# And what a recommendation carries: "ref_" and the chat id of whoever shared
+# it. Written into `users.source` when — and only when — the person it brought
+# registers, so the column answers "who brought them" and keeps answering it
+# after a later visit through somebody else's link.
+REFERRAL_PREFIX = "ref_"
+
 
 async def _maybe_offer_language(
     message: Message, t: Texts, lang: str, tg_lang: str
@@ -114,3 +120,11 @@ async def cmd_start(
     greeting = t.GREETING.format(brand_name=config.brand_name)
     await message.answer(greeting, reply_markup=share_phone_kb(t))
     await state.set_state(OnboardingStates.waiting_phone)
+
+    # Where they came from, kept until registration — which is the only moment
+    # it is written, and the only moment it means "first touch". The FSM store
+    # is SQLite, so a redeploy between the two does not lose it.
+    payload = command.args or ""
+    if payload.startswith(REFERRAL_PREFIX):
+        await state.update_data(source=payload)
+        track(message.chat.id, "referral_arrived", ref=payload[len(REFERRAL_PREFIX):])

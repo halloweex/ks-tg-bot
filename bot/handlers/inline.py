@@ -37,7 +37,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (CallbackQuery, InlineKeyboardButton,
                            InlineKeyboardMarkup, InlineQuery,
                            InlineQueryResultArticle, InlineQueryResultsButton,
-                           InputTextMessageContent)
+                           InputTextMessageContent, SwitchInlineQueryChosenChat)
 from loguru import logger
 
 from core import texts
@@ -51,7 +51,8 @@ from core.repos.stock import (add_stock_subscription, get_stock_levels,
 from core.repos.users import get_user_phone
 from bot.analytics import track
 from bot.callbacks import DiscountAction, StockAction
-from bot.handlers.common import FAVOURITES_DEEP_LINK, ORDERS_DEEP_LINK
+from bot.handlers.common import (FAVOURITES_DEEP_LINK, ORDERS_DEEP_LINK,
+                                 REFERRAL_PREFIX)
 from bot.handlers.orders import (INLINE_LIMIT, favourite_products,
                                  format_cached_order, order_products)
 from bot.keyboards import STYLE_CART, STYLE_UNDO, cart_url, product_url
@@ -80,6 +81,10 @@ _CAMPAIGN = "favourites_inline"
 # because it answers a different question in the shop's analytics: not "does
 # the list sell", but "do people repeat whole orders".
 _ORDERS_CAMPAIGN = "orders_inline"
+# And for a basket opened from a card somebody was recommended. Its own name in
+# the shop's analytics because it answers the question the whole feature is
+# for: does a recommendation sell anything.
+_SHARE_CAMPAIGN = "referral"
 
 # Payload for the button above the list. Telegram sends it to /start, which
 # reads it and draws the favourites screen — the same screen the key below the
@@ -92,6 +97,8 @@ _START_PARAM = FAVOURITES_DEEP_LINK
 # rendered in. Matched rather than compared: the word on a button sent months
 # ago is the word of the language the customer had then.
 _ORDER_WORDS = {word.casefold() for word in variants("MSG_INLINE_ORDERS_PREFIX")}
+# And what the share button writes, followed by one sku.
+_SHARE_WORDS = {word.casefold() for word in variants("MSG_INLINE_SHARE_PREFIX")}
 
 # How much of a product name goes on the second line of an order's row, where
 # three or four of them are listed side by side.
@@ -102,6 +109,17 @@ _ITEM_LEN = 22
 async def inline_list(query: InlineQuery, t: Texts, config: AppConfig) -> None:
     """Answer the panel with this customer's own products, or their orders."""
     chat_id = query.from_user.id
+
+    mode, needle = _route(query.query)
+
+    # Sharing is the one mode that belongs in somebody else's chat: it shows a
+    # single product out of the shop's own catalogue and says nothing about who
+    # is sharing it. Answered before the two guards below for exactly that
+    # reason — neither a private chat nor a verified number is required to
+    # recommend a face cream.
+    if mode == SHARE:
+        await _answer_share(query, needle, t, config)
+        return
 
     # "sender" is Telegram's word for the private chat with this bot. A group,
     # a channel, somebody else's chat — or a client that does not say which —
@@ -115,8 +133,7 @@ async def inline_list(query: InlineQuery, t: Texts, config: AppConfig) -> None:
         await _button_only(query, t.MSG_INLINE_NEED_PHONE, _START_PARAM)
         return
 
-    orders, needle = _route(query.query)
-    if orders:
+    if mode == ORDERS:
         results, empty, screen = await _order_results(chat_id, needle, t, config)
         param, event = ORDERS_DEEP_LINK, "orders_inline_opened"
     else:
@@ -148,19 +165,26 @@ async def inline_list(query: InlineQuery, t: Texts, config: AppConfig) -> None:
     )
 
 
-def _route(raw: str) -> tuple[bool, str]:
+# The three things an inline query can be asking for.
+FAVOURITES, ORDERS, SHARE = "favourites", "orders", "share"
+
+
+def _route(raw: str) -> tuple[str, str]:
     """Which list was asked for, and what was typed after the asking.
 
-    The first word decides, and only if it is the orders word in one of the
-    languages it can be rendered in. Anything else is a product search, which
-    is what an empty query is too — favourites is the list that opens when
-    nothing says otherwise.
+    The first word decides, and only if it is one of the two words a button of
+    ours writes, in a language it can be rendered in. Anything else is a
+    product search, which is what an empty query is too — favourites is the
+    list that opens when nothing says otherwise.
     """
     text = raw.strip()
     head, _, rest = text.partition(" ")
-    if head.casefold() in _ORDER_WORDS:
-        return True, rest.strip().casefold()
-    return False, text.casefold()
+    word = head.casefold()
+    if word in _ORDER_WORDS:
+        return ORDERS, rest.strip().casefold()
+    if word in _SHARE_WORDS:
+        return SHARE, rest.strip()
+    return FAVOURITES, text.casefold()
 
 
 async def _favourite_results(chat_id: int, needle: str, t: Texts,
@@ -192,6 +216,65 @@ async def _favourite_results(chat_id: int, needle: str, t: Texts,
         for item in favourites
     ]
     return results, _nothing_to_show(ranked, needle, t), t.MSG_INLINE_SCREEN
+
+
+async def _answer_share(query: InlineQuery, sku: str, t: Texts,
+                        config: AppConfig) -> None:
+    """One product, from the catalogue, for a chat that is not ours.
+
+    Everything here is public: the name, today's price and the picture come
+    from the shop's own feed, and the customer's history is not read at all.
+    What makes it a recommendation rather than an advert is who sends it — the
+    message goes out from their account, to a chat they picked themselves.
+
+    The two buttons are the two things a friend can want next: buy this, or
+    find out what this shop is. The second is a deep link carrying the sharer's
+    chat id, which is how the arrival is attributed — and it is no more than
+    the friend already knows, since the message came from them.
+    """
+    offer = (await get_offers([sku])).get(sku) if sku else None
+    if offer is None or not offer.available:
+        # Nothing to recommend: a sku nobody sells, or one that sold out
+        # between the button being drawn and being pressed.
+        await _button_only(query, t.MSG_INLINE_NOTHING_FOUND, _START_PARAM)
+        return
+
+    name = texts.product_label(offer.title, _TITLE_LEN)
+    price = texts.price_label(offer.price)
+    card = t.MSG_SHARE_CARD.format(name=escape(name), price=price,
+                                   brand=escape(config.brand_name))
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=t.BTN_SHARE_BUY,
+            url=cart_url(config.website_url, [offer.variant_id], t.lang,
+                         _SHARE_CAMPAIGN),
+            style=STYLE_CART,
+        )],
+        [InlineKeyboardButton(
+            text=t.BTN_SHARE_ABOUT,
+            url=f"https://t.me/{config.bot_username}?start={REFERRAL_PREFIX}"
+                f"{query.from_user.id}",
+        )],
+    ])
+
+    track(query.from_user.id, "share_offered", sku=sku)
+    await query.answer(
+        [InlineQueryResultArticle(
+            id=f"s{sku}",
+            title=name,
+            description=t.MSG_SHARE_ROW,
+            thumbnail_url=_thumbnail(offer.image_url),
+            input_message_content=InputTextMessageContent(message_text=card,
+                                                          parse_mode="HTML"),
+            reply_markup=keyboard,
+        )],
+        # Cacheable, but **per person**: the query text is the same for
+        # everybody sharing this product, and the card is not — the deep link
+        # in it carries the sharer's own id. Cached across users, the second
+        # person to share a cream would hand out the first one's referral.
+        cache_time=300,
+        is_personal=True,
+    )
 
 
 def _nothing_to_show(ranked: list[dict], needle: str, t: Texts) -> str:
@@ -433,6 +516,21 @@ def _card_kb(sku: str, offer: Offer | None, t: Texts, website_url: str,
                 text=t.BTN_OPEN_PRODUCT,
                 url=product_url(website_url, offer.handle, t.lang, _CAMPAIGN),
             )])
+
+    # Recommend it. Telegram asks which chat, opens it, and writes the query
+    # this button carries — which is how one product travels to a friend
+    # without the bot knowing anything about that chat (_answer_share).
+    # Only what can actually be bought: a recommendation that ends on a
+    # sold-out page is a favour nobody asked for.
+    if sku and offer is not None and offer.available:
+        rows.append([InlineKeyboardButton(
+            text=t.BTN_SHARE_PRODUCT,
+            switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(
+                query=f"{t.MSG_INLINE_SHARE_PREFIX} {sku}",
+                allow_user_chats=True,
+                allow_group_chats=True,
+            ),
+        )])
 
     # Last, under whatever else this product allows. It carries the sku, so the
     # manager is asked about the product the customer is looking at rather than

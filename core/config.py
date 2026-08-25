@@ -103,6 +103,10 @@ class AppConfig:
     contacts_text: str
     payment_text: str
     delivery_text: str
+    # Filled at startup from getMe, not from the file: it is the bot's own name
+    # and asking Telegram is the only way to be sure of it. Deep links in the
+    # cards a customer shares are built from it (bot/handlers/inline.py).
+    bot_username: str = ""
 
 
     @property

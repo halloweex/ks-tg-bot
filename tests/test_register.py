@@ -66,14 +66,14 @@ def writes(monkeypatch):
 def test_the_number_is_bound_to_the_chat_first(writes):
     """Before anything that can fail: the binding is the point of the flow."""
     asyncio.run(register_customer(CHAT, PHONE, None))
-    assert writes["users"] == [(CHAT, NUMBER, {})]
+    assert writes["users"] == [(CHAT, NUMBER, {"source": ""})]
 
 
 def test_a_crm_that_is_down_still_leaves_the_customer_registered(writes):
     """Otherwise the flow would ask for the number again — the one thing it
     must never do, because a typed number cannot prove ownership."""
     asyncio.run(register_customer(CHAT, PHONE, Broken()))
-    assert writes["users"] == [(CHAT, NUMBER, {})]
+    assert writes["users"] == [(CHAT, NUMBER, {"source": ""})]
     assert writes["orders"] == []
 
 
@@ -87,7 +87,7 @@ def test_the_profile_is_filled_from_the_crm_when_it_answers(writes):
 
 def test_no_buyer_in_the_crm_leaves_the_bare_registration(writes):
     asyncio.run(register_customer(CHAT, PHONE, FakeKeyCRM(buyer=None)))
-    assert writes["users"] == [(CHAT, NUMBER, {})]
+    assert writes["users"] == [(CHAT, NUMBER, {"source": ""})]
 
 
 def test_the_orders_are_cached_during_registration(writes):
