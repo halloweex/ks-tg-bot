@@ -29,12 +29,14 @@ it.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from loguru import logger
 
 from core.domain.campaign import daily
 from core.i18n import customer_texts
+from core.ports.discounts import DiscountCodes
 from core.ports.outbox import MessageQueue
 from core.ports.repositories import ReferralLedger
 from core.ports.users import LanguageChoice
@@ -62,6 +64,9 @@ async def check_once(
     code: str = "",
     reward: str = "",
     discount_link: str = "",
+    discounts: DiscountCodes | None = None,
+    percent: int = 0,
+    link_for: Callable[[str], str] | None = None,
 ) -> Swept:
     """Find the referrals that have come good, and pay for them once.
 
@@ -74,6 +79,13 @@ async def check_once(
     the moment she is told. Without one the message says a manager will write —
     which is what then happens — because a bot promising a code it cannot send
     is a promise that quietly stops being kept.
+
+    `discounts` replaces that shared code with one of her own, created as the
+    reward is paid: single-use, so it cannot be forwarded into a discount the
+    shop never agreed to give. Failing to create one is not a failed reward —
+    it falls back to `code`, and then to the manager, in that order. `link_for`
+    builds the link that applies whichever code came out, and belongs to the
+    caller because a url with campaign tags on it is not a scenario's business.
     """
     pairs = await ledger.earned(prefix, PER_RUN)
     if not pairs:
@@ -90,15 +102,27 @@ async def check_once(
         if not await ledger.record_reward(friend_chat_id, referrer_chat_id):
             continue
 
+        # Hers, if the shop can make one; otherwise whatever was configured,
+        # otherwise a person. Asked for here rather than once per run: a code
+        # created and not handed out is a discount loose in the shop.
+        hers = code
+        link = discount_link
+        if discounts is not None and percent > 0:
+            issued = await discounts.issue_percentage(
+                percent, title=f"Referral reward, chat {referrer_chat_id}")
+            if issued:
+                hers = issued
+                link = link_for(issued) if link_for else ""
+
         t = customer_texts(await languages.chosen_by(referrer_chat_id))
         payload: dict = {"text": t.MSG_REFERRAL_EARNED + (
-            t.MSG_REFERRAL_CODE.format(code=code, reward=reward) if code
+            t.MSG_REFERRAL_CODE.format(code=hers, reward=reward) if hers
             else t.MSG_REFERRAL_BY_HAND)}
-        if code and discount_link:
+        if hers and link:
             # One tap: the link puts the code in her session and lands her in
             # the shop, the same mechanism the first-order offer uses.
             payload["keyboard"] = {"inline_keyboard": [[{
-                "text": t.BTN_REFERRAL_USE, "url": discount_link,
+                "text": t.BTN_REFERRAL_USE, "url": link,
                 "style": "success"}]]}
         await queue.queue(
             referrer_chat_id, KIND, campaign, payload,
@@ -106,8 +130,8 @@ async def check_once(
         )
         # What was paid, recorded with the payment: a code handed out is the
         # thing anybody auditing this will ask about.
-        if code:
-            await ledger.record_code(friend_chat_id, code)
+        if hers:
+            await ledger.record_code(friend_chat_id, hers)
         earned += 1
 
     logger.info("Referrals: {} of {} earned referral(s) paid for",

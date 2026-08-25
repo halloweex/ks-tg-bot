@@ -129,6 +129,10 @@ class AppConfig:
     # button Telegram draws in that same slot comes back (bot/profile.py).
     # A switch rather than an edit because this is an experiment, and going
     # back should be a line here rather than a revert.
+    # The same reward as `referral_reward` says in words, as a number the shop
+    # can act on. 0 keeps the old behaviour: no code is created, and whatever
+    # `referral_code` holds (or a manager) pays the reward.
+    referral_percent: int = 0
     bottom_menu: bool = True
     support_hours_from: str = ""
     support_hours_to: str = ""
@@ -210,6 +214,7 @@ def load_config(config_path: str | Path = "config.yaml") -> AppConfig:
         support_chat_id=yaml_data["support_chat_id"],
         instagram_url=yaml_data.get("instagram_url", ""),
         referral_reward=yaml_data.get("referral_reward", "").strip(),
+        referral_percent=int(yaml_data.get("referral_percent", 0) or 0),
         referral_code=yaml_data.get("referral_code", "").strip(),
         first_order_code=yaml_data.get("first_order_code", "").strip(),
         first_order_reward=yaml_data.get("first_order_reward", "").strip(),
