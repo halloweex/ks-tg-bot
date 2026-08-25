@@ -20,6 +20,7 @@ from bot.analytics import track
 from core.config import AppConfig
 from core.usecases.analytics import usage_report
 from core.usecases.broadcast import start_broadcast
+from core.repos.events import SqliteUsageStats
 from core.repos.users import get_broadcast_recipients, get_user_language, opt_out_user
 from bot.keyboards import broadcast_confirm_kb
 from bot.states import BroadcastStates
@@ -190,7 +191,11 @@ async def cmd_stats(message: Message, config: AppConfig) -> None:
     if not _is_admin(message.from_user.id, config):
         return
 
-    report = await usage_report()
+    # Constructed here because there is no composition root yet: handlers still
+    # import repositories (the handlers-see-ports-only contract is the one still
+    # commented out in .importlinter). When one exists, this moves into it and
+    # this line takes the store as an argument like everything else.
+    report = await usage_report(SqliteUsageStats())
 
     lines = [f"\U0001f4ca <b>Last {report.days} days</b>", "",
              "<b>Funnel (unique users)</b>"]

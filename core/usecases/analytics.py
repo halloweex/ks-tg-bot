@@ -14,8 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from core.repos.events import (event_counts, funnel_counts, lookup_miss_rate,
-                               returning_users)
+from core.ports.analytics import UsageStats
 
 # The onboarding funnel, in order. Order matters: each step is a subset of the
 # one above it, and a share is only meaningful against the top.
@@ -51,12 +50,19 @@ class UsageReport:
     events: list[tuple[str, int, int]] = field(default_factory=list)
 
 
-async def usage_report(*, days: int = 30, event_days: int = 7) -> UsageReport:
-    """Everything /stats reports, gathered and divided."""
-    funnel_users = await funnel_counts(days)
-    misses, lookups = await lookup_miss_rate(days)
-    returning, active = await returning_users(days)
-    counts = await event_counts(event_days)
+async def usage_report(
+    stats: UsageStats, *, days: int = 30, event_days: int = 7
+) -> UsageReport:
+    """Everything /stats reports, gathered and divided.
+
+    The store arrives as an argument rather than as an import. What that buys
+    here is a test without a database — the four numbers can be handed in — and
+    what it buys later is an engine change that does not reach into this file.
+    """
+    funnel_users = await stats.users_reaching(FUNNEL_STEPS, days=days)
+    misses, lookups = await stats.order_lookup_misses(days=days)
+    returning, active = await stats.retention(days=days)
+    counts = await stats.busiest_events(days=event_days)
 
     top = funnel_users.get(FUNNEL_STEPS[0], 0)
     funnel = [

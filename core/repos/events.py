@@ -6,6 +6,8 @@ never straight from a handler, so a slow disk cannot stall a screen.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from core.repos.base import connect
 
 
@@ -32,9 +34,15 @@ async def event_counts(days: int = 7) -> list[tuple[str, int, int]]:
         return [tuple(row) for row in await cursor.fetchall()]
 
 
-async def funnel_counts(days: int = 30) -> dict[str, int]:
-    """Distinct users reaching each step of the onboarding funnel."""
-    steps = ("start", "contact_shared", "registered", "orders_viewed")
+async def funnel_counts(days: int, steps: Sequence[str]) -> dict[str, int]:
+    """Distinct users reaching each of the named steps.
+
+    The steps arrive from the caller rather than living here. They used to be
+    written down twice — once in this tuple and once as FUNNEL_STEPS in the
+    scenario — and the two lists were equal only because nobody had edited one
+    of them. Which steps make a funnel is a question about the report, and the
+    report is now the only place that answers it.
+    """
     out: dict[str, int] = {}
     async with connect() as db:
         for step in steps:
@@ -85,3 +93,30 @@ async def returning_users(days: int = 30) -> tuple[int, int]:
         )
         row = await cursor.fetchone()
         return ((row[1] or 0), (row[0] or 0))
+
+
+class SqliteUsageStats:
+    """Implements core.ports.analytics.UsageStats against today's database.
+
+    A delegating shell over the functions above, in the same shape
+    core/repos/uow.py uses for the repositories: the seam moves now, while
+    SQLite is underneath and every query is unchanged, and the engine can be
+    swapped afterwards without the scenario being touched a second time.
+
+    Not on the UnitOfWork, and not a mistake — see the port. These are four
+    reads that belong to no user, and a transaction has nothing to offer them.
+    """
+
+    async def users_reaching(
+        self, steps: Sequence[str], *, days: int
+    ) -> dict[str, int]:
+        return await funnel_counts(days, steps)
+
+    async def order_lookup_misses(self, *, days: int) -> tuple[int, int]:
+        return await lookup_miss_rate(days)
+
+    async def retention(self, *, days: int) -> tuple[int, int]:
+        return await returning_users(days)
+
+    async def busiest_events(self, *, days: int) -> list[tuple[str, int, int]]:
+        return await event_counts(days)

@@ -215,16 +215,35 @@ name = core.usecases не видит конкретных адаптеров
 # sync_orders и register подставляют объект с двумя методами и не знают слова
 # «KeyCRM».
 #
-# Репозитории пока НЕ запрещены, и это записанное отступление: порт репозитория
-# — это UnitOfWork, а он вопрос постгресовый (`SET LOCAL app.user_id`,
-# транзакция на несколько репозиториев), и отвечать на него надо против
-# настоящего движка. Поэтому core.usecases в core-siblings-are-independent пока
-# не входит; см. docs/move-status.md.
+# Репозитории запрещены не целиком, а по семейству за раз — см. контракт
+# usecases-do-not-touch-repositories ниже. Порт репозитория это UnitOfWork, и
+# он был вопросом постгресовым (`SET LOCAL app.user_id`, транзакция на
+# несколько репозиториев); на него ответили против настоящего движка в
+# core/repos/pg.py, так что переезд перестал быть слепым и идёт помодульно.
+# core.usecases войдёт в core-siblings-are-independent, когда переедет
+# последнее семейство; см. docs/move-status.md.
 type = forbidden
 source_modules =
     core.usecases
 forbidden_modules =
     core.adapters
+
+
+[importlinter:contract:usecases-do-not-touch-repositories]
+name = core.usecases не лезет в репозитории напрямую — по семейству за раз
+# Причина: отступление, записанное выше, закрывается не одним коммитом. Пакетный
+# контракт независимости включается только когда переедет последнее семейство, а
+# до тех пор не защищает ничего — и «код без правила разъезжается» ровно в этом
+# промежутке. Список ниже защищает то, что уже переехало, и растёт на строку в
+# том же коммите, что и модуль.
+#
+# Когда он сравняется с содержимым core/repos, этот контракт исчезает, а
+# core.usecases добавляется в core-siblings-are-independent.
+type = forbidden
+source_modules =
+    core.usecases
+forbidden_modules =
+    core.repos.events
 
 [importlinter:contract:ports-are-only-signatures]
 name = core.ports не знает ничего, кроме домена
