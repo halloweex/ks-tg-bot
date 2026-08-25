@@ -119,7 +119,6 @@ EN: dict[str, str] = {
         "<b>⚙️ Settings</b>\n\n"
         "The phone number we find your orders by, and the bot's language."
     ),
-    "MSG_LANGUAGE_CURRENT": "Current language: English ✅",
     "MSG_SUPPORT_PROMPT": "Send your question — we'll bring a manager in 💬",
     "MSG_NEW_PHONE_PROMPT": "To update your number, share it using the button below 👇",
     "MSG_PHONE_CHANGED": "Phone number updated! ✅",
