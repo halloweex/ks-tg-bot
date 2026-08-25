@@ -140,22 +140,50 @@ class TelegramNotifier:
         An effect id Telegram stops recognising must not cost anybody their
         notification — the same fallback the stock watcher has had since the
         confetti was added.
+
+        A photo, where the message asked for one, carries the text as its
+        caption: one bubble rather than a picture with an orphan under it.
         """
         effect = payload.get("effect_id")
         keyboard = _keyboard(payload)
+        photo = _photo(payload, text)
+        send = self._bot.send_photo if photo else self._bot.send_message
+        extra = ({"photo": photo, "caption": text} if photo
+                 else {"text": text})
         try:
-            await self._bot.send_message(
-                chat_id, text,
-                message_effect_id=effect or None,
-                reply_markup=keyboard,
-                disable_notification=silent,
-            )
+            await send(chat_id=chat_id, **extra,
+                       message_effect_id=effect or None,
+                       reply_markup=keyboard,
+                       disable_notification=silent)
         except TelegramBadRequest as exc:
             if not effect or "effect" not in exc.message.lower():
                 raise
             logger.debug("Message effect rejected ({}), sending plain", exc.message)
-            await self._bot.send_message(chat_id, text, reply_markup=keyboard,
-                                         disable_notification=silent)
+            await send(chat_id=chat_id, **extra, reply_markup=keyboard,
+                       disable_notification=silent)
+
+
+# What Telegram allows under a photo. Longer than any greeting, but a message
+# that outgrew it would be silently cut in half, and half a message is worse
+# than a message with no picture on it.
+_CAPTION_LIMIT = 1024
+
+
+def _photo(payload: dict, text: str) -> str | None:
+    """The picture this message asked to carry, if it can carry one.
+
+    A url rather than a file: the assets are published beside the Mini App
+    page, and Telegram fetches them itself. A text too long to be a caption
+    keeps its picture off rather than losing its ending.
+    """
+    photo = payload.get("photo")
+    if not photo:
+        return None
+    if len(text) > _CAPTION_LIMIT:
+        logger.warning("Queued message is too long for a caption ({} chars), "
+                       "sending it without the picture", len(text))
+        return None
+    return str(photo)
 
 
 def _keyboard(payload: dict) -> InlineKeyboardMarkup | None:

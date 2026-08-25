@@ -8,6 +8,11 @@ website_url: "https://koreanstory.com.ua"
 # turned back off for exactly that. The page stays published; this line is the
 # whole switch.
 webapp_url: ""
+# Where webapp/ is served from (.github/workflows/pages.yml). The birthday card
+# is webapp/birthday.png, and Telegram fetches a photo by url. Empty means the
+# greeting is sent as plain text — the card is decoration, and decoration that
+# cannot be reached must not cost a message.
+assets_url: "https://halloweex.github.io/ks-tg-bot"
 # @korean_story_ua (id 7444906573) — the manager who answers customers.
 # Everything a customer sends through "💬 Менеджер", and every discount
 # request, lands in this one chat; whoever sits here replies by replying to the

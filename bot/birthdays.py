@@ -20,12 +20,12 @@ from core.usecases.birthdays import check_once
 POLL_INTERVAL_SECONDS = 60 * 60
 
 
-async def watch(profiles: BirthdaySource) -> None:
+async def watch(profiles: BirthdaySource, card_url: str = "") -> None:
     """Poll forever. Never lets one bad round kill the loop."""
     logger.info("Birthday watcher started ({}s interval)", POLL_INTERVAL_SECONDS)
     while True:
         try:
-            await check_once(profiles)
+            await check_once(profiles, card_url=card_url)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001

@@ -55,8 +55,12 @@ def _queued() -> list[dict]:
             for row in asyncio.run(claim(50)) if row["type"] == KIND]
 
 
-def _run(profiles=None, *, today: date = TODAY):
-    return asyncio.run(check_once(profiles or _Profiles({}), today=today))
+CARD = "https://halloweex.github.io/ks-tg-bot/birthday.png"
+
+
+def _run(profiles=None, *, today: date = TODAY, card_url: str = CARD):
+    return asyncio.run(check_once(profiles or _Profiles({}), today=today,
+                                  card_url=card_url))
 
 
 # --- the greeting -----------------------------------------------------------
@@ -156,3 +160,22 @@ def test_the_ones_asked_about_are_the_ones_nobody_asked_yet(db):
     profiles = _Profiles({})
     _run(profiles)
     assert profiles.asked == [2]
+
+
+def test_the_greeting_carries_the_brand_card(db):
+    """The one place in a chat where the palette is visible at all: Telegram
+    draws every word in the reader's own theme and font, but a picture is a
+    picture."""
+    _customer(1, "08-25")
+    _run()
+    assert _queued()[0]["payload"]["photo"] == CARD
+
+
+def test_an_unpublished_card_costs_the_picture_and_not_the_greeting(db):
+    """The image is published on its own schedule, beside the Mini App page. A
+    greeting is worth sending without it."""
+    _customer(1, "08-25")
+    _run(card_url="")
+    payload = _queued()[0]["payload"]
+    assert "photo" not in payload
+    assert "днем народження" in payload["text"]

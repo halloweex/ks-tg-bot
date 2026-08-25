@@ -49,10 +49,11 @@ class Swept:
     greeted: int = 0
 
 
-async def check_once(profiles: BirthdaySource, *, today: date | None = None) -> Swept:
+async def check_once(profiles: BirthdaySource, *, today: date | None = None,
+                     card_url: str = "") -> Swept:
     """One run: ask about a few people, then greet whoever is celebrating."""
     asked, learned = await _ask_a_few(profiles)
-    greeted = await _greet_todays(today or date.today())
+    greeted = await _greet_todays(today or date.today(), card_url)
     return Swept(asked=asked, learned=learned, greeted=greeted)
 
 
@@ -74,7 +75,7 @@ async def _ask_a_few(profiles: BirthdaySource) -> tuple[int, int]:
     return asked, learned
 
 
-async def _greet_todays(today: date) -> int:
+async def _greet_todays(today: date, card_url: str = "") -> int:
     """Queue one greeting per person celebrating today."""
     chats = await chats_with_birthday_on(today.strftime("%m-%d"))
     if not chats:
@@ -84,10 +85,16 @@ async def _greet_todays(today: date) -> int:
     greeted = 0
     for chat_id in chats:
         t = customer_texts(await get_user_language(chat_id))
+        payload = {"text": t.MSG_BIRTHDAY}
+        if card_url:
+            # The brand's own card: a burgundy field, the mark, the wordmark.
+            # The only place in a chat where the palette is visible at all —
+            # Telegram draws every word in the reader's own theme and font.
+            payload["photo"] = card_url
         queued = await enqueue(
             chat_id, KIND, campaign,
             {
-                "text": t.MSG_BIRTHDAY,
+                **payload,
                 # The one thing a greeting can usefully offer: their own list,
                 # with the photos. An inline button, because a queued message
                 # can carry a keyboard but cannot carry a conversation.

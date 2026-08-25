@@ -252,3 +252,31 @@ def test_an_unusable_keyboard_costs_the_buttons_and_not_the_message():
     _send(bot, {"text": "🎂", "keyboard": {"nonsense": True}})
     assert bot.calls[0]["text"] == "🎂"
     assert bot.calls[0]["reply_markup"] is None
+
+
+# --- a queued message with a picture on it ----------------------------------
+
+def test_a_queued_photo_is_sent_with_the_text_as_its_caption():
+    """One bubble rather than a picture with an orphan paragraph under it."""
+    class _PhotoBot(FakeBot):
+        def __init__(self):
+            super().__init__()
+            self.photos: list[dict] = []
+
+        async def send_photo(self, chat_id, photo, caption=None, **kw):
+            self.photos.append({"chat_id": chat_id, "photo": photo,
+                                "caption": caption, **kw})
+
+    bot = _PhotoBot()
+    _send(bot, {"text": "🎂 З днем народження!", "photo": "https://x/card.png"})
+    assert bot.calls == [], "a photo message is not also sent as text"
+    assert bot.photos[0]["photo"] == "https://x/card.png"
+    assert bot.photos[0]["caption"] == "🎂 З днем народження!"
+
+
+def test_a_message_too_long_for_a_caption_keeps_its_words():
+    """Telegram cuts a caption at 1024 characters. Half a message is worse
+    than a message with no picture on it."""
+    bot = FakeBot()
+    _send(bot, {"text": "х" * 1100, "photo": "https://x/card.png"})
+    assert bot.calls[0]["text"] == "х" * 1100

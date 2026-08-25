@@ -93,11 +93,26 @@ class AppConfig:
     # until the page is published: without it that key stays an ordinary text
     # key and opens the favourites screen, which is what it did before.
     webapp_url: str
+    # Where webapp/ is published. The birthday card lives there, and Telegram
+    # fetches a photo by url — so an empty value means the greeting goes out as
+    # text, which is what it was before there was a card.
+    assets_url: str
     support_chat_id: int
     about_text: str
     contacts_text: str
     payment_text: str
     delivery_text: str
+
+
+    @property
+    def birthday_card_url(self) -> str:
+        """The card the birthday greeting carries, or "" if none is published.
+
+        Composed here rather than written out in config.yaml because the file
+        is part of the repository — webapp/birthday.png — and a url in two
+        places is a url that gets edited in one.
+        """
+        return f"{self.assets_url}/birthday.png" if self.assets_url else ""
 
 
 def load_config(config_path: str | Path = "config.yaml") -> AppConfig:
@@ -117,6 +132,7 @@ def load_config(config_path: str | Path = "config.yaml") -> AppConfig:
         brand_name=yaml_data["brand_name"],
         website_url=yaml_data["website_url"],
         webapp_url=yaml_data.get("webapp_url", ""),
+        assets_url=yaml_data.get("assets_url", "").rstrip("/"),
         support_chat_id=yaml_data["support_chat_id"],
         about_text=yaml_data.get("about_text", ""),
         contacts_text=yaml_data.get("contacts_text", ""),

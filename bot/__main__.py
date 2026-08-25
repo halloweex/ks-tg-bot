@@ -112,8 +112,9 @@ async def main() -> None:
         # Ask Telegram who has a birthday, and greet whoever is celebrating.
         # The profile reader is an adapter like any other, which is what keeps
         # the sweep itself testable without a bot.
-        loops.append(spawn(watch_birthdays(TelegramProfiles(bot)),
-                           name="birthday_watcher"))
+        loops.append(spawn(
+            watch_birthdays(TelegramProfiles(bot), config.birthday_card_url),
+            name="birthday_watcher"))
         # Pull whatever changed in the CRM into the local cache, and — as a
         # separate task, so it survives that one dying — watch that it keeps
         # happening (docs/architecture.md §5.5).
