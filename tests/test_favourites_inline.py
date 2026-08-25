@@ -95,8 +95,12 @@ def _offer(sku, *, variant=111, available=True, price="680.00",
                  price=price, available=available, image_url=image)
 
 
+ADMIN = 777001
+
+
 def _config() -> AppConfig:
-    return SimpleNamespace(website_url=SHOP, support_chat_id=SUPPORT)
+    return SimpleNamespace(website_url=SHOP, support_chat_id=SUPPORT,
+                           env=SimpleNamespace(admin_ids=[ADMIN]))
 
 
 def _ask(query: _Query, lang: str = "uk") -> _Query:
@@ -373,8 +377,12 @@ def _ask_for_discount(sku: str) -> dict:
     told = {}
 
     async def send_message(chat_id, text, **kwargs):
-        told["chat_id"], told["text"] = chat_id, text
-        return SimpleNamespace(message_id=1)
+        # Every recipient, in order: the support chat first, then a copy to
+        # each admin.
+        told.setdefault("to", []).append(chat_id)
+        told.setdefault("chat_id", chat_id)
+        told.setdefault("text", text)
+        return SimpleNamespace(message_id=len(told["to"]))
 
     async def answer(text=None, **kwargs):
         told.setdefault("popup", text)
@@ -415,6 +423,14 @@ def test_a_card_asks_for_a_discount_on_its_own_product(db):
     assert "Product 2" in told["text"]
     assert "Product 1" not in told["text"]
     assert told["popup"] == Texts("uk").MSG_DISCOUNT_SENT
+
+
+def test_every_admin_gets_the_same_request(db):
+    """One personal account is a single point of failure, and a discount ask is
+    the one thing here nobody else can see was made."""
+    _registered_customer(_order("1"), offers={"1": _offer("1")})
+    told = _ask_for_discount("1")
+    assert told["to"] == [SUPPORT, ADMIN]
 
 
 def test_a_discount_can_be_asked_for_beyond_the_top_five(db):

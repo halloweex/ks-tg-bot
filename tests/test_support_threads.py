@@ -57,6 +57,22 @@ def test_all_three_messages_of_a_thread_map_to_the_customer(db):
         assert asyncio.run(db.support_thread_owner(message_id)) == CUSTOMER
 
 
+def test_an_admin_can_answer_from_their_own_chat(db, config):
+    """A discount ask is copied to every admin. A copy nobody can reply to is a
+    copy that wastes the reader's time, so the relay accepts a reply wherever
+    the replied-to message belongs to a thread."""
+    asyncio.run(db.remember_support_thread([10, 11], CUSTOMER))
+
+    bot = _FakeBot()
+    msg = _manager_message(bot, text="Промокод HELLO10", replied=_replied(11))
+    msg.chat = SimpleNamespace(id=ADMIN)
+    asyncio.run(support.admin_reply(msg, config, None))
+
+    queued = _queued_replies()
+    assert [r["chat_id"] for r in queued] == [CUSTOMER]
+    assert "HELLO10" in queued[0]["payload"]["text"]
+
+
 def test_unknown_message_has_no_owner(db):
     assert asyncio.run(db.support_thread_owner(999)) is None
 
@@ -141,7 +157,8 @@ def config():
     # No support window: these tests are about the relay, and an unconfigured
     # window is what keeps the confirmation the plain one they assert on.
     # The window itself is tested in tests/test_support_hours.py.
-    return SimpleNamespace(support_chat_id=SUPPORT_CHAT, support_window=None)
+    return SimpleNamespace(support_chat_id=SUPPORT_CHAT, support_window=None,
+                           env=SimpleNamespace(admin_ids=[ADMIN]))
 
 
 def _queued_replies() -> list[dict]:

@@ -959,16 +959,37 @@ async def perform_discount_ask(callback: CallbackQuery, sku: str,
         for f in favourites
     ]
     lines += ["", escape(op.MSG_SUPPORT_REPLY_INSTRUCTION)]
+    text = "\n".join(lines)
     try:
         sent = await callback.bot.send_message(
-            config.support_chat_id, "\n".join(lines), parse_mode="HTML"
+            config.support_chat_id, text, parse_mode="HTML"
         )
-        # Same thread mechanism as support: a manager replying to this message
-        # reaches the customer. Without it the request carried only the chat_id
-        # printed in the text, so a reply landed nowhere unless the manager
-        # happened to reply to that exact line — the failure this whole table
-        # exists to remove.
-        await remember_support_thread([sent.message_id], chat_id)
+        # The same request, to every admin as well. One personal account is a
+        # single point of failure — it went silent for half a day on 25.08 —
+        # and a discount ask is the one thing here nobody else can see was
+        # made. Copies are best-effort: the customer's answer depends on the
+        # support chat alone, so an admin who has never opened the bot cannot
+        # turn their own missing copy into a failed request.
+        ids = [sent.message_id]
+        for admin_id in config.env.admin_ids:
+            if admin_id == config.support_chat_id:
+                continue
+            try:
+                copy = await callback.bot.send_message(admin_id, text,
+                                                       parse_mode="HTML")
+            except TelegramAPIError as exc:  # noqa: PERF203
+                logger.warning("Discount copy to admin {} failed: {}",
+                               admin_id, exc)
+                continue
+            ids.append(copy.message_id)
+
+        # Same thread mechanism as support: a manager replying to any of these
+        # messages reaches the customer. Without it the request carried only
+        # the chat_id printed in the text, so a reply landed nowhere unless the
+        # manager happened to reply to that exact line — the failure this whole
+        # table exists to remove. Every copy is registered, so whoever sees the
+        # request first can be the one who answers it.
+        await remember_support_thread(ids, chat_id)
     except TelegramAPIError as exc:
         # It used to say "passed on to the manager" here whatever happened, and
         # the request was already written down — so a customer was thanked for

@@ -199,9 +199,15 @@ async def admin_reply(
     config: AppConfig,
     t: Texts,
 ) -> None:
-    """Route admin's reply back to the customer the thread belongs to."""
-    # Only process messages from the admin chat
-    if message.chat.id != config.support_chat_id:
+    """Route a reply back to the customer the thread belongs to.
+
+    The support chat, and an admin's own chat with the bot: a discount ask is
+    copied to every admin, and a copy nobody can answer is a copy that wastes
+    the reader's time. Which message was replied to still decides everything —
+    an id that belongs to no thread routes nowhere, here as anywhere else.
+    """
+    if (message.chat.id != config.support_chat_id
+            and message.chat.id not in config.env.admin_ids):
         return
 
     bot = message.bot
