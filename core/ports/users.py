@@ -8,12 +8,24 @@ as an argument and answers on its own.
 
 **The identity rule, stated once for the whole module.** Everything called
 outside a transaction is keyed by `chat_id`; everything on the unit is keyed by
-the surrogate `users.id`; the single crossing is
-`UserProfiles.identify(chat_id)`. Two spellings of "who" is one more than
-anybody wants, and the reason there are two is that Postgres mints an id the
-caller cannot have guessed while SQLite's natural key is the chat itself. A
-port that pretended otherwise would be a port that lies under one of the two
-engines.
+the surrogate `users.id`. Two spellings of "who" is one more than anybody wants,
+and the reason there are two is that Postgres mints an id the caller cannot have
+guessed while SQLite's natural key is the chat itself. A port that pretended
+otherwise would be a port that lies under one of the two engines.
+
+**The single crossing is `UserProfiles.bind_phone`**, which takes a `chat_id`
+and hands the surrogate back. There is deliberately no `identify(chat_id)`: the
+only operation that *can* produce an id is the one that can create the person,
+because `users.phone_normalized` is NOT NULL and UNIQUE with no default, so no
+row exists before a number is verified.
+
+Which leaves a gap this module should name rather than imply. A scenario holding
+an already-registered chat has nowhere to ask for its surrogate, so
+`core/usecases/sync_orders.py` opens its unit with `user_id=chat_id` — true
+under SQLite, where the two are the same number, and the one place the spellings
+are knowingly confused. It is one of the four fixes docs/move-status.md defers
+until after this series, and the day it is fixed is the day this paragraph turns
+into a second method here.
 
 Split into small protocols rather than one object about people, because the
 callers are small: a loop rendering one message per recipient wants a language
