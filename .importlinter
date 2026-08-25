@@ -315,6 +315,20 @@ source_modules =
 forbidden_modules =
     core.repos
 
+[importlinter:contract:register-sees-ports-only]
+name = core.usecases.register не знает ни одного репозитория
+# Причина: сценарий, на котором держится весь бот. Он единственный вызывает
+# `bind_phone` — запись, меняющую то, чьи заказы видит чат, — и единственный,
+# кто доносит `VerifiedPhone` до хранилища. Порт тут не про подменяемость
+# движка, а про то, что доказательство владения номером нельзя потерять по
+# дороге: строка вместо типа компилируется, а стоит чужой истории заказов.
+type = forbidden
+source_modules =
+    core.usecases.register
+forbidden_modules =
+    core.repos
+
+
 [importlinter:contract:sync-orders-sees-ports-only]
 name = core.usecases.sync_orders не знает ни одного репозитория
 # Причина: первый сценарий, который вообще берёт `UnitOfWork` в руки. До него

@@ -72,6 +72,45 @@ def test_enriching_a_user_who_is_not_bound_yet_creates_nobody(db):
     assert asyncio.run(scenario()) is None
 
 
+def test_the_link_that_brought_a_customer_survives_the_port(db):
+    """Write-once, asserted through bind_phone rather than through save_user.
+
+    The rule itself has been tested since referrals shipped, but only against
+    the function underneath. Commit 19 put a `source` on the port, and a port
+    that accepted it and dropped it — or passed it through to an implementation
+    that overwrote on re-verification — would satisfy every existing test.
+    Re-binding is the case that matters: a customer re-verifying their number a
+    month later must not be re-attributed to whoever they last clicked.
+    """
+    from core.repos.users import get_source
+
+    async def scenario():
+        async with SqliteUnitOfWork() as uow:
+            await uow.users.bind_phone(USER, PHONE, source="ref_777")
+            first = await get_source(USER)
+            await uow.users.bind_phone(USER, PHONE, source="ref_999")
+            second = await get_source(USER)
+            await uow.users.bind_phone(USER, PHONE)
+            third = await get_source(USER)
+            await uow.commit()
+        return first, second, third
+
+    assert asyncio.run(scenario()) == ("ref_777", "ref_777", "ref_777")
+
+
+def test_a_customer_who_arrived_alone_is_attributed_to_nobody(db):
+    """Empty offered against empty stays empty — not a link nobody clicked."""
+    from core.repos.users import get_source
+
+    async def scenario():
+        async with SqliteUnitOfWork() as uow:
+            await uow.users.bind_phone(USER, PHONE)
+            await uow.commit()
+        return await get_source(USER)
+
+    assert asyncio.run(scenario()) == ""
+
+
 def test_enrichment_cannot_change_the_number(db):
     """The phone is not a parameter of update_profile rather than an optional
     one nobody passes: the write that changes who a chat is has its own method

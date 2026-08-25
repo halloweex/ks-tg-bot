@@ -147,6 +147,58 @@ def test_postgres_runs_the_same_scenario_and_mints_an_id_of_its_own():
 
 
 @pg_only
+def test_the_link_that_brought_a_customer_is_write_once_here_too():
+    """The rule both engines have to keep, asserted against the one that does it
+    in a different statement.
+
+    SQLite spells it `COALESCE(NULLIF((SELECT source …), ''), ?)` inside an
+    INSERT OR REPLACE; Postgres spells it
+    `COALESCE(NULLIF(users.source, ''), EXCLUDED.source)` inside an ON CONFLICT.
+    Two spellings of one rule is exactly the shape that drifts, and the
+    conformance test cannot see it — it compares signatures, and both accept a
+    `source` either way.
+
+    The case that matters is the second bind: a customer re-verifying their
+    number must not be re-attributed to whoever they last clicked.
+    """
+    from core.repos.pg import unit_of_work_factory
+
+    async def body(pool):
+        make = unit_of_work_factory(pool)
+        async with make(user_id=None) as uow:
+            user_id = await uow.users.bind_phone(CHAT, PHONE, source="ref_777")
+            await uow.commit()
+        async with make(user_id=user_id) as uow:
+            await uow.users.bind_phone(CHAT, PHONE, source="ref_999")
+            await uow.commit()
+        async with make(user_id=user_id) as uow:
+            await uow.users.bind_phone(CHAT, PHONE)
+            await uow.commit()
+        async with pool.acquire() as c:
+            return await c.fetchval("SELECT source FROM users WHERE id = $1", user_id)
+
+    assert with_pool(body) == "ref_777"
+
+
+@pg_only
+def test_a_customer_who_arrived_alone_is_attributed_to_nobody_here_either():
+    """The column is NOT NULL DEFAULT '' in revision 001, so empty is the only
+    thing "not yet answered" can be — and offering empty must leave it that
+    way rather than writing a link nobody clicked."""
+    from core.repos.pg import unit_of_work_factory
+
+    async def body(pool):
+        make = unit_of_work_factory(pool)
+        async with make(user_id=None) as uow:
+            user_id = await uow.users.bind_phone(CHAT, PHONE)
+            await uow.commit()
+        async with pool.acquire() as c:
+            return await c.fetchval("SELECT source FROM users WHERE id = $1", user_id)
+
+    assert with_pool(body) == ""
+
+
+@pg_only
 def test_the_naive_timestamp_is_stored_as_utc():
     """Pinned because revision 001 chose timestamptz without saying which zone
     the naive strings arrive in. The data transfer (point 4) must apply this same

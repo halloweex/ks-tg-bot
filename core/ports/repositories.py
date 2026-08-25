@@ -60,7 +60,9 @@ class UserProfiles(Protocol):
     where it means something.
     """
 
-    async def bind_phone(self, chat_id: int, phone: VerifiedPhone) -> int:
+    async def bind_phone(
+        self, chat_id: int, phone: VerifiedPhone, *, source: str = ""
+    ) -> int:
         """Attach an ownership-verified number to a chat. Returns the person's id.
 
         The only write that changes who a chat is. VerifiedPhone all the way
@@ -83,6 +85,19 @@ class UserProfiles(Protocol):
 
         Under SQLite the surrogate and the chat id are the same number, so the
         implementation returns what it was handed and nothing changes.
+
+        **`source` is write-once, and that is a contract rather than a hint.**
+        It is the deep link the person arrived through, and the question it
+        answers — who brought them — has exactly one true answer: the first one.
+        An empty column takes the value offered; a filled one keeps what it has,
+        and re-verifying a number later must not overwrite it. Both
+        implementations enforce that in the statement rather than by reading
+        first and deciding, because a read-then-write is two customers arriving
+        through two links away from being wrong.
+
+        Defaulted to empty because most callers have no link to offer: a
+        customer who found the bot by themselves is the ordinary case, and an
+        empty value offered against an empty column leaves it empty.
         """
         ...
 

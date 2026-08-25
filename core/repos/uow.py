@@ -31,7 +31,9 @@ class SqliteOrderCache:
 
 
 class SqliteUserProfiles:
-    async def bind_phone(self, chat_id: int, phone: VerifiedPhone) -> int:
+    async def bind_phone(
+        self, chat_id: int, phone: VerifiedPhone, *, source: str = ""
+    ) -> int:
         """Returns the chat id, because here it *is* the person's id.
 
         SQLite's `users` is keyed by chat_id and mints nothing, so the surrogate
@@ -39,8 +41,13 @@ class SqliteUserProfiles:
         rather than None is what lets one scenario be written once and mean the
         same thing under both engines — under Postgres the identical call comes
         back with a sequence value the caller could not have guessed.
+
+        `source` is passed straight through: the write-once rule the port
+        promises is already in `save_user`'s statement, as
+        `COALESCE(NULLIF(<stored>, ''), <offered>)`, and re-implementing it here
+        would be the same rule in two places waiting to disagree.
         """
-        await save_user(chat_id, phone.e164)
+        await save_user(chat_id, phone.e164, source=source)
         return chat_id
 
     async def update_profile(

@@ -163,7 +163,9 @@ class PgOrderCache(_BoundToUnit):
 
 class PgUserProfiles(_BoundToUnit):
 
-    async def bind_phone(self, chat_id: int, phone: VerifiedPhone) -> int:
+    async def bind_phone(
+        self, chat_id: int, phone: VerifiedPhone, *, source: str = ""
+    ) -> int:
         """Create or re-verify the person behind this chat; return their id.
 
         Keyed on `tg_chat_id`, which mirrors what SQLite's INSERT OR REPLACE
@@ -174,14 +176,23 @@ class PgUserProfiles(_BoundToUnit):
         infer. It raises here where SQLite would silently have created a second
         person holding the same number — louder is the improvement, and the
         behaviour is pinned by a test rather than left to be discovered.
+
+        `source` is write-once in the statement, exactly as it is on the other
+        side: `COALESCE(NULLIF(users.source, ''), EXCLUDED.source)` keeps a link
+        that is already recorded and takes the offered one only into an empty
+        column. Doing it in SQL rather than by reading first is what makes it
+        true under concurrency — and the column is NOT NULL DEFAULT '' in
+        revision 001, so "empty" is the only thing "not yet answered" can be.
         """
         row = await self._conn.fetchrow(
-            "INSERT INTO users (tg_chat_id, phone_normalized, updated_at) "
-            "VALUES ($1, $2, now()) "
+            "INSERT INTO users (tg_chat_id, phone_normalized, source, updated_at) "
+            "VALUES ($1, $2, $3, now()) "
             "ON CONFLICT (tg_chat_id) DO UPDATE "
-            "   SET phone_normalized = EXCLUDED.phone_normalized, updated_at = now() "
+            "   SET phone_normalized = EXCLUDED.phone_normalized, "
+            "       source = COALESCE(NULLIF(users.source, ''), EXCLUDED.source), "
+            "       updated_at = now() "
             "RETURNING id",
-            chat_id, phone.e164,
+            chat_id, phone.e164, source,
         )
         return int(row["id"])
 

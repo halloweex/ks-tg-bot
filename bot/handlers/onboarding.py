@@ -16,6 +16,8 @@ from bot.screen import send_main_menu, typing
 from core.adapters.keycrm.client import KeyCRMClient
 from core.domain.phone import VerifiedPhone, verified_phone
 from core.repos.orders import get_cached_orders
+from core.repos.uow import SqliteUnitOfWork
+from core.repos.users import SqliteCustomerDirectory
 from core.usecases.register import register_customer
 from bot.states import OnboardingStates, SupportStates
 
@@ -55,7 +57,11 @@ async def _register_user(
     # The deep link that brought them, put aside by /start a couple of messages
     # ago. Written once, here, because this is where a chat becomes a customer.
     source = str((await state.get_data()).get("source") or "")
-    await register_customer(message.chat.id, phone, keycrm, source=source)
+    # Built here, as in the other handlers: no composition root exists yet, so
+    # this is where it is known which engine is underneath.
+    await register_customer(message.chat.id, phone, keycrm,
+                            SqliteCustomerDirectory(), SqliteUnitOfWork,
+                            source=source)
 
     await state.clear()
     track(message.chat.id, "registered")
