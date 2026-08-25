@@ -13,6 +13,7 @@ from bot.alerts import tell_admins_once
 from bot.analytics import track
 from bot.customer import describe
 from core.config import AppConfig
+from core.repos.outbox import SqliteMessageQueue
 from core.repos.support import (album_in_progress, remember_support_thread, start_album,
                                 support_thread_owner)
 from core.usecases.support import queue_reply
@@ -200,8 +201,12 @@ async def admin_reply(
     # the customer wrote to the shop and the shop answers, and a label saying so
     # is only in the way. What they see now is the answer, from the chat they
     # wrote to, as if the person were sitting in it.
+    # Chosen here for the same reason as everywhere else in bot/: there is no
+    # composition root yet, and the scenario must not pick its own storage.
+    queue = SqliteMessageQueue()
+
     if message.text:
-        await queue_reply(user_chat_id, text=message.text)
+        await queue_reply(queue, user_chat_id, text=message.text)
     else:
         # A photo, a voice note or a document. An older version sent
         # `message.text` regardless, and for anything but text that is None —
@@ -210,6 +215,7 @@ async def admin_reply(
         # actually sent, caption included, and hides that it came from the
         # support chat.
         await queue_reply(
+            queue,
             user_chat_id,
             copy_from=(message.chat.id, message.message_id),
         )

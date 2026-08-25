@@ -24,12 +24,14 @@ rewritten to prevent (§6.7).
 from __future__ import annotations
 
 from core.domain.campaign import daily
-from core.repos.outbox import RETRY, enqueue
+from core.domain.delivery import OnUncertain
+from core.ports.outbox import MessageQueue
 
 KIND = "support"
 
 
 async def queue_reply(
+    queue: MessageQueue,
     chat_id: int,
     *,
     text: str | None = None,
@@ -53,8 +55,8 @@ async def queue_reply(
     if not (text or copy_from):
         raise ValueError("a support reply with nothing in it")
 
-    return await enqueue(
+    return await queue.queue(
         chat_id, KIND, daily(KIND), payload,
-        on_uncertain=RETRY,
+        on_uncertain=OnUncertain.RETRY,
         respect_quiet=False,
     )

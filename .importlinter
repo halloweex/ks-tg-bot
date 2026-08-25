@@ -246,6 +246,23 @@ forbidden_modules =
     core.repos.events
     core.repos.catalogue
 
+
+[importlinter:contract:support-sees-ports-only]
+name = core.usecases.support не знает ни одного репозитория
+# Причина: второй способ закрывать тот же долг, и он ложится раньше. Правило по
+# семейству ждёт, пока переедет последний потребитель — у outbox их шесть, то
+# есть правило про core.repos.outbox можно включить только через пять коммитов
+# после кода, который оно должно защищать. Правило про сценарий ложится в тот же
+# коммит, что и сам сценарий.
+#
+# Таких правил станет по одному на переехавший сценарий; все они исчезнут
+# вместе с включением core.usecases в core-siblings-are-independent.
+type = forbidden
+source_modules =
+    core.usecases.support
+forbidden_modules =
+    core.repos
+
 [importlinter:contract:ports-are-only-signatures]
 name = core.ports не знает ничего, кроме домена
 # Причина: порт — это Protocol и ничего больше. Любой его импорт немедленно
