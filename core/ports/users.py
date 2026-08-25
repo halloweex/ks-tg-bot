@@ -77,3 +77,54 @@ class MailingList(Protocol):
         customer into a failed delivery pass.
         """
         ...
+
+
+@runtime_checkable
+class KnownBirthdays(Protocol):
+    """The dates the bot has already learned, and who it has yet to ask.
+
+    The storage counterpart of `core.ports.profiles.BirthdaySource`, which is
+    Telegram. Two ports rather than one because they fail differently and are
+    faked differently: the source can be unavailable, and its "I could not ask"
+    must never be recorded as "there is none", while storage answering at all is
+    the thing that stops the asking.
+    """
+
+    async def to_ask(self, limit: int, *, stale_days: int) -> list[int]:
+        """Customers to ask Telegram about, never-asked ones first.
+
+        Both numbers come from the caller because both are the scenario's
+        policy: `limit` is a rate-limit decision, `stale_days` is how long an
+        answer stays good — a birthday is something people fill in long after
+        they sign up, so it is re-asked rather than asked once. Left as
+        implementation defaults they would be two constants free to disagree
+        between engines, and the symptom would be a sweep that quietly costs
+        more API calls under one of them.
+
+        The ordering is part of the contract: without "never asked first", a
+        long tail of re-asks starves everybody who registered yesterday.
+        """
+        ...
+
+    async def remember(self, chat_id: int, birthdate: str) -> None:
+        """Store "MM-DD", or "" for somebody Telegram shows no date for.
+
+        The empty string is written on purpose and is the only reason this sweep
+        is cheap: it records that the question was asked, and most people have
+        no visible date. Recording *when* it was asked is the implementation's
+        business and deliberately not a second method — a scenario able to write
+        a date without recording the ask is a scenario that will one day write
+        one and put everybody back in the queue forever.
+        """
+        ...
+
+    async def celebrating_on(self, month_day: str) -> list[int]:
+        """Everyone whose birthday is "MM-DD", opt-outs already excluded.
+
+        The exclusion is here rather than in the caller for the same reason
+        MailingList owns it: "may this person be written to" is one question,
+        and a greeting is still a message the bot decided to send. A caller that
+        filters afterwards is a caller that can forget to, and the way you find
+        out is somebody who unsubscribed getting a birthday card.
+        """
+        ...

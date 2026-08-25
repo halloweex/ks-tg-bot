@@ -329,3 +329,22 @@ class SqliteMailingList:
 
     async def opt_out(self, chat_id: int) -> None:
         await opt_out_user(chat_id)
+
+
+class SqliteKnownBirthdays:
+    """Implements core.ports.users.KnownBirthdays against today's columns.
+
+    `stale_days` arrives from the caller rather than defaulting here. The
+    function below still carries a default for its own callers and its own
+    tests; what the port refuses is a second place where the sweep's cost is
+    decided.
+    """
+
+    async def to_ask(self, limit: int, *, stale_days: int) -> list[int]:
+        return await chats_without_birthday(limit, stale_days=stale_days)
+
+    async def remember(self, chat_id: int, birthdate: str) -> None:
+        await save_birthday(chat_id, birthdate)
+
+    async def celebrating_on(self, month_day: str) -> list[int]:
+        return await chats_with_birthday_on(month_day)
