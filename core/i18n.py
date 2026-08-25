@@ -159,7 +159,7 @@ EN: dict[str, str] = {
     "BTN_BUY_ALL": "🛒 All of it · {total} ₴",
     "MSG_FAVOURITES_ALSO": "You have also bought: {names}",
     "BTN_WANT_DISCOUNT": "💰 I'd like a discount on these",
-    "BTN_WANT_DISCOUNT_CARD": "💰 I'd like a discount",
+    "BTN_WANT_DISCOUNT_PLAIN": "💰 I'd like a discount",
     "MSG_DISCOUNT_SENT": (
         "We have your discount request. We'll get back to you "
         "here in the bot."

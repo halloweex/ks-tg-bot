@@ -767,7 +767,8 @@ async def _favourites_view(
 
     return (
         "\n".join(lines),
-        _favourites_kb(favourites, offers, levels, subscribed, t, website_url),
+        _favourites_kb(favourites, offers, levels, subscribed, t, website_url,
+                       repeated),
         len(favourites),
     )
 
@@ -809,7 +810,7 @@ def _is_missing(item: dict, offers: dict[str, Offer], levels: dict[str, int]) ->
 
 
 def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
-                   website_url: str) -> InlineKeyboardMarkup:
+                   website_url: str, repeated: bool = True) -> InlineKeyboardMarkup:
     """The way into the inline list, one button per product, one for the lot,
     then the discount ask.
 
@@ -873,7 +874,13 @@ def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
                        url=cart_url(website_url, basket, t.lang), style=STYLE_CART)
         rows += 1
 
-    builder.button(text=t.BTN_WANT_DISCOUNT, callback_data=DiscountAction(action="ask"))
+    # The same fact the header is chosen by: with nothing bought twice, «на ці
+    # товари» would be asking for a discount on the strength of a habit the
+    # customer does not have yet.
+    builder.button(
+        text=t.BTN_WANT_DISCOUNT if repeated else t.BTN_WANT_DISCOUNT_PLAIN,
+        callback_data=DiscountAction(action="ask"),
+    )
     rows += 1
     # The way back, for the same reason it is on every other screen.
     builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="menu"))

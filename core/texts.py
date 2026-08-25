@@ -477,10 +477,14 @@ BTN_BUY_ALL = "🛒 Усе разом · {total} ₴"
 # button, because there is nothing to press. Naming them here keeps them from
 # vanishing off a screen that is supposed to list what someone buys.
 MSG_FAVOURITES_ALSO = "Також ти купувала: {names}"
+# «На ці товари» is a claim about the list above it: that these are what she
+# keeps coming back for. True for most, and false for the 27% who bought every
+# one of them exactly once — the same customers the header already speaks to
+# differently. Where it is false, the plain label below is used instead.
 BTN_WANT_DISCOUNT = "💰 Хочу знижку на ці товари"
-# On a card there is one product and its name is the line above the button, so
-# the button says neither.
-BTN_WANT_DISCOUNT_CARD = "💰 Хочу знижку"
+# No claim at all: one product on a card, whose name is the line above the
+# button, or a screen with nothing repeated on it.
+BTN_WANT_DISCOUNT_PLAIN = "💰 Хочу знижку"
 MSG_DISCOUNT_SENT = (
     "Твій запит на знижку вже у нас. Відповімо тут, у боті."
 )

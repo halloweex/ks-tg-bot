@@ -614,7 +614,7 @@ def _card_kb(sku: str, offer: Offer | None, t: Texts, website_url: str,
     # about their top five — which is what the same button means on the screen,
     # where it sits under the whole list.
     rows.append([InlineKeyboardButton(
-        text=t.BTN_WANT_DISCOUNT_CARD,
+        text=t.BTN_WANT_DISCOUNT_PLAIN,
         callback_data=DiscountAction(action="ask", sku=sku).pack(),
     )])
     return InlineKeyboardMarkup(inline_keyboard=rows)

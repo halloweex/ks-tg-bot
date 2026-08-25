@@ -127,7 +127,24 @@ def test_a_single_available_product_gets_no_order_everything_button(db):
     asyncio.run(save_offers({"1": _offer("1")}))
     _text, buttons = _view([_order("1")])
     assert [b.text.split(" · ")[0] for b in _products(buttons)] == [
-        "🛒 Product 1", "💰 Хочу знижку на ці товари"]
+        "🛒 Product 1", "💰 Хочу знижку"]
+
+
+# --- what the discount button is allowed to claim ---------------------------
+
+def test_the_ask_claims_a_habit_only_where_there_is_one(db):
+    """«Хочу знижку на ці товари» says the list is what she keeps coming back
+    for. Bought once each, that is a discount asked for on the strength of a
+    habit she does not have yet — the same fact the header is chosen by."""
+    asyncio.run(save_offers({"1": _offer("1")}))
+
+    _text, once = _view([_order("1")])
+    assert T.BTN_WANT_DISCOUNT_PLAIN in _labels(once)
+    assert T.BTN_WANT_DISCOUNT not in _labels(once)
+
+    _text, twice = _view([_order("1"), _order("1")])
+    assert T.BTN_WANT_DISCOUNT in _labels(twice)
+    assert T.BTN_WANT_DISCOUNT_PLAIN not in _labels(twice)
 
 
 # --- who decides that something is gone ------------------------------------
@@ -154,7 +171,7 @@ def test_where_neither_source_knows_the_screen_says_nothing(db):
     """Older cached order lines carry no sku at all. Claiming 'out of stock' for
     something we simply cannot look up would be worse than staying quiet."""
     text, buttons = _view([_order("1")])
-    assert _labels(_products(buttons)) == ["💰 Хочу знижку на ці товари"]
+    assert _labels(_products(buttons)) == ["💰 Хочу знижку"]
     # ...but it is still named, or it would vanish off a screen whose whole job
     # is to list what this person buys.
     assert _plain(T.MSG_FAVOURITES_ALSO.format(names="Product 1")) in text

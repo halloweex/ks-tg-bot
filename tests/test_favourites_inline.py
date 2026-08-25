@@ -200,7 +200,7 @@ def test_a_product_the_shop_has_no_offer_for_is_a_row_without_a_price(db):
     assert "₴" not in plain.description
     # Nothing to buy and nothing to wait for, but a discount can be asked about
     # anything — see test_a_card_asks_for_a_discount_on_its_own_product.
-    assert _labels(plain) == [Texts("uk").BTN_WANT_DISCOUNT_CARD]
+    assert _labels(plain) == [Texts("uk").BTN_WANT_DISCOUNT_PLAIN]
 
 
 def test_a_product_with_no_offer_but_no_stock_can_still_be_waited_for(db):
@@ -340,7 +340,7 @@ def test_the_deep_link_opens_the_favourites_screen(db):
     _text, markup = sent[0]
     buttons = [b for row in markup.inline_keyboard for b in row]
     assert any(b.text.startswith("🛒 Product 1") for b in buttons)
-    assert any(b.text == Texts("uk").BTN_WANT_DISCOUNT for b in buttons)
+    assert any(b.text == Texts("uk").BTN_WANT_DISCOUNT_PLAIN for b in buttons)
 
 
 # --- asking for a discount from a card --------------------------------------
