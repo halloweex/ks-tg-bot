@@ -304,6 +304,11 @@ def _orders_kb(
     Every line in the digest has a button that makes it the card, labelled with
     the same glyph and date the line carries — so nothing on the screen has to
     be matched to a number, which is what the old "🔎 3" buttons demanded.
+
+    Paired up where the pairs mean something: the two buttons about the card
+    share a row, and so do "show the cancelled ones" and the way to the next
+    page. On fifty orders that is the difference between seven rows of keyboard
+    and nine, which on a phone is half a screen of buttons under the message.
     """
     builder = InlineKeyboardBuilder()
     # First, as on the favourites screen: the whole history as an inline list,
@@ -320,7 +325,8 @@ def _orders_kb(
     card = _card_row(visible, shown_id)
     state = ("c" if cancelled else "") + ("x" if expanded else "")
 
-    # The card's own item list, when it is longer than a block shows.
+    # The two about the card, on one row: its own item list, and where it is.
+    about_card = 0
     if card is not None and len(order_products(card)) > _MAX_INLINE_ITEMS:
         builder.button(
             text=(t.BTN_HIDE_ITEMS if expanded else t.BTN_SHOW_ITEMS).format(
@@ -329,11 +335,10 @@ def _orders_kb(
                 action="show", order_id=card.get("id", 0), page=page,
                 state=("c" if cancelled else "") + ("" if expanded else "x")),
         )
-        layout.append(1)
-
+        about_card += 1
     # Where the parcel is, from Nova Poshta rather than from the shop's record.
-    # Only on a card that has a number, and only until it has been asked: the
-    # answer replaces the button.
+    # Only on a card that has a number, and only until it has been asked — the
+    # answer arrives by itself a moment after the screen opens, and replaces it.
     if card is not None and card.get("tracking_code") and not parcel:
         builder.button(
             text=t.BTN_WHERE_PARCEL,
@@ -344,7 +349,9 @@ def _orders_kb(
             # refused icon costs the icon, not the message (bot/middlewares.py).
             icon_custom_emoji_id=texts.NOVA_POSHTA,
         )
-        layout.append(1)
+        about_card += 1
+    if about_card:
+        layout.append(about_card)
 
     others = [row for row in visible if row is not card]
     for row in others:
@@ -358,6 +365,9 @@ def _orders_kb(
         # would be as long as the list they belong to.
         layout += [3] * (len(others) // 3) + ([len(others) % 3] if len(others) % 3 else [])
 
+    # The last row before the menu: the folded orders and the older ones. Both
+    # are "show me more of the same", and neither is wide.
+    more = 0
     if cancelled_rows:
         builder.button(
             text=(t.BTN_CANCELLED_HIDE if cancelled
@@ -365,7 +375,7 @@ def _orders_kb(
             callback_data=OrderAction(action="show", order_id=shown_id, page=page,
                                       state="" if cancelled else "c"),
         )
-        layout.append(1)
+        more += 1
 
     nav: list[tuple[str, int]] = []
     if page > 0:
@@ -378,8 +388,9 @@ def _orders_kb(
         builder.button(text=label,
                        callback_data=OrderAction(action="show", order_id=0,
                                                  page=target, state=state))
-    if nav:
-        layout.append(len(nav))
+    more += len(nav)
+    if more:
+        layout.append(more)
 
     # Last row, and on every screen the menu opens: a menu entry replaces the
     # menu message with the section, so without this the only way back is the

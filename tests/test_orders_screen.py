@@ -282,3 +282,44 @@ def test_a_newer_lookup_cancels_the_one_still_in_flight(db_with_orders):
         second.cancel()
 
     asyncio.run(run())
+
+
+# --- a history that is actually long ----------------------------------------
+
+def _long_history(count: int = 50, cancelled_every: int = 8) -> list[dict]:
+    history = [_order(1, at="2026-08-20T10:00:00", total=3962, items=9,
+                      status="in_transit", ttn="59000123456")]
+    for n in range(2, count + 1):
+        history.append(_order(
+            n, at=f"2026-{12 - (n % 12):02d}-{(n % 27) + 1:02d}T10:00:00",
+            total=500 + n * 37, items=(n % 6) + 1,
+            status="canceled" if n % cancelled_every == 0 else "completed",
+            group=6 if n % cancelled_every == 0 else 1))
+    return history
+
+
+def test_fifty_orders_still_fit_on_a_phone():
+    """The question this screen exists to answer. Text well inside Telegram's
+    4096, and — the part that bites first — a keyboard that is not half a
+    screen of buttons under the message."""
+    history = _long_history()
+    text = _format_orders_from_cache(history, T)
+    rows = _orders_kb(history, T).inline_keyboard
+
+    assert len(text) < 1500
+    assert len(_plain(text).splitlines()) <= 25
+    assert len(rows) <= 7, "seven rows, of which three are the dates"
+    assert sum(len(row) for row in rows) <= 20
+
+
+def test_the_two_buttons_about_the_card_share_a_row():
+    history = _long_history()
+    rows = _orders_kb(history, T).inline_keyboard
+    assert [b.text for b in rows[1]] == [T.BTN_SHOW_ITEMS.format(count=9),
+                                         T.BTN_WHERE_PARCEL]
+
+
+def test_show_more_of_the_same_shares_a_row_too():
+    history = _long_history()
+    labels = [[b.text for b in row] for row in _orders_kb(history, T).inline_keyboard]
+    assert [T.BTN_CANCELLED_SHOW.format(count=6), T.BTN_ORDERS_OLDER] in labels
