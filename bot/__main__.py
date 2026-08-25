@@ -32,6 +32,8 @@ from bot.middlewares import DropCustomEmoji, LanguageMiddleware
 from bot import profile
 from bot.outbox import watch as watch_outbox
 from bot.birthdays import watch as watch_birthdays
+from bot.handlers.common import REFERRAL_PREFIX
+from bot.referrals import watch as watch_referrals
 from bot.catalogue import watch as watch_catalogue
 from bot.stock import watch as watch_stock
 from bot.sync import watch as watch_orders, watch_for_silence
@@ -119,6 +121,11 @@ async def main() -> None:
         loops.append(spawn(
             watch_birthdays(TelegramProfiles(bot), config.birthday_card_url),
             name="birthday_watcher"))
+        # Pay for a recommendation once the friend it brought has ordered.
+        loops.append(spawn(
+            watch_referrals(bot, REFERRAL_PREFIX, config.support_chat_id,
+                            config.env.admin_ids),
+            name="referral_watcher"))
         # Pull whatever changed in the CRM into the local cache, and — as a
         # separate task, so it survives that one dying — watch that it keeps
         # happening (docs/architecture.md §5.5).

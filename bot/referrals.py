@@ -1,0 +1,65 @@
+"""The loop around the referral sweep, and telling a manager about it.
+
+The sweep itself knows nothing about Telegram — it queues a message for the
+customer and returns. What lives here is the schedule and the one thing that
+needs a bot: a note in the support chat, because until a Shopify token with
+rights to discounts exists, the promo code is issued by a person.
+
+Every quarter of an hour rather than daily: the friend's order arrives in the
+cache within two minutes of being placed, and a programme that pays out the
+next morning feels like a form rather than a thank-you.
+"""
+from __future__ import annotations
+
+import asyncio
+
+from aiogram import Bot
+from aiogram.exceptions import TelegramAPIError
+from loguru import logger
+
+from bot.alerts import tell_admins_once
+from bot.customer import describe
+from core.i18n import operator_texts
+from core.usecases.referrals import check_once
+
+POLL_INTERVAL_SECONDS = 15 * 60
+
+
+async def watch(bot: Bot, prefix: str, support_chat_id: int,
+                admin_ids: list[int]) -> None:
+    """Poll forever. Never lets one bad round kill the loop."""
+    logger.info("Referral watcher started ({}s interval)", POLL_INTERVAL_SECONDS)
+    while True:
+        try:
+            swept = await check_once(prefix)
+            if swept.earned:
+                await _tell_support(bot, swept.earned, support_chat_id, admin_ids)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Referral sweep failed: {}", exc)
+        await asyncio.sleep(POLL_INTERVAL_SECONDS)
+
+
+async def _tell_support(bot: Bot, earned: int, support_chat_id: int,
+                        admin_ids: list[int]) -> None:
+    """One line per round, so somebody writes the promo codes.
+
+    Deliberately a count and not a list of names: the customers have already
+    been told, and what the manager needs is the prompt plus a place to look.
+    A failure here is loud, for the same reason every other support-chat send
+    is — a note nobody receives is how a promise quietly stops being kept.
+    """
+    op = operator_texts()
+    try:
+        await bot.send_message(
+            support_chat_id,
+            op.MSG_REFERRAL_ADMIN_SUMMARY.format(count=earned),
+            parse_mode="HTML",
+        )
+    except TelegramAPIError as exc:
+        logger.error("Referral note to chat {} failed: {}", support_chat_id, exc)
+        await tell_admins_once(
+            bot, admin_ids, "support_relay",
+            f"Referral notes are not reaching support: {exc}",
+        )

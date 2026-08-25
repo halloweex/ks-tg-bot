@@ -34,6 +34,7 @@ from bot.callbacks import InfoAction, MenuAction
 from bot.analytics import track
 from core.config import AppConfig
 from bot.handlers.delivery import delivery_screen
+from bot.handlers.invite import invite_screen
 from bot.handlers.orders import (favourites_screen, follow_up_parcel,
                                  orders_screen)
 from bot.keyboards import (info_menu_kb, main_menu_inline_kb, menu_kb,
@@ -145,6 +146,25 @@ async def restore_menu(message: Message, config: AppConfig, t: Texts) -> None:
     is the only way into the inline list that does not cost an extra tap.
     """
     await send_main_menu(message, t, config)
+
+
+@_menu("BTN_INVITE")
+async def open_invite(message: Message, state: FSMContext, config: AppConfig,
+                      t: Texts) -> None:
+    """🎁 — the referral screen: the link, and how it is going."""
+    await state.clear()
+    text, markup = await invite_screen(message.chat.id, t, config)
+    await message.answer(text, reply_markup=markup)
+
+
+@router.callback_query(MenuAction.filter(F.action == "open_invite"))
+async def invite_from_menu(callback: CallbackQuery, state: FSMContext,
+                           config: AppConfig, t: Texts) -> None:
+    """🎁 from the menu in the message."""
+    await callback.answer()
+    await state.clear()
+    text, markup = await invite_screen(callback.from_user.id, t, config)
+    await render(callback, text, markup)
 
 
 @_menu("BTN_WEBSITE")

@@ -232,7 +232,14 @@ async def _answer_share(query: InlineQuery, sku: str, t: Texts,
     chat id, which is how the arrival is attributed — and it is no more than
     the friend already knows, since the message came from them.
     """
-    offer = (await get_offers([sku])).get(sku) if sku else None
+    if not sku:
+        # The invite: the same button, without a product. What travels is the
+        # bot itself, which is what the referral programme is actually about
+        # — a friend who opens it and orders is what earns the reward.
+        await _answer_invite(query, t, config)
+        return
+
+    offer = (await get_offers([sku])).get(sku)
     if offer is None or not offer.available:
         # Nothing to recommend: a sku nobody sells, or one that sold out
         # between the button being drawn and being pressed.
@@ -272,6 +279,35 @@ async def _answer_share(query: InlineQuery, sku: str, t: Texts,
         # everybody sharing this product, and the card is not — the deep link
         # in it carries the sharer's own id. Cached across users, the second
         # person to share a cream would hand out the first one's referral.
+        cache_time=300,
+        is_personal=True,
+    )
+
+
+async def _answer_invite(query: InlineQuery, t: Texts, config: AppConfig) -> None:
+    """The bot itself, as a card a friend receives.
+
+    One button, and it is the whole mechanism: a deep link carrying the
+    sharer's chat id, which is what `users.source` records when the friend
+    registers and what the referral sweep pays for when she orders.
+    """
+    link = (f"https://t.me/{config.bot_username}?start={REFERRAL_PREFIX}"
+            f"{query.from_user.id}")
+    track(query.from_user.id, "invite_offered")
+    await query.answer(
+        [InlineQueryResultArticle(
+            id=f"i{query.from_user.id}",
+            title=config.brand_name,
+            description=t.MSG_INVITE_ROW,
+            input_message_content=InputTextMessageContent(
+                message_text=t.MSG_INVITE_CARD.format(
+                    brand=escape(config.brand_name)),
+                parse_mode="HTML"),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text=t.BTN_INVITE_OPEN, url=link)]]),
+        )],
+        # Per person: the link in it is theirs, and a shared cache would hand
+        # the next sharer somebody else's referral.
         cache_time=300,
         is_personal=True,
     )

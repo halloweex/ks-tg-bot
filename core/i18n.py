@@ -206,6 +206,29 @@ EN: dict[str, str] = {
     "MSG_SHARE_ROW": "Send it to a friend",
     "BTN_SHARE_BUY": "🛒 Buy",
     "BTN_SHARE_ABOUT": "About this shop",
+    "BTN_INVITE": "🎁 Invite a friend",
+    "MSG_INVITE_SCREEN": (
+        "<b>🎁 Invite a friend</b>\n\n"
+        "Send her the bot — and when she places her first order, we send "
+        "you a promo code right here."
+    ),
+    "MSG_INVITE_COUNTS": "Invited: {invited} · already ordered: {earned}",
+    "BTN_INVITE_SEND": "📨 Send it to a friend",
+    "MSG_INVITE_ROW": "Send an invitation",
+    "MSG_INVITE_CARD": (
+        "<b>{brand}</b>\n"
+        "The bot that shows your orders, remembers your favourites and "
+        "writes the moment they are back in stock."
+    ),
+    "BTN_INVITE_OPEN": "Open the bot",
+    "MSG_REFERRAL_EARNED": (
+        "🎁 Your friend has placed her first order!\n"
+        "Thank you for recommending us — your promo code is on its way."
+    ),
+    "MSG_REFERRAL_ADMIN_SUMMARY": (
+        "🎁 Referrals: {count} — friends have placed their first orders.\n"
+        "Time to write promo codes for whoever brought them."
+    ),
     "BTN_DELIVERY_STATUS": "🚚 Track order",
     "MSG_DELIVERY_HEADER": (
         f"<b>{texts.custom_emoji(texts.NOVA_POSHTA, '🚚')} Your parcels</b>"),

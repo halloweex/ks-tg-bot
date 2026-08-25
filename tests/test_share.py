@@ -209,3 +209,113 @@ def test_re_registration_keeps_what_the_bot_already_knew(db):
     asyncio.run(save_birthday(FRIEND, "03-14"))
     asyncio.run(save_user(FRIEND, "+380670000002"))
     assert asyncio.run(chats_without_birthday(10)) == [], "still asked about"
+
+
+# --- inviting the bot itself, and being paid for it -------------------------
+
+def test_the_same_button_without_a_sku_invites_the_bot(db):
+    """The referral programme is about the bot travelling, not a cream: a
+    friend who opens it and orders is what earns the reward."""
+    query = _Query("поділитися")
+    asyncio.run(inline_list(query, T, _config()))
+    [row] = query.results
+    assert row.title == "Korean Story"
+    link = row.reply_markup.inline_keyboard[0][0].url
+    assert link == f"https://t.me/koreanstory_bot?start={REFERRAL_PREFIX}{CHAT}"
+    assert query.kwargs["is_personal"] is True
+
+
+def test_the_invitation_says_what_the_bot_does(db):
+    query = _Query("поділитися")
+    asyncio.run(inline_list(query, T, _config()))
+    card = query.results[0].input_message_content.message_text
+    assert "Korean Story" in card
+    assert str(CHAT) not in card
+
+
+# --- when a referral is earned ----------------------------------------------
+
+def _friend_who(source: str, *, ordered: bool, cancelled: bool = False,
+                chat_id: int = FRIEND) -> None:
+    import json
+
+    from core.repos.orders import upsert_orders
+
+    asyncio.run(save_user(chat_id, f"+38067000{chat_id:04d}", source=source))
+    if ordered:
+        asyncio.run(upsert_orders(chat_id, [{
+            "chat_id": chat_id, "source": "keycrm", "source_order_id": "1",
+            "external_id": "1", "order_name": "", "status_name": "completed",
+            "status_group_id": 6 if cancelled else 1, "grand_total": 100.0,
+            "currency": "грн", "ordered_at": "2026-08-01T10:00:00",
+            "products_json": json.dumps([{"name": "A", "qty": 1, "sku": "1"}]),
+            "buyer_name": "", "payment_status": "", "tracking_code": "",
+            "shipping_status": "", "delivery_city": "", "receive_point": "",
+            "recipient_name": "",
+        }]))
+
+
+def _sweep():
+    from core.usecases.referrals import check_once
+
+    return asyncio.run(check_once(REFERRAL_PREFIX))
+
+
+def _queued_rewards() -> list[dict]:
+    import json
+
+    from core.repos.outbox import claim
+
+    return [{**row, "payload": json.loads(row["payload"])}
+            for row in asyncio.run(claim(50)) if row["type"] == "referral"]
+
+
+def test_a_friend_who_only_opened_the_bot_earns_nothing(db):
+    """Opening a bot costs nothing, and a programme that pays for that pays for
+    nothing. The owner's rule: the first order is what counts."""
+    _friend_who(f"{REFERRAL_PREFIX}{CHAT}", ordered=False)
+    assert _sweep().earned == 0
+    assert _queued_rewards() == []
+
+
+def test_a_friend_who_ordered_earns_the_reward(db):
+    _friend_who(f"{REFERRAL_PREFIX}{CHAT}", ordered=True)
+    assert _sweep().earned == 1
+    [message] = _queued_rewards()
+    assert message["chat_id"] == CHAT, "the reward goes to whoever brought her"
+    assert "промокод" in message["payload"]["text"]
+
+
+def test_a_cancelled_order_is_not_an_order(db):
+    _friend_who(f"{REFERRAL_PREFIX}{CHAT}", ordered=True, cancelled=True)
+    assert _sweep().earned == 0
+
+
+def test_a_referral_is_paid_for_once(db):
+    """The sweep runs every quarter of an hour; the row is what stops the
+    second run owing it again."""
+    _friend_who(f"{REFERRAL_PREFIX}{CHAT}", ordered=True)
+    assert _sweep().earned == 1
+    assert _sweep().earned == 0
+    assert len(_queued_rewards()) == 1
+
+
+def test_nobody_earns_a_reward_for_bringing_themselves(db):
+    _friend_who(f"{REFERRAL_PREFIX}{FRIEND}", ordered=True)
+    assert _sweep().earned == 0
+
+
+def test_a_customer_who_came_alone_earns_nobody_anything(db):
+    _friend_who("", ordered=True)
+    assert _sweep().earned == 0
+
+
+def test_the_screen_counts_both_states(db):
+    """Somebody whose friend has opened the bot but not ordered would read a
+    single zero as "it does not work"."""
+    from core.repos.referrals import referral_counts
+
+    _friend_who(f"{REFERRAL_PREFIX}{CHAT}", ordered=True, chat_id=7071)
+    _friend_who(f"{REFERRAL_PREFIX}{CHAT}", ordered=False, chat_id=7072)
+    _sweep()
+    assert asyncio.run(referral_counts(CHAT, REFERRAL_PREFIX)) == (2, 1)

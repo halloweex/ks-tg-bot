@@ -325,6 +325,24 @@ CREATE TABLE IF NOT EXISTS offers (
 """
 
 
+# Who brought whom, and whether it has been paid for. `users.source` already
+# says which link a customer arrived through; this table is the half that has
+# to survive being asked twice — the sweep runs every quarter of an hour, and a
+# reward is owed once.
+#
+# Keyed by the friend: a person is brought by exactly one link, the first one
+# they opened, and `users.source` is written once for the same reason.
+_CREATE_REFERRALS = """
+CREATE TABLE IF NOT EXISTS referrals (
+    friend_chat_id   INTEGER PRIMARY KEY,
+    referrer_chat_id INTEGER NOT NULL,
+    earned_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    code             TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS ix_referrals_referrer ON referrals(referrer_chat_id);
+"""
+
+
 # --------------------------------------------------------------------------
 # Schema versions
 # --------------------------------------------------------------------------
@@ -350,7 +368,7 @@ CREATE TABLE IF NOT EXISTS offers (
 # It could not express this change (SQLite cannot alter a UNIQUE constraint),
 # and it silently swallowed real failures — a full disk logged success.
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 
 async def _columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -567,6 +585,16 @@ async def _migration_14_birthdays(db: aiosqlite.Connection) -> None:
     await _add_late_columns(db)
 
 
+async def _migration_15_referrals(db: aiosqlite.Connection) -> None:
+    """Add the table that remembers a referral was already paid for.
+
+    Nothing to backfill: before this table nobody was brought by anybody, and
+    `users.source` — which is the other half — has been empty until the share
+    button existed to fill it.
+    """
+    await db.executescript(_CREATE_REFERRALS)
+
+
 async def _migration_7_sync_state(db: aiosqlite.Connection) -> None:
     """Add the row the incremental sync keeps its cursor in.
 
@@ -593,6 +621,7 @@ _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (12, "storefront offers", _migration_12_offers),
     (13, "offer images", _migration_13_offer_images),
     (14, "birthdays", _migration_14_birthdays),
+    (15, "referrals", _migration_15_referrals),
 )
 
 
@@ -651,6 +680,7 @@ async def init_db() -> None:
         await db.execute(_CREATE_USER_CRM_BUYERS)
         await db.execute(_CREATE_OUTBOX)
         await db.execute(_CREATE_OFFERS)
+        await db.executescript(_CREATE_REFERRALS)
 
         if fresh:
             # The CREATE statements above deliberately keep their original

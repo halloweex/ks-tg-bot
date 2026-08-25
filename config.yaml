@@ -22,6 +22,13 @@ support_chat_id: 7444906573
 # as a button on the contacts page, wearing Instagram's logo. Empty means no
 # button — better than a link to an account that may have moved.
 instagram_url: "https://instagram.com/korean_story_official"
+# Что клиентка получает за приведённую подругу — вашими словами, одной-двумя
+# строками. Пусто = экран обещает только то, что бот точно выполнит: «подруга
+# закажет — пришлём промокод». Размер скидки бот не выдумывает.
+# Пусто — экран обещает ровно то, что бот выполнит сам: «подруга закажет —
+# пришлём промокод». Здесь стоит написать размер: «Знижка 10% на наступне
+# замовлення» — это обязательство бизнеса, и бот его не выдумывает.
+referral_reward: ""
 
 # Info pages — text shown in Phase 3 menus
 # Placeholder content — owner will fill in real text

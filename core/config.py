@@ -99,6 +99,10 @@ class AppConfig:
     assets_url: str
     support_chat_id: int
     instagram_url: str
+    # What a customer gets for bringing a friend, in the shop's own words. The
+    # size of a discount is a commitment, so the bot does not invent one: empty
+    # means the screen promises only what it can keep — that a code will come.
+    referral_reward: str
     about_text: str
     contacts_text: str
     payment_text: str
@@ -140,6 +144,7 @@ def load_config(config_path: str | Path = "config.yaml") -> AppConfig:
         assets_url=yaml_data.get("assets_url", "").rstrip("/"),
         support_chat_id=yaml_data["support_chat_id"],
         instagram_url=yaml_data.get("instagram_url", ""),
+        referral_reward=yaml_data.get("referral_reward", "").strip(),
         about_text=yaml_data.get("about_text", ""),
         contacts_text=yaml_data.get("contacts_text", ""),
         payment_text=yaml_data.get("payment_text", ""),

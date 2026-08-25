@@ -104,7 +104,7 @@ def test_every_label_is_short_enough_to_share_a_row():
     menu off the screen the last time it was inline (CHANGELOG, 2026-07-31).
     «🚚 Відслідкувати замовлення» was the one that could not pair up, and it is
     no longer an entry: the parcel is answered for on its own order now."""
-    assert all(len(row) == 2 for row in _inline_rows())
+    assert all(len(row) <= 2 for row in _inline_rows())
     assert max(len(b.text) for b in _inline_buttons()) <= 20
 
 

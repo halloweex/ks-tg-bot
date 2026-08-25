@@ -137,13 +137,13 @@ def main_menu_kb(t: Texts, webapp_url: str = "") -> ReplyKeyboardMarkup:
     # customer thinks of as one question, and the answer it gave now lives on
     # the order it belongs to — one tap on «Де посилка?» inside the card.
     for label in (t.BTN_ORDERS, t.BTN_FAVOURITES,
-                  t.BTN_SUPPORT, t.BTN_WEBSITE,
-                  t.BTN_INFO, t.BTN_SETTINGS):
+                  t.BTN_SUPPORT, t.BTN_INVITE,
+                  t.BTN_WEBSITE, t.BTN_INFO, t.BTN_SETTINGS):
         if label == t.BTN_FAVOURITES and webapp_url:
             builder.button(text=label, web_app=WebAppInfo(url=webapp_url))
             continue
         builder.button(text=label)
-    builder.adjust(2, 2, 2)
+    builder.adjust(2, 2, 3)
     return builder.as_markup(
         resize_keyboard=True,
         one_time_keyboard=False,
@@ -184,11 +184,13 @@ def main_menu_inline_kb(t: Texts, website_url: str) -> InlineKeyboardMarkup:
     builder.button(text=t.BTN_FAVOURITES, switch_inline_query_current_chat="")
     builder.button(text=t.BTN_SUPPORT,
                    callback_data=MenuAction(action="open_support"))
+    builder.button(text=t.BTN_INVITE,
+                   callback_data=MenuAction(action="open_invite"))
     builder.button(text=t.BTN_WEBSITE, url=tagged_website_url(website_url))
     builder.button(text=t.BTN_INFO, callback_data=MenuAction(action="open_info"))
     builder.button(text=t.BTN_SETTINGS,
                    callback_data=MenuAction(action="open_settings"))
-    builder.adjust(2, 2, 2)
+    builder.adjust(2, 2, 2, 1)
     return builder.as_markup()
 
 
