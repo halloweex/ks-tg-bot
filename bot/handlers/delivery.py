@@ -46,15 +46,16 @@ def _format_date(raw: str) -> str:
     return raw
 
 
-def _format_delivery_block(row: dict, tracking_info: dict | None, t: Texts) -> str:
-    """Format a single delivery block with tracking info."""
-    label = _format_order_label(row, t)
-    ttn = row.get("tracking_code", "")
+def parcel_lines(row: dict, tracking_info, t: Texts) -> list[str]:
+    """Where the parcel is, in the carrier's words or the shop's.
 
-    lines = [label, texts.with_logo(
-        t.MSG_ORDER_TRACKING.format(code=texts.tracking_link(ttn)),
-        texts.NOVA_POSHTA, "🚚")]
-
+    Public because the orders screen shows this under the order it belongs to:
+    the two used to be separate menu entries answering what a customer thinks
+    of as one question. Nova Poshta is the only source for "where is it right
+    now"; the CRM's own shipping status is the fallback for when it cannot be
+    reached or has not been asked.
+    """
+    lines: list[str] = []
     if tracking_info:
         ts = tracking_info
         if ts.status:
@@ -65,16 +66,24 @@ def _format_delivery_block(row: dict, tracking_info: dict | None, t: Texts) -> s
             lines.append(f"{t.MSG_DELIVERY_ACTUAL.format(date=_format_date(ts.actual_delivery))}")
         elif ts.scheduled_delivery:
             lines.append(f"{t.MSG_DELIVERY_SCHEDULED.format(date=_format_date(ts.scheduled_delivery))}")
-    else:
-        # Fallback: use data from CRM
-        shipping_status = row.get("shipping_status", "")
-        if shipping_status:
-            lines.append(f"{t.MSG_DELIVERY_STATUS.format(status=escape(t.status(shipping_status)))}")
-        location_parts = [p for p in (row.get("delivery_city", ""), row.get("receive_point", "")) if p]
-        if location_parts:
-            lines.append(f"📍 {escape(', '.join(location_parts))}")
+        return lines
 
-    return "\n".join(lines)
+    shipping_status = row.get("shipping_status", "")
+    if shipping_status:
+        lines.append(f"{t.MSG_DELIVERY_STATUS.format(status=escape(t.status(shipping_status)))}")
+    location_parts = [p for p in (row.get("delivery_city", ""), row.get("receive_point", "")) if p]
+    if location_parts:
+        lines.append(f"📍 {escape(', '.join(location_parts))}")
+    return lines
+
+
+def _format_delivery_block(row: dict, tracking_info: dict | None, t: Texts) -> str:
+    """Format a single delivery block with tracking info."""
+    ttn = row.get("tracking_code", "")
+    lines = [_format_order_label(row, t), texts.with_logo(
+        t.MSG_ORDER_TRACKING.format(code=texts.tracking_link(ttn)),
+        texts.NOVA_POSHTA, "🚚")]
+    return "\n".join(lines + parcel_lines(row, tracking_info, t))
 
 
 async def delivery_screen(

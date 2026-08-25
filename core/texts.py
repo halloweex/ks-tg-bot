@@ -300,6 +300,19 @@ LBL_DATE = "Дата"
 # Replaced the old "...та інші замовлення", which said there were more and gave
 # no way to reach them.
 MSG_ORDERS_PAGE = "Показано {first}–{last} з {total}"
+# The digest. One order is a card, the rest are a line each — a date, a sum and
+# how much was in it, which is what a person scans a history for. The layout
+# was chosen on real data after the owner called the old screen unreadable:
+# five orders were 42 lines, twenty of them the words "Статус:/Товари:/Сума:".
+MSG_ORDER_DIGEST_LINE = "{glyph} {date} · {total} {currency} · {items}"
+# Cancelled orders are not history a customer is looking for; they are noise
+# with a date on it. Counted, folded away, and one tap from being seen.
+BTN_CANCELLED_SHOW = "❌ Скасовані ({count})"
+BTN_CANCELLED_HIDE = "🙈 Сховати скасовані"
+MSG_CANCELLED_HEADER = "❌ Скасовані:"
+# On the card, when the parcel has a number: the live answer from Nova Poshta,
+# which the shop's own record does not have.
+BTN_WHERE_PARCEL = "🚚 Де посилка?"
 BTN_ORDERS_NEWER = "◀️ Новіші"
 BTN_ORDERS_OLDER = "Старіші ▶️"
 MSG_ORDERS_TRUNCATED = "...та інші замовлення"
@@ -308,8 +321,11 @@ MSG_ORDER_MORE_ITEMS = "…та інші ({count})"
 # most orders come from Instagram and have no number of their own, so labels
 # built from the source and the date read almost identically and are too long
 # to sit side by side.
-BTN_SHOW_ITEMS = "🔎 {order}"
-BTN_HIDE_ITEMS = "🔼 {order}"
+# The card's item list, unfolded and folded again. Labelled with the count
+# rather than with a number in a list: nothing on the digest is numbered any
+# more, and a button that says "🔎 3" needs a legend to explain what 3 is.
+BTN_SHOW_ITEMS = "🔎 Усі товари ({count})"
+BTN_HIDE_ITEMS = "🔼 Згорнути товари"
 MSG_ORDERS_EXPAND_HINT = "🔎 номер — усі товари цього замовлення"
 # Shown only when the sync has not confirmed the data for over an hour — see
 # bot/sync.py. "год" needs no plural form, which is the reason it is written
@@ -335,7 +351,10 @@ MSG_SUPPORT_FORWARDED = "Передали менеджеру — відпові�
 MSG_MAIN_MENU = "Чим допомогти?"
 # Sits inside the input field while the menu keyboard is open, in place of
 # "Write a message" — the field is not what we want tapped.
-MSG_MENU_PLACEHOLDER = "Обери дію"
+# The greyed-out line in the input field. A place the brand can say hello
+# without costing a message — and the one place a pet name reads as warmth
+# rather than as familiarity, because it is not addressed at anything.
+MSG_MENU_PLACEHOLDER = "Красуне, обери дію"
 # Carries the menu that lives in a message rather than under the input field.
 # Its own line, because Telegram gives a message one keyboard and these are two
 # kinds of keyboard — so the menu always arrives as the second of two messages.

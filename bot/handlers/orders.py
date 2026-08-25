@@ -30,8 +30,10 @@ from core.repos.orders import (CANCELLED_STATUS_GROUP, get_cached_orders,
 from core.repos.users import get_user_phone
 from bot.keyboards import STYLE_CART, STYLE_LIST, STYLE_UNDO, cart_url
 from bot.screen import render, typing
+from bot.handlers.delivery import parcel_lines
 from bot.sync import stale_notice
 from core.adapters.keycrm.client import KeyCRMClient
+from core.adapters.novaposhta.client import NovaPoshtaClient
 from core.usecases.sync_orders import sync_orders
 from bot.tasks import spawn
 
@@ -69,24 +71,15 @@ INLINE_LIMIT = 50
 # How many favourites the screen itself lists.
 _ON_SCREEN = 5
 
-# Orders per page. Five of these blocks is a wall of text you get lost in —
-# on a phone it is over a screen and a half, and nothing in it stands out. Three
-# fit on one screen, and the rest is one tap away.
-_ORDERS_PER_PAGE = 3
+# Orders per page: one card and nine lines. It used to be three, because three
+# full blocks were already a screen and a half; a digest line is forty
+# characters, so ten of them fit where three blocks did not.
+_ORDERS_PER_PAGE = 10
 
 
 # ---------------------------------------------------------------------------
 # Formatting helpers
 # ---------------------------------------------------------------------------
-
-def _money(value) -> str:
-    """Format an amount without a pointless '.0' — CRM totals are whole hryvnia."""
-    try:
-        num = float(value)
-    except (TypeError, ValueError):
-        return escape(str(value))
-    return str(int(num)) if num == int(num) else f"{num:.2f}"
-
 
 def _as_number(value) -> float:
     """A price as a number, or 0 for anything unparseable."""
@@ -155,7 +148,7 @@ def format_cached_order(
         date_str = ordered_at or "-"
 
     status = escape(t.status(row.get("status_name", "")) or "-")
-    total = _money(row.get("grand_total", 0))
+    total = texts.price_label(row.get("grand_total", 0))
     currency = escape(t.currency(row.get("currency", "грн")))
 
     mark = t.MSG_ORDER_LATEST_MARK if is_latest else ""
@@ -198,63 +191,119 @@ def _page_slice(orders: list[dict], page: int) -> tuple[list[dict], int]:
     return orders[start:start + _ORDERS_PER_PAGE], page
 
 
-def _format_orders_from_cache(
-    orders: list[dict], t: Texts, expanded_id: int = 0, page: int = 0
-) -> str:
-    """Format one page of cached orders into a single message text.
+def _status_glyph(row: dict) -> str:
+    """One character for where an order stands.
 
-    `expanded_id` is the cache row whose full item list should be shown; every
-    other long order stays shortened. Only one at a time, so the message cannot
-    grow past Telegram's limit and the state fits in the callback data.
+    The digest gives each order a line, and a line has to be scannable without
+    being read. Four states are all a customer sorts by: done, on its way,
+    being prepared, and never happened.
+    """
+    if row.get("status_group_id") == CANCELLED_STATUS_GROUP:
+        return "❌"
+    status = str(row.get("status_name") or "").strip().lower()
+    if status in ("completed", "delivered"):
+        return "✅"
+    if row.get("tracking_code") or status in (
+            "in_transit", "departing", "delivered_to_delivery", "pickup"):
+        return "🚚"
+    return "🕐"
+
+
+def _qty(product: dict) -> int:
+    """How many of one line item, or 0 for a row that cannot say."""
+    try:
+        return int(product.get("qty") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _digest_line(row: dict, t: Texts) -> str:
+    """One order as one line: when, how much, how many things."""
+    products = order_products(row)
+    return t.MSG_ORDER_DIGEST_LINE.format(
+        glyph=_status_glyph(row),
+        date=texts.short_date(str(row.get("ordered_at") or "")),
+        total=texts.price_label(row.get("grand_total", 0)),
+        currency=escape(t.currency(str(row.get("currency") or "грн"))),
+        items=t.items(sum(_qty(p) for p in products) or len(products)),
+    )
+
+
+def _split_cancelled(orders: list[dict]) -> tuple[list[dict], list[dict]]:
+    """The history a customer is looking for, and the orders that never were."""
+    active = [r for r in orders if r.get("status_group_id") != CANCELLED_STATUS_GROUP]
+    cancelled = [r for r in orders if r.get("status_group_id") == CANCELLED_STATUS_GROUP]
+    return active, cancelled
+
+
+def _card_row(visible: list[dict], shown_id: int) -> dict | None:
+    """Which order is drawn in full: the one asked for, else the newest here."""
+    for row in visible:
+        if row.get("id") == shown_id:
+            return row
+    return visible[0] if visible else None
+
+
+def _format_orders_from_cache(
+    orders: list[dict], t: Texts, *, shown_id: int = 0, page: int = 0,
+    cancelled: bool = False, expanded: bool = False,
+    parcel: list[str] | None = None
+) -> str:
+    """The digest: one order in full, the rest a line each.
+
+    What this replaced printed every order as six labelled lines — five orders
+    came to 42 lines and 901 characters, twenty of which were the words
+    "Статус:", "Товари:", "Сума:", "Дата:" — and the verdict on it was that you
+    get lost in it. So: the order being looked at is a card, and its neighbours
+    are the three facts a history is scanned by.
+
+    `parcel` is what Nova Poshta says about the card's parcel right now, asked
+    for by the button on the card. Absent until then, because the screen has to
+    open instantly and that answer costs a network call.
     """
     if not orders:
         return t.MSG_NO_ORDERS
 
-    visible, page = _page_slice(orders, page)
+    active, cancelled_rows = _split_cancelled(orders)
+    visible, page = _page_slice(active, page)
     start = page * _ORDERS_PER_PAGE
 
-    header = t.MSG_ORDERS_HEADER
-    if len(orders) > _ORDERS_PER_PAGE:
-        header += "\n" + t.MSG_ORDERS_PAGE.format(
-            first=start + 1, last=start + len(visible), total=len(orders)
-        )
-    # A row of "🔎 3" buttons is unreadable without saying once what the number
-    # refers to; the line only appears when such a button exists.
-    if any(len(order_products(row)) > _MAX_INLINE_ITEMS for row in visible):
-        header += "\n" + t.MSG_ORDERS_EXPAND_HINT
-    header += "\n\n"
+    parts = [t.MSG_ORDERS_HEADER]
+    if len(active) > _ORDERS_PER_PAGE:
+        parts.append(t.MSG_ORDERS_PAGE.format(
+            first=start + 1, last=start + len(visible), total=len(active)))
 
-    # A page of five collapsed orders is far inside Telegram's 4096, but an
-    # expanded order with many items could still push it; keep the guard.
-    max_len = 3800
-    result_parts: list[str] = []
-    current_len = len(header)
-
-    for i, row in enumerate(visible):
+    card = _card_row(visible, shown_id)
+    if card is not None:
+        # Collapsed like any other block above four items: a card is the detail
+        # view, not a reason to open the screen on twenty product names. The
+        # keyboard offers to unfold it.
         block = format_cached_order(
-            row, t,
-            number=start + i + 1,
-            is_latest=(start + i == 0),
-            expanded=(row.get("id") == expanded_id),
-        ) + "\n"
-        if current_len + len(block) + 2 > max_len:
-            result_parts.append("\n" + t.MSG_ORDERS_TRUNCATED)
-            break
-        result_parts.append(block)
-        current_len += len(block) + 2
+            card, t, number=0, is_latest=(card is active[0]), expanded=expanded)
+        if parcel:
+            block += "\n" + "\n".join(parcel)
+        parts += ["", block]
 
-    return header + "\n".join(result_parts)
+    rest = [row for row in visible if row is not card]
+    if rest:
+        parts += [""] + [_digest_line(row, t) for row in rest]
+
+    if cancelled and cancelled_rows:
+        parts += ["", t.MSG_CANCELLED_HEADER]
+        parts += [_digest_line(row, t) for row in cancelled_rows]
+
+    return "\n".join(parts)
 
 
 def _orders_kb(
-    orders: list[dict], t: Texts, expanded_id: int = 0, page: int = 0
+    orders: list[dict], t: Texts, *, shown_id: int = 0, page: int = 0,
+    cancelled: bool = False, expanded: bool = False, parcel: bool = False
 ) -> InlineKeyboardMarkup:
-    """Paging, plus expand/collapse for the shortened orders on this page.
+    """The way into the list, one button per line, the parcel, the folded ones.
 
-    Expand buttons are labelled with the order's number in the list, so they fit
-    several to a row. They used to carry the source and the date — "🔎 Товари:
-    📸 Instagram, 15.06.2026" — which is one button per row and still ambiguous
-    when two Instagram orders share a day.
+    Every line in the digest has a button that makes it the card, labelled with
+    the same glyph and date the line carries — so nothing on the screen has to
+    be matched to a number, which is what the old "🔎 3" buttons demanded.
     """
     builder = InlineKeyboardBuilder()
     # First, as on the favourites screen: the whole history as an inline list,
@@ -264,50 +313,70 @@ def _orders_kb(
     builder.button(text=t.BTN_ORDERS_ALL,
                    switch_inline_query_current_chat=f"{t.MSG_INLINE_ORDERS_PREFIX} ",
                    style=STYLE_LIST)
+    layout = [1]
 
-    visible, page = _page_slice(orders, page)
-    start = page * _ORDERS_PER_PAGE
+    active, cancelled_rows = _split_cancelled(orders)
+    visible, page = _page_slice(active, page)
+    card = _card_row(visible, shown_id)
+    state = ("c" if cancelled else "") + ("x" if expanded else "")
 
-    expand_buttons = 0
-    for i, row in enumerate(visible):
-        if len(order_products(row)) <= _MAX_INLINE_ITEMS:
-            continue
-        row_id = row.get("id", 0)
-        number = start + i + 1
-        if row_id == expanded_id:
-            builder.button(
-                text=t.BTN_HIDE_ITEMS.format(order=number),
-                callback_data=OrderAction(action="items", order_id=0, page=page),
-            )
-        else:
-            builder.button(
-                text=t.BTN_SHOW_ITEMS.format(order=number),
-                callback_data=OrderAction(action="items", order_id=row_id, page=page),
-            )
-        expand_buttons += 1
+    # The card's own item list, when it is longer than a block shows.
+    if card is not None and len(order_products(card)) > _MAX_INLINE_ITEMS:
+        builder.button(
+            text=(t.BTN_HIDE_ITEMS if expanded else t.BTN_SHOW_ITEMS).format(
+                count=len(order_products(card))),
+            callback_data=OrderAction(
+                action="show", order_id=card.get("id", 0), page=page,
+                state=("c" if cancelled else "") + ("" if expanded else "x")),
+        )
+        layout.append(1)
 
-    # Paging keeps the expanded order id: moving pages collapses nothing, and
-    # the id simply does not match anything on the new page.
+    # Where the parcel is, from Nova Poshta rather than from the shop's record.
+    # Only on a card that has a number, and only until it has been asked: the
+    # answer replaces the button.
+    if card is not None and card.get("tracking_code") and not parcel:
+        builder.button(
+            text=t.BTN_WHERE_PARCEL,
+            callback_data=OrderAction(action="track", order_id=card.get("id", 0),
+                                      page=page, state=state),
+        )
+        layout.append(1)
+
+    others = [row for row in visible if row is not card]
+    for row in others:
+        builder.button(
+            text=f"{_status_glyph(row)} {texts.short_date(str(row.get('ordered_at') or ''))}",
+            callback_data=OrderAction(action="show", order_id=row.get("id", 0),
+                                      page=page, state=state),
+        )
+    if others:
+        # Three to a row: a glyph and a date is short, and a column of them
+        # would be as long as the list they belong to.
+        layout += [3] * (len(others) // 3) + ([len(others) % 3] if len(others) % 3 else [])
+
+    if cancelled_rows:
+        builder.button(
+            text=(t.BTN_CANCELLED_HIDE if cancelled
+                  else t.BTN_CANCELLED_SHOW.format(count=len(cancelled_rows))),
+            callback_data=OrderAction(action="show", order_id=shown_id, page=page,
+                                      state="" if cancelled else "c"),
+        )
+        layout.append(1)
+
     nav: list[tuple[str, int]] = []
     if page > 0:
         nav.append((t.BTN_ORDERS_NEWER, page - 1))
-    if (page + 1) * _ORDERS_PER_PAGE < len(orders):
+    if (page + 1) * _ORDERS_PER_PAGE < len(active):
         nav.append((t.BTN_ORDERS_OLDER, page + 1))
-    for text, target in nav:
-        builder.button(
-            text=text,
-            callback_data=OrderAction(action="items", order_id=expanded_id, page=target),
-        )
-
-    # The way into the inline list on its own row, then all expand buttons on
-    # one — there are at most _ORDERS_PER_PAGE of them and each is a glyph and
-    # a number — then paging. No Menu button: the menu is the keyboard under
-    # the input field, always there.
-    layout = [1]
-    if expand_buttons:
-        layout.append(expand_buttons)
+    for label, target in nav:
+        # The card is not carried across pages: it names an order that is not
+        # on the new one, so the newest of that page becomes the card instead.
+        builder.button(text=label,
+                       callback_data=OrderAction(action="show", order_id=0,
+                                                 page=target, state=state))
     if nav:
         layout.append(len(nav))
+
     builder.adjust(*layout)
     return builder.as_markup()
 
@@ -780,29 +849,84 @@ async def _redraw_favourites(callback: CallbackQuery, chat_id: int, t: Texts,
     await render(callback, text, markup)
 
 
-@router.callback_query(OrderAction.filter(F.action == "items"))
-async def toggle_order_items(
+@router.callback_query(OrderAction.filter(F.action.in_({"show", "items"})))
+async def show_order(
     callback: CallbackQuery,
     callback_data: OrderAction,
     t: Texts,
 ) -> None:
-    """Expand or collapse one order's item list, in place.
+    """Draw a different order as the card, or fold the cancelled ones away.
+
+    One handler for both because they are the same redraw with different state,
+    and "items" is here so the buttons on a screen sent before the digest
+    existed still do something sensible rather than nothing.
 
     The list is re-read for the caller's own chat, so the id in the callback can
-    only ever pick one of their orders — a forged id simply expands nothing.
+    only ever pick one of their orders — a forged id falls back to the newest.
     """
     await callback.answer()
-    track(callback.from_user.id, "order_items_toggled",
-          expanded=bool(callback_data.order_id))
+    track(callback.from_user.id, "order_card_opened")
 
     cached = await get_cached_orders(callback.from_user.id)
     if not cached:
         return
 
-    expanded_id = callback_data.order_id
-    page = callback_data.page
     await render(
         callback,
-        _format_orders_from_cache(cached, t, expanded_id, page),
-        _orders_kb(cached, t, expanded_id, page),
+        _format_orders_from_cache(cached, t, shown_id=callback_data.order_id,
+                                  page=callback_data.page,
+                                  cancelled="c" in callback_data.state,
+                                  expanded="x" in callback_data.state),
+        _orders_kb(cached, t, shown_id=callback_data.order_id,
+                   page=callback_data.page,
+                   cancelled="c" in callback_data.state,
+                   expanded="x" in callback_data.state),
+    )
+
+
+@router.callback_query(OrderAction.filter(F.action == "track"))
+async def track_parcel(
+    callback: CallbackQuery,
+    callback_data: OrderAction,
+    novaposhta: NovaPoshtaClient | None,
+    t: Texts,
+) -> None:
+    """Ask Nova Poshta where this parcel is, and put the answer on the card.
+
+    This is the screen that used to be its own menu entry. It is one lookup for
+    one parcel, asked for by a tap, rather than a second place in the menu that
+    answers what a customer thinks of as the same question — and the screen
+    still opens instantly, because nothing here happens until the button.
+    """
+    chat_id = callback.from_user.id
+    await callback.answer()
+
+    cached = await get_cached_orders(chat_id)
+    row = next((r for r in cached if r.get("id") == callback_data.order_id), None)
+    if row is None or not row.get("tracking_code"):
+        return
+
+    phone = await get_user_phone(chat_id)
+    parcel: list[str] = []
+    if novaposhta and phone:
+        await typing(callback.message)
+        # The number authorises the lookup: Nova Poshta answers a TTN in full
+        # only to the phone that sent or receives it.
+        found = await novaposhta.track_many([row["tracking_code"]], phone)
+        parcel = parcel_lines(row, found.get(row["tracking_code"]), t)
+    else:
+        parcel = parcel_lines(row, None, t)
+    track(chat_id, "parcel_tracked", found=bool(parcel))
+
+    await render(
+        callback,
+        _format_orders_from_cache(cached, t, shown_id=callback_data.order_id,
+                                  page=callback_data.page,
+                                  cancelled="c" in callback_data.state,
+                                  expanded="x" in callback_data.state,
+                                  parcel=parcel),
+        _orders_kb(cached, t, shown_id=callback_data.order_id,
+                   page=callback_data.page,
+                   cancelled="c" in callback_data.state,
+                   expanded="x" in callback_data.state, parcel=True),
     )

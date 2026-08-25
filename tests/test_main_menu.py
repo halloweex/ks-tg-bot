@@ -98,13 +98,14 @@ def test_the_shop_is_a_link_here_and_a_message_below():
 
 # --- the shape ---------------------------------------------------------------
 
-def test_the_long_delivery_label_gets_a_row_of_its_own():
-    """An inline keyboard is only as wide as the message bubble. This label
-    beside anything else wraps onto a second line, which is what took the menu
-    off the screen the last time it was inline (CHANGELOG, 2026-07-31)."""
-    row = next(row for row in _inline_rows()
-               if any(b.text == T.BTN_DELIVERY_STATUS for b in row))
-    assert len(row) == 1
+def test_every_label_is_short_enough_to_share_a_row():
+    """An inline keyboard is only as wide as the message bubble, and a label
+    that wraps takes the shape of the grid with it — which is what took this
+    menu off the screen the last time it was inline (CHANGELOG, 2026-07-31).
+    «🚚 Відслідкувати замовлення» was the one that could not pair up, and it is
+    no longer an entry: the parcel is answered for on its own order now."""
+    assert all(len(row) == 2 for row in _inline_rows())
+    assert max(len(b.text) for b in _inline_buttons()) <= 20
 
 
 def test_the_key_below_opens_the_mini_app_that_fills_the_input_field():

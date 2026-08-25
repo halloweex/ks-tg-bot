@@ -133,14 +133,17 @@ def main_menu_kb(t: Texts, webapp_url: str = "") -> ReplyKeyboardMarkup:
     opens the favourites screen, which is what it did before.
     """
     builder = ReplyKeyboardBuilder()
-    for label in (t.BTN_ORDERS, t.BTN_DELIVERY_STATUS,
-                  t.BTN_FAVOURITES, t.BTN_SUPPORT,
-                  t.BTN_WEBSITE, t.BTN_INFO, t.BTN_SETTINGS):
+    # Six, not seven: «🚚 Відслідкувати замовлення» was a second key for what a
+    # customer thinks of as one question, and the answer it gave now lives on
+    # the order it belongs to — one tap on «Де посилка?» inside the card.
+    for label in (t.BTN_ORDERS, t.BTN_FAVOURITES,
+                  t.BTN_SUPPORT, t.BTN_WEBSITE,
+                  t.BTN_INFO, t.BTN_SETTINGS):
         if label == t.BTN_FAVOURITES and webapp_url:
             builder.button(text=label, web_app=WebAppInfo(url=webapp_url))
             continue
         builder.button(text=label)
-    builder.adjust(2, 2, 3)
+    builder.adjust(2, 2, 2)
     return builder.as_markup(
         resize_keyboard=True,
         one_time_keyboard=False,
@@ -166,10 +169,10 @@ def main_menu_inline_kb(t: Texts, website_url: str) -> InlineKeyboardMarkup:
     input row — no API creates that — and it is what the customer reaches for
     when this message has scrolled away.
 
-    Layout 2+1+2+2: an inline keyboard is only as wide as the message bubble.
-    «🚚 Відслідкувати замовлення» beside anything else wraps onto a second
-    line, which is what took this menu off the screen the last time it was
-    inline (CHANGELOG, 2026-07-31).
+    Layout 2+2+2. It was 2+1+2+2 while «🚚 Відслідкувати замовлення» was here:
+    that label beside anything else wraps onto a second line. The entry is gone
+    — the parcel is answered for on the order it belongs to — and the six that
+    remain are short enough to pair up.
     """
     builder = InlineKeyboardBuilder()
     # "open_*" rather than the bare section names: MenuAction("info") and
@@ -179,15 +182,13 @@ def main_menu_inline_kb(t: Texts, website_url: str) -> InlineKeyboardMarkup:
     builder.button(text=t.BTN_ORDERS, callback_data=MenuAction(action="open_orders"))
     # The one button this menu is for.
     builder.button(text=t.BTN_FAVOURITES, switch_inline_query_current_chat="")
-    builder.button(text=t.BTN_DELIVERY_STATUS,
-                   callback_data=MenuAction(action="open_delivery"))
     builder.button(text=t.BTN_SUPPORT,
                    callback_data=MenuAction(action="open_support"))
     builder.button(text=t.BTN_WEBSITE, url=tagged_website_url(website_url))
     builder.button(text=t.BTN_INFO, callback_data=MenuAction(action="open_info"))
     builder.button(text=t.BTN_SETTINGS,
                    callback_data=MenuAction(action="open_settings"))
-    builder.adjust(2, 1, 2, 2)
+    builder.adjust(2, 2, 2)
     return builder.as_markup()
 
 

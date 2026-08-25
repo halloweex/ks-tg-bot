@@ -79,12 +79,17 @@ EN: dict[str, str] = {
     "LBL_TOTAL": "Total",
     "LBL_DATE": "Date",
     "MSG_ORDERS_PAGE": "Showing {first}–{last} of {total}",
+    "MSG_ORDER_DIGEST_LINE": "{glyph} {date} · {total} {currency} · {items}",
+    "BTN_CANCELLED_SHOW": "❌ Cancelled ({count})",
+    "BTN_CANCELLED_HIDE": "🙈 Hide cancelled",
+    "MSG_CANCELLED_HEADER": "❌ Cancelled:",
+    "BTN_WHERE_PARCEL": "🚚 Where is it?",
     "BTN_ORDERS_NEWER": "◀️ Newer",
     "BTN_ORDERS_OLDER": "Older ▶️",
     "MSG_ORDERS_TRUNCATED": "...and more orders",
     "MSG_ORDER_MORE_ITEMS": "…and {count} more",
-    "BTN_SHOW_ITEMS": "🔎 {order}",
-    "BTN_HIDE_ITEMS": "🔼 {order}",
+    "BTN_SHOW_ITEMS": "🔎 All items ({count})",
+    "BTN_HIDE_ITEMS": "🔼 Fold the items",
     "MSG_ORDERS_EXPAND_HINT": "🔎 number — every item in that order",
     "MSG_ORDERS_STALE": "⏳ Last updated over {hours} h ago",
     "MSG_ORDER_TRACKING": "🚚 Tracking: {code}",
@@ -311,6 +316,25 @@ class Texts:
         if not raw:
             return ""
         return STATUS_NAMES.get(self.lang, {}).get(raw.strip().lower(), raw)
+
+    def items(self, count: int) -> str:
+        """"3 товари" — the noun agreeing with the number.
+
+        Ukrainian needs three forms and picks by the last digit, with the teens
+        as their own exception; English needs two. Written out because the
+        digest line says how much was in an order, and "9 товари" is the kind of
+        wrongness a person reads as carelessness about their order.
+        """
+        if self.lang != "uk":
+            return f"{count} item" if count == 1 else f"{count} items"
+        tail, hundred = count % 10, count % 100
+        if tail == 1 and hundred != 11:
+            word = "товар"
+        elif tail in (2, 3, 4) and hundred not in (12, 13, 14):
+            word = "товари"
+        else:
+            word = "товарів"
+        return f"{count} {word}"
 
     def currency(self, raw: str) -> str:
         """Currency label for this language, or the raw code if unmapped."""

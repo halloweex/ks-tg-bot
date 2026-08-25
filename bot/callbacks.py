@@ -29,16 +29,22 @@ class SettingsAction(CallbackData, prefix="sett"):
 
 
 class OrderAction(CallbackData, prefix="ord"):
-    """Expand/collapse the item list of one order in the order list message.
+    """Which order the digest draws in full, and what else it shows.
 
-    `order_id` is the local cache row id, and 0 means "nothing expanded". The id
-    only ever selects among the requester's own cached orders, so it cannot be
-    used to reach someone else's (the list is always re-read for that chat).
+    `order_id` is the local cache row id, and 0 means "the newest on this
+    page". The id only ever selects among the requester's own cached orders, so
+    it cannot be used to reach someone else's (the list is always re-read for
+    that chat).
+
+    `state` carries what the screen is showing besides the card — "c" while the
+    cancelled orders are unfolded. It rides along on every button so that
+    pressing any of them keeps the rest of the screen as it was.
     """
 
     action: str
     order_id: int = 0
     page: int = 0
+    state: str = ""
 
 
 class StockAction(CallbackData, prefix="stk"):
