@@ -95,6 +95,7 @@ Nova Poshta 83% → 85%; по трём клиентам вместе 61% → 73%
 | `e151c2c` | `UserProfiles.identify` не существует — правило идентичности переписано |
 | `5dd4cab` | **`sync_orders`** → `CustomerDirectory` + первый `UnitOfWork` в дереве |
 | `05ccd8e` | **`register`** → `bind_phone` с `VerifiedPhone` и write-once `source` на обоих движках |
+| `061c945` | `core/domain/sync.py` + `SyncJournal` + адаптер; формат времени переехал в домен |
 
 Плюс три коммита не из плана: `598212b` (сверка сигнатур портов), `f366fc2`
 (три `NameError` на клиентских путях) и `2f1e028` (pyflakes на неопределённые
@@ -146,7 +147,7 @@ grep -lE '^[[:space:]]*(from|import) core\.repos' core/usecases/*.py
 | ~~17~~ | ~~`CustomerDirectory` + адаптер~~ — сделано, `f756e96` | — |
 | ~~18~~ | ~~**`sync_orders`**~~ — сделано, `5dd4cab` | `sync-orders-sees-ports-only` |
 | ~~19~~ | ~~**`register`**~~ — сделано, `05ccd8e` | `register-sees-ports-only` |
-| 20 | `core/domain/sync.py` + `SyncJournal` + адаптер | — |
+| ~~20~~ | ~~`core/domain/sync.py` + `SyncJournal` + адаптер~~ — сделано, `061c945` | — |
 | 21 | **`sync_incremental`** + `bot/sync.py` | да |
 | 22 | финал: `core.usecases` в `core-siblings-are-independent`, снос временных правил, этот раздел | — |
 
