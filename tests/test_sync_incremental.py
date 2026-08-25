@@ -23,8 +23,9 @@ from core.repos.sync_state import SqliteSyncJournal
 from core.repos.uow import SqliteUnitOfWork
 from core.repos.users import SqliteCustomerDirectory, save_user
 from core.usecases.sync_incremental import (OVERLAP, RECONCILE_EVERY,
-                                            RECONCILE_WINDOW, SOURCE, plan_window,
-                                            route, sync_changed_orders)
+                                            RECONCILE_WINDOW, RETRY_AFTER_HOURS,
+                                            SOURCE, plan_window, route,
+                                            sync_changed_orders)
 
 NOW = datetime(2026, 8, 4, 16, 20, 0, tzinfo=timezone.utc)
 CHAT = 555
@@ -243,11 +244,15 @@ class BrokenUnit:
     and the difference is not cosmetic: patching `sync_incremental.upsert_orders`
     could not notice the scenario calling it with the wrong arguments, and it
     could not see whether the block was committed either.
+
+    `log` is shared with RecordingJournal below so that the *order* of the two
+    can be asserted, not merely that both happened.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, log: list[str] | None = None) -> None:
         self.committed = 0
         self.exited_with: list[type | None] = []
+        self.log = log if log is not None else []
         self.orders = self
         self.users = None
 
@@ -255,13 +260,39 @@ class BrokenUnit:
         raise RuntimeError("database is locked")
 
     async def __aenter__(self) -> "BrokenUnit":
+        self.log.append("enter")
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         self.exited_with.append(exc_type)
+        self.log.append("exit")
 
     async def commit(self) -> None:
         self.committed += 1
+        self.log.append("commit")
+
+
+class RecordingJournal:
+    """The real journal, with every call written into a shared log first."""
+
+    def __init__(self, log: list[str]) -> None:
+        self.log = log
+        self._inner = SqliteSyncJournal()
+
+    async def begin(self, source: str) -> None:
+        self.log.append("begin")
+        await self._inner.begin(source)
+
+    async def finished(self, source, cursor, *, full: bool = False) -> None:
+        self.log.append("finished")
+        await self._inner.finished(source, cursor, full=full)
+
+    async def failed(self, source: str, error: str) -> None:
+        self.log.append("failed")
+        await self._inner.failed(source, error)
+
+    async def state(self, source: str):
+        return await self._inner.state(source)
 
 
 def test_a_sweep_that_cannot_write_does_not_report_success(db):
@@ -279,20 +310,64 @@ def test_a_sweep_that_cannot_write_does_not_report_success(db):
     assert broken.exited_with == [RuntimeError], "and must have left through the error"
 
 
-def test_the_failure_is_recorded_outside_the_block_that_failed(db):
+def test_the_failure_is_recorded_after_the_block_that_failed_is_left(db):
     """A record of what went wrong is worth nothing if it disappears with the
     transaction that went wrong. Under the shim nothing rolls back, so what is
     pinned here is the ordering the real engine will need: the unit is left
-    first, and only then is the error written."""
+    first, and only then is the error written.
+
+    The assertion is the sequence itself. Asserting that both happened would
+    hold just as well for the arrangement this test exists to reject — the
+    error written from inside the block.
+    """
     _register()
-    broken = BrokenUnit()
+    log: list[str] = []
+    broken = BrokenUnit(log)
 
     with pytest.raises(RuntimeError):
-        _sweep(FakeCRM([_order()]), unit=lambda **kw: broken)
+        asyncio.run(sync_changed_orders(
+            FakeCRM([_order()]), RecordingJournal(log),
+            SqliteCustomerDirectory(), lambda **kw: broken, now=NOW))
 
-    state = asyncio.run(sync_state.get_state(SOURCE))
-    assert state["last_error"] == "RuntimeError: database is locked"
-    assert broken.exited_with == [RuntimeError]
+    assert log == ["begin", "enter", "exit", "failed"]
+    assert asyncio.run(sync_state.get_state(SOURCE))["last_error"] == (
+        "RuntimeError: database is locked"
+    )
+
+
+def test_a_successful_sweep_commits_the_block_and_then_moves_the_cursor(db):
+    """The other half of the same ordering, and the one the happy path relies
+    on: the cursor is the promise that the orders are written, so it is made
+    after the commit rather than beside it."""
+    _register()
+    log: list[str] = []
+
+    class Unit(BrokenUnit):
+        async def upsert(self, user_id: int, rows: list) -> None:
+            self.log.append("upsert")
+
+    unit = Unit(log)
+    asyncio.run(sync_changed_orders(
+        FakeCRM([_order()]), RecordingJournal(log), SqliteCustomerDirectory(),
+        lambda **kw: unit, now=NOW))
+
+    assert log == ["begin", "enter", "upsert", "commit", "exit", "finished"]
+
+
+def test_the_window_is_written_in_the_service_context(db):
+    """`user_id=None` is what the UnitOfWork port calls the worker acting for
+    nobody, and this sweep is the only scenario it fits: the window belongs to
+    no one, and its rows go to whichever chats they match. Opening it for a
+    person would be a claim the sweep cannot make."""
+    _register()
+    opened: list[int | None] = []
+
+    def factory(*, user_id: int | None = None):
+        opened.append(user_id)
+        return SqliteUnitOfWork(user_id=user_id)
+
+    _sweep(FakeCRM([_order()]), unit=factory)
+    assert opened == [None]
 
 
 def test_an_empty_window_is_a_success(db):
@@ -382,26 +457,54 @@ def test_a_customer_the_crm_has_never_heard_of_is_asked_once_a_day(db):
 def test_the_day_after_they_are_asked_again(db):
     """Because "has never ordered" is a state customers leave.
 
+    Asserted through the sweep rather than by calling the repository, and that
+    is the point since commit 21: the window is RETRY_AFTER_HOURS in the
+    scenario now, and the repository's own default no longer decides anything
+    here. A version of this test that called `chats_without_crm_buyer()`
+    directly would keep passing if the constant were edited to ten days.
+
+    **The hours below are literals on purpose.** Writing them as
+    RETRY_AFTER_HOURS ± 1 was the first attempt and it pinned nothing: both ages
+    move with the constant, so a day silently becoming ten days stays green.
+    A test whose fixture is derived from the value under test measures only that
+    the code is consistent with itself.
+
     The stamp is aged by hand: it is written by the database clock, and the
     alternative to reaching for it here is a test that waits a day.
     """
     import aiosqlite
 
     from core.repos import base as repos_base
-    from core.repos.users import chats_without_crm_buyer
 
     _register()
-    _sweep(FakeCRM(), lookup=FakeLookup([]))
-    assert asyncio.run(chats_without_crm_buyer()) == []
+    lookup = FakeLookup([])
+    _sweep(FakeCRM(), lookup=lookup)
+    _sweep(FakeCRM(), lookup=lookup)
+    assert lookup.asked == [PHONE], "still inside the window"
 
-    async def age_the_stamp() -> None:
+    async def age_the_stamp(hours: int) -> None:
         async with aiosqlite.connect(repos_base.DB_PATH) as db_:
             await db_.execute(
-                "UPDATE users SET crm_checked_at = datetime('now', '-25 hours')")
+                f"UPDATE users SET crm_checked_at = datetime('now', '-{hours} hours')")
             await db_.commit()
 
-    asyncio.run(age_the_stamp())
-    assert asyncio.run(chats_without_crm_buyer()) == [(CHAT, PHONE)]
+    asyncio.run(age_the_stamp(23))
+    _sweep(FakeCRM(), lookup=lookup)
+    assert lookup.asked == [PHONE], "an hour short of a day is still inside the window"
+
+    asyncio.run(age_the_stamp(25))
+    _sweep(FakeCRM(), lookup=lookup)
+    assert lookup.asked == [PHONE, PHONE], "an hour past a day, and they are asked again"
+
+
+def test_the_retry_window_is_a_day(db):
+    """Stated once, next to the test above that measures it in literal hours.
+
+    The two together are the pin: this one says which number the scenario is
+    supposed to hold, that one says the sweep really behaves that way at 23 and
+    25 hours. Either alone can be satisfied by an edit that breaks the other.
+    """
+    assert RETRY_AFTER_HOURS == 24
 
 
 def test_a_failed_lookup_does_not_cost_the_sweep_its_window(db):
