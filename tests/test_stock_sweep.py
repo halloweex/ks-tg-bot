@@ -52,15 +52,12 @@ def _subscribe(chat_id: int, sku: str, name: str) -> None:
     asyncio.run(add_stock_subscription(chat_id, sku, name))
 
 
-def _run(levels: dict[str, int]):
-    """One sweep against the real SQLite side of all four storage ports."""
-    return check_once(FakeCatalogue(levels), SqliteStockSnapshot(),
-                      SqliteRestockWatchlist(), SqliteLanguageChoice(),
-                      SqliteMessageQueue(), today=TODAY)
-
-
 def _sweep(levels: dict[str, int]):
-    return asyncio.run(_run(levels))
+    """One sweep against the real SQLite side of all four storage ports."""
+    return asyncio.run(check_once(
+        FakeCatalogue(levels), SqliteStockSnapshot(), SqliteRestockWatchlist(),
+        SqliteLanguageChoice(), SqliteMessageQueue(), today=TODAY,
+    ))
 
 
 def _queued() -> list[dict]:

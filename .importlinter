@@ -245,6 +245,20 @@ source_modules =
 forbidden_modules =
     core.repos.events
     core.repos.catalogue
+    core.repos.stock
+    core.repos.support
+# `core.repos.stock` освободился на коммите 12 и должен был появиться здесь в
+# том же коммите — правило про семейство добавляется бесплатно там, где
+# семейство теряет последнего потребителя. `core.repos.support` освободился
+# ещё на `6208af4`, и строчку тогда не дописали; найдено той же проверкой.
+# Именно этот список защищает `add_stock_subscription`: `stock-sees-ports-only`
+# запрещает импорт только сценарию stock, а обещание портов — что подписку
+# создаёт экран, а не свип, — про любой сценарий.
+#
+# Остальные модули без потребителей (`base`, `fsm`, `pg`, `schema`, `uow`) сюда
+# не дописаны сознательно: они никогда его и не имели, то есть это был бы новый
+# запрет, а не переехавшее семейство. Их закроет `core-siblings-are-independent`
+# на коммите 22.
 
 
 [importlinter:contract:support-sees-ports-only]
