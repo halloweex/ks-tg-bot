@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import aiosqlite
 
+from core.domain.referral import Earned
 from core.repos.base import connect
 from core.repos.orders import CANCELLED_STATUS_GROUP
 
@@ -97,3 +98,29 @@ async def set_reward_code(friend_chat_id: int, code: str) -> None:
         await db.execute("UPDATE referrals SET code = ? WHERE friend_chat_id = ?",
                          (code, friend_chat_id))
         await db.commit()
+
+
+class SqliteReferralLedger:
+    """Implements core.ports.repositories.ReferralLedger against today's tables.
+
+    Three of the four functions above, and the missing one is the point:
+    `referral_counts` belongs to the invite screen, not to the sweep. A sweep
+    holding a handle that can count somebody's invitations is surface added
+    before it has a caller, and the same reasoning kept subscribing out of
+    RestockWatchlist.
+
+    The two writes keep their order and their separateness — the seam moves,
+    the queries do not.
+    """
+
+    async def earned(self, prefix: str, limit: int) -> list[Earned]:
+        return [Earned(friend_chat_id=friend, referrer_chat_id=referrer)
+                for friend, referrer in await earned_referrals(prefix, limit)]
+
+    async def record_reward(
+        self, friend_chat_id: int, referrer_chat_id: int
+    ) -> bool:
+        return await record_reward(friend_chat_id, referrer_chat_id)
+
+    async def record_code(self, friend_chat_id: int, code: str) -> None:
+        await set_reward_code(friend_chat_id, code)

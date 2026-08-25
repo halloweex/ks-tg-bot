@@ -27,6 +27,7 @@ from typing import Protocol, runtime_checkable
 
 from core.domain.offer import Offer
 from core.domain.phone import VerifiedPhone
+from core.domain.referral import Earned
 from core.domain.stock import Waiting
 
 
@@ -271,5 +272,84 @@ class RestockWatchlist(Protocol):
         anybody whose message is still in the queue, and the dedup key that
         stops that is cheaper than the state machine that would otherwise be
         needed.
+        """
+        ...
+
+
+@runtime_checkable
+class ReferralLedger(Protocol):
+    """What a recommendation has earned, and the row that says it was paid once.
+
+    Not on the UnitOfWork, and this one has two reasons rather than the usual
+    one. `referrals` is not among the twelve tables in Alembic revision 001, so
+    there is no transaction to join yet; and the sweep's two writes are
+    deliberately *not* atomic — the row goes down first so that a crash before
+    the message is queued costs somebody a thank-you rather than paying them
+    twice. Wrapping the pair in a unit would quietly reverse that choice, which
+    is a decision about money and not a decision about ports.
+
+    Only what the sweep does. `referral_counts` — how many this person invited,
+    and how many of those have ordered — stays a plain function in
+    core/repos/referrals.py, because its caller is the invite screen and screens
+    still import repositories. It gets a read port on the day the
+    handlers-see-ports-only contract is uncommented, driven by the screen that
+    asks rather than by the table that exists.
+    """
+
+    async def earned(self, prefix: str, limit: int) -> list[Earned]:
+        """Friends who arrived through a link, have since ordered, unpaid.
+
+        The owner's rule lives inside this one question: a friend counts once
+        she has an order that was not cancelled, because opening a bot costs
+        nothing and a programme that pays for that pays for nothing. It is one
+        question rather than three — read the arrivals, read their orders, check
+        what has been paid — because a scenario assembling that answer itself
+        would be a sweep holding two tables open to decide one thing.
+
+        `prefix` is how `users.source` spells "brought by": the referrer's chat
+        id follows it. Pulling the id back out is the implementation's business,
+        and the prefix arrives from the caller rather than living here because
+        it is a deep link the bot owns and the entry point already passes it
+        down.
+
+        `limit` carries no default, for the same reason `KnownBirthdays.to_ask`
+        carries none: how much one round costs is the sweep's policy, and a
+        default here would be a second place where it is decided.
+
+        Unrewarded only. A referral already in the ledger never comes back from
+        this, which is what makes the sweep safe to run every quarter of an
+        hour.
+        """
+        ...
+
+    async def record_reward(
+        self, friend_chat_id: int, referrer_chat_id: int
+    ) -> bool:
+        """Claim this referral for payment. False if it was already claimed.
+
+        The boolean is the claim itself, not a report about it: a caller that
+        ignored it would pay a second time on the next run. That is why this is
+        one call and not "ask, then write" — between the asking and the writing
+        there is room for the other sweep, and on Postgres there will be a
+        second process to put in it.
+
+        Called before the message is queued, deliberately, and the scenario says
+        so at the call site too. The other order pays twice whenever the process
+        dies in between; being thanked late is the better of the two failures.
+        """
+        ...
+
+    async def record_code(self, friend_chat_id: int, code: str) -> None:
+        """Record which code paid for this referral.
+
+        A separate write rather than an argument to the claim above, because it
+        happens afterwards: the row has to exist before anything is sent, while
+        the code is only known to have been handed over once the message
+        carrying it is queued. There is no code at all until the shop creates
+        one — the message then says a person will write, and this is not called.
+
+        Nothing in the running system reads it back yet; it is what somebody
+        auditing the programme will ask for, and it is written at the moment the
+        answer is still true.
         """
         ...
