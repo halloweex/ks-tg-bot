@@ -352,12 +352,13 @@ MSG_NO_ORDERS = (
     "номер — той, що ти вказала під час покупки, а не той, до якого прив'язаний "
     "Telegram. Напиши нам, і ми знайдемо його вручну."
 )
-MSG_SUPPORT_FORWARDED = "Передали менеджеру — відповімо тут."
-# Same message, sent when nobody is there to read it yet. It promises the
-# hour instead of promising nothing, so the wait is expected rather than
-# wondered about.
+MSG_SUPPORT_FORWARDED = "Твоє повідомлення вже у нас — розберемось і відповімо тут."
+# Same message, sent when nobody is there to read it yet. It names the hour
+# instead of promising nothing, so the wait is expected rather than wondered
+# about — and it says it the way a person would, not the way a queue would.
 MSG_SUPPORT_FORWARDED_OFF_HOURS = (
-    "Отримали твоє повідомлення. Менеджер зараз не на місці — відповість тут із {time}."
+    "Твоє повідомлення вже у нас. Зараз ми не на зв'язку, "
+    "але з {time} будемо поруч і розберемось разом."
 )
 
 # Menu headers
@@ -389,7 +390,7 @@ MSG_SETTINGS_MENU = (
 )
 
 # Menu content
-MSG_SUPPORT_PROMPT = "Напиши свій запит — ми підключимо менеджера 💬"
+MSG_SUPPORT_PROMPT = "Розкажи, що турбує, — розберемось разом."
 MSG_NEW_PHONE_PROMPT = "Щоб оновити номер, поділись ним через кнопку нижче 👇"
 MSG_PHONE_CHANGED = "Номер телефону змінено! \u2705"
 

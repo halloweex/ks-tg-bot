@@ -104,10 +104,10 @@ EN: dict[str, str] = {
         "the one you gave at checkout rather than the one your Telegram uses. "
         "Message us and we'll find it manually."
     ),
-    "MSG_SUPPORT_FORWARDED": "Your message has been sent to a manager. Please wait for a reply.",
+    "MSG_SUPPORT_FORWARDED": "We have your message — we'll look into it and reply here.",
     "MSG_SUPPORT_FORWARDED_OFF_HOURS": (
-        "We have got your message. The manager is away right now and will reply "
-        "here from {time}."
+        "We have your message. We're offline right now, but we're back at {time} "
+        "and will work it out with you."
     ),
     "MSG_MAIN_MENU": "How can I help?",
     "MSG_MENU_PLACEHOLDER": "Choose an action",
@@ -123,7 +123,7 @@ EN: dict[str, str] = {
         "<b>⚙️ Settings</b>\n\n"
         "The phone number we find your orders by, and the bot's language."
     ),
-    "MSG_SUPPORT_PROMPT": "Send your question — we'll bring a manager in 💬",
+    "MSG_SUPPORT_PROMPT": "Tell us what's bothering you — we'll work it out together.",
     "MSG_NEW_PHONE_PROMPT": "To update your number, share it using the button below 👇",
     "MSG_PHONE_CHANGED": "Phone number updated! ✅",
     "MSG_WELCOME_BACK": "Welcome back! 🌸",
