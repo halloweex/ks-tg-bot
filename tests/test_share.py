@@ -234,18 +234,16 @@ def test_the_same_button_without_a_sku_invites_the_bot(db):
 
 
 def test_the_invitation_arrives_as_the_shops_own_card(db):
-    """An invitation in the brand's colours is a different thing from a link —
-    and it arrives as the preview above the text rather than as a photo result,
-    because a photo result turns the panel into unlabelled thumbnails that the
-    first person to use this could not tell were tappable."""
+    """A photo, not a link preview: a preview is built by Telegram from a url
+    it may decline to fetch and then cache as empty, and an invitation whose
+    card is missing is the point of it missing."""
     query = _Query("поділитися")
     asyncio.run(inline_list(query, T, _config()))
     row = query.results[0]
-    assert row.description == T.MSG_INVITE_ROW, "the row says what it does"
-    preview = row.input_message_content.link_preview_options
-    assert preview.url == CARD and preview.prefer_large_media
-    assert "Korean Story" in row.input_message_content.message_text
-    assert str(CHAT) not in row.input_message_content.message_text
+    assert row.photo_url == CARD
+    assert row.description == T.MSG_INVITE_ROW, "the row still says what it does"
+    assert "Korean Story" in row.caption
+    assert str(CHAT) not in row.caption
 
 
 def test_without_a_published_card_the_invitation_is_still_sent(db):
@@ -254,7 +252,6 @@ def test_without_a_published_card_the_invitation_is_still_sent(db):
     asyncio.run(inline_list(query, T, _config(invite_card_url="")))
     row = query.results[0]
     assert "Korean Story" in row.input_message_content.message_text
-    assert row.input_message_content.link_preview_options.is_disabled
     assert row.reply_markup.inline_keyboard[0][0].url.endswith(str(CHAT))
 
 
@@ -347,18 +344,21 @@ def test_the_screen_counts_both_states(db):
 
 
 def test_the_invitation_says_the_offer_in_words_too(db):
-    """A preview can fail to load, and an invitation that then says nothing
-    about the discount is an invitation that lost its point."""
+    """The card carries it, and so does the text: a picture that fails to load
+    would otherwise take the whole offer with it."""
     query = _Query("поділитися")
     asyncio.run(inline_list(query, T, _config()))
-    text = query.results[0].input_message_content.message_text
-    assert "10%" in text
+    assert "10%" in query.results[0].caption
 
 
-def test_no_reward_no_line(db):
+def test_the_promise_and_the_button_hang_on_the_same_nail(db):
+    """No code, no claim: the wording said "10%" while the button said "open
+    the bot", which reads as broken and sends somebody to claim nothing."""
     query = _Query("поділитися")
-    asyncio.run(inline_list(query, T, _config(first_order_reward="")))
-    assert "10%" not in query.results[0].input_message_content.message_text
+    asyncio.run(inline_list(query, T, _config(first_order_code="")))
+    row = query.results[0]
+    assert "10%" not in row.caption
+    assert row.reply_markup.inline_keyboard[0][0].text == T.BTN_INVITE_OPEN
 
 
 # --- what the reward actually is --------------------------------------------

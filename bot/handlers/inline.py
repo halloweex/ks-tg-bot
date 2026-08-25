@@ -36,7 +36,8 @@ from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (CallbackQuery, InlineKeyboardButton,
                            InlineKeyboardMarkup, InlineQuery,
-                           InlineQueryResultArticle, InlineQueryResultsButton,
+                           InlineQueryResultArticle, InlineQueryResultPhoto,
+                           InlineQueryResultsButton,
                            InputTextMessageContent, LinkPreviewOptions,
                            SwitchInlineQueryChosenChat)
 from loguru import logger
@@ -295,7 +296,11 @@ async def _answer_invite(query: InlineQuery, t: Texts, config: AppConfig) -> Non
     link = (f"https://t.me/{config.bot_username}?start={REFERRAL_PREFIX}"
             f"{query.from_user.id}")
     caption = t.MSG_INVITE_CARD.format(brand=escape(config.brand_name))
-    if config.first_order_reward:
+    # Both halves of the promise hang on the same nail: whether there is a code
+    # to claim. The wording alone said "10%" while the button still said "open
+    # the bot", which reads as broken — and would have sent somebody to claim
+    # what nobody could give her.
+    if config.first_order_code and config.first_order_reward:
         caption += t.MSG_INVITE_REWARD.format(
             reward=escape(config.first_order_reward))
     # «Забрати знижку» while there is a discount to claim, «Відкрити бота»
@@ -307,27 +312,38 @@ async def _answer_invite(query: InlineQuery, t: Texts, config: AppConfig) -> Non
         InlineKeyboardButton(text=label, url=link, style=STYLE_CART)]])
     track(query.from_user.id, "invite_offered")
 
-    # An article rather than a photo result, and the card arrives as the link
-    # preview above the text. A photo result turns the panel into a gallery of
-    # thumbnails with no label on them, and the first person to use this could
-    # not tell there was anything to tap.
-    preview = (
-        LinkPreviewOptions(url=config.invite_card_url, prefer_large_media=True,
-                           show_above_text=True)
+    # A photo result, so the card is a photo and not a link preview. The
+    # preview route reads better in the panel — a labelled row instead of a
+    # thumbnail — but a preview is built by Telegram from a url it may decline
+    # to fetch, cache as empty, and go on serving empty; an invitation whose
+    # card is missing is the whole point of it missing. A photo is delivered
+    # with the message or not at all.
+    result = (
+        InlineQueryResultPhoto(
+            id=f"i{query.from_user.id}",
+            photo_url=config.invite_card_url,
+            thumbnail_url=config.invite_card_url,
+            photo_width=1200,
+            photo_height=630,
+            title=config.brand_name,
+            description=t.MSG_INVITE_ROW,
+            caption=caption,
+            parse_mode="HTML",
+            reply_markup=keyboard,
+        )
         if config.invite_card_url else
-        LinkPreviewOptions(is_disabled=True)
-    )
-    await query.answer(
-        [InlineQueryResultArticle(
+        InlineQueryResultArticle(
             id=f"i{query.from_user.id}",
             title=config.brand_name,
             description=t.MSG_INVITE_ROW,
-            thumbnail_url=config.invite_card_url or None,
             input_message_content=InputTextMessageContent(
                 message_text=caption, parse_mode="HTML",
-                link_preview_options=preview),
+                link_preview_options=LinkPreviewOptions(is_disabled=True)),
             reply_markup=keyboard,
-        )],
+        )
+    )
+    await query.answer(
+        [result],
         # Per person: the link in it is theirs, and a shared cache would hand
         # the next sharer somebody else's referral.
         cache_time=300,
