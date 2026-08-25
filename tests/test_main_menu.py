@@ -14,7 +14,8 @@ import pathlib
 import re
 from types import SimpleNamespace
 
-from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardMarkup
+from aiogram.types import (InlineKeyboardMarkup, ReplyKeyboardMarkup,
+                           ReplyKeyboardRemove)
 
 from bot.callbacks import MenuAction
 from bot.keyboards import main_menu_inline_kb, main_menu_kb
@@ -23,12 +24,11 @@ from core.i18n import Texts
 from tests.conftest import REPO_ROOT
 
 SHOP = "https://koreanstory.com.ua"
-WEBAPP = "https://halloweex.github.io/ks-tg-bot/"
 T = Texts("uk")
 
 
-def _config(webapp_url: str = WEBAPP):
-    return SimpleNamespace(website_url=SHOP, webapp_url=webapp_url)
+def _config(bottom_menu: bool = True):
+    return SimpleNamespace(website_url=SHOP, bottom_menu=bottom_menu)
 
 
 def _inline_rows():
@@ -142,6 +142,24 @@ def test_the_menu_arrives_as_two_messages_because_it_has_to():
 
     assert [text for text, _markup in sent] == ["Вітаємо", T.MSG_MENU_PICK]
     assert isinstance(sent[0][1], ReplyKeyboardMarkup)
+    assert isinstance(sent[1][1], InlineKeyboardMarkup)
+
+
+def test_the_switch_takes_the_keyboard_off_the_screen_it_is_already_on():
+    """A reply keyboard belongs to the message that sent it, and nothing
+    updates the one somebody is looking at. Removing it is a markup like any
+    other, so it rides along with whatever the bot was going to say anyway."""
+    sent = []
+
+    async def answer(text, reply_markup=None, **kwargs):
+        sent.append((text, reply_markup))
+
+    message = SimpleNamespace(answer=answer)
+    asyncio.run(send_main_menu(message, T, _config(bottom_menu=False), "Вітаємо"))
+
+    assert isinstance(sent[0][1], ReplyKeyboardRemove)
+    # The menu itself does not go anywhere: with the keyboard off, the message
+    # is the only menu there is.
     assert isinstance(sent[1][1], InlineKeyboardMarkup)
 
 

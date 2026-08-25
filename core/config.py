@@ -124,6 +124,12 @@ class AppConfig:
     # them the bot still takes the message and says when it will be answered,
     # rather than implying someone is reading it at 3am. Empty means the bot
     # promises nothing about timing — what it did before these existed.
+    # Whether the main menu is also a keyboard under the input field. Off and
+    # the menu lives only in a message: the ☰ toggle goes, and the commands
+    # button Telegram draws in that same slot comes back (bot/profile.py).
+    # A switch rather than an edit because this is an experiment, and going
+    # back should be a line here rather than a revert.
+    bottom_menu: bool = True
     support_hours_from: str = ""
     support_hours_to: str = ""
     # Filled at startup from getMe, not from the file: it is the bot's own name
@@ -212,6 +218,7 @@ def load_config(config_path: str | Path = "config.yaml") -> AppConfig:
         contacts_text=yaml_data.get("contacts_text", ""),
         payment_text=yaml_data.get("payment_text", ""),
         delivery_text=yaml_data.get("delivery_text", ""),
+        bottom_menu=bool(yaml_data.get("bottom_menu", True)),
         support_hours_from=str(yaml_data.get("support_hours_from", "")).strip(),
         support_hours_to=str(yaml_data.get("support_hours_to", "")).strip(),
     )

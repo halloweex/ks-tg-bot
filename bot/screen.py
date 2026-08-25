@@ -21,7 +21,7 @@ from __future__ import annotations
 import asyncio
 
 from aiogram.types import (CallbackQuery, InlineKeyboardMarkup, Message,
-                           ReactionTypeEmoji)
+                           ReactionTypeEmoji, ReplyKeyboardRemove)
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from loguru import logger
 
@@ -117,12 +117,18 @@ async def send_main_menu(message: Message, t: Texts, config: AppConfig,
 
     Why both at all: only a reply keyboard draws the ☰ toggle in the input row,
     and it never scrolls away; the menu in the message is what stays reachable
-    once this one has. Both open the inline list from «⭐ Улюблені» — the one
-    below through the Mini App in webapp/, the one here through the button type
-    that does it natively (bot/keyboards.py).
+    once this one has.
+
+    With `bottom_menu` off the first message carries a ReplyKeyboardRemove
+    instead, which is the only way to take a keyboard off a screen it is
+    already on — a reply keyboard belongs to the message that sent it, and
+    nothing updates the one somebody is looking at. The keys keep working for
+    anyone who has not been sent a message since, because the handlers that
+    match them are still there.
     """
+    below = main_menu_kb(t) if config.bottom_menu else ReplyKeyboardRemove()
     await with_effect(message, intro or t.MSG_MAIN_MENU, effect,
-                      reply_markup=main_menu_kb(t))
+                      reply_markup=below)
     await message.answer(t.MSG_MENU_PICK,
                          reply_markup=main_menu_inline_kb(t, config.website_url))
 
