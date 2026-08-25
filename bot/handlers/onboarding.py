@@ -15,6 +15,7 @@ from bot.handlers.orders import first_order_kb, first_order_offer
 from bot.screen import send_main_menu, typing
 from core.adapters.keycrm.client import KeyCRMClient
 from core.domain.phone import VerifiedPhone, verified_phone
+from core.repos.orders import get_cached_orders
 from core.usecases.register import register_customer
 from bot.states import OnboardingStates, SupportStates
 

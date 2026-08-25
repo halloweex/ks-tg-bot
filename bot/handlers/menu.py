@@ -66,6 +66,7 @@ async def open_orders(
     state: FSMContext,
     keycrm: KeyCRMClient,
     novaposhta: NovaPoshtaClient | None,
+    config: AppConfig,
     t: Texts,
 ) -> None:
     """📦 — the order history, newest first."""
@@ -181,6 +182,7 @@ async def orders_from_menu(
     state: FSMContext,
     keycrm: KeyCRMClient,
     novaposhta: NovaPoshtaClient | None,
+    config: AppConfig,
     t: Texts,
 ) -> None:
     """📦 from the menu in the message. Same screen as the key below it."""
