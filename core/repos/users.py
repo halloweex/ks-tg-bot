@@ -306,3 +306,26 @@ async def get_source(chat_id: int) -> str:
             "SELECT source FROM users WHERE chat_id = ?", (chat_id,))
         row = await cursor.fetchone()
         return (row[0] or "") if row else ""
+
+
+class SqliteLanguageChoice:
+    """Implements core.ports.users.LanguageChoice against today's table."""
+
+    async def chosen_by(self, chat_id: int) -> str | None:
+        return await get_user_language(chat_id)
+
+
+class SqliteMailingList:
+    """Implements core.ports.users.MailingList against today's tables.
+
+    Two tables, in fact — `users` and `opt_out` — which is part of why the pair
+    belongs behind one port: the question and the write that changes its answer
+    are one rule, and a caller holding two objects would be a caller who can
+    hold two that disagree.
+    """
+
+    async def recipients(self) -> list[int]:
+        return await get_broadcast_recipients()
+
+    async def opt_out(self, chat_id: int) -> None:
+        await opt_out_user(chat_id)

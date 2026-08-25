@@ -30,7 +30,9 @@ from core.ports.outbox import MessageQueue, PendingMessages
 from core.ports.repositories import OfferCache, OrderCache, UnitOfWork, UserProfiles
 from core.repos.catalogue import SqliteOfferCache
 from core.repos.events import SqliteUsageStats
+from core.ports.users import LanguageChoice, MailingList
 from core.repos.outbox import SqliteMessageQueue, SqlitePendingMessages
+from core.repos.users import SqliteLanguageChoice, SqliteMailingList
 from core.repos.pg import PgOrderCache, PgUserProfiles, SqlUnitOfWork
 from core.repos.uow import SqliteOrderCache, SqliteUnitOfWork, SqliteUserProfiles
 
@@ -49,6 +51,8 @@ PAIRS = [
     (UsageStats, SqliteUsageStats),
     (MessageQueue, SqliteMessageQueue),
     (PendingMessages, SqlitePendingMessages),
+    (LanguageChoice, SqliteLanguageChoice),
+    (MailingList, SqliteMailingList),
 ]
 
 
@@ -100,4 +104,4 @@ def test_every_port_in_the_migration_is_covered_here():
     """
     covered = {port for port, _ in PAIRS}
     assert covered == {OrderCache, UserProfiles, UnitOfWork, OfferCache, UsageStats,
-                       MessageQueue, PendingMessages}
+                       MessageQueue, PendingMessages, LanguageChoice, MailingList}
