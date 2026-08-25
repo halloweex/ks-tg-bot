@@ -363,8 +363,12 @@ def _to_message(row: dict) -> QueuedMessage:
         payload = json.loads(row.get("payload") or "{}")
     except (TypeError, ValueError):
         payload = {}
-    if not isinstance(payload, dict):
-        payload = {}
+    # Deliberately not coerced any further. Valid JSON that is not an object —
+    # a bare list — used to reach the sender and fail there, costing one message
+    # a retry with the reason on the row. A guard here would send it as an empty
+    # message instead, which is quieter and worse: nothing on the shelf, nothing
+    # to read, and a customer who got a blank. Unreachable either way, because
+    # queueing serialises a dict; the point is that a move must not decide this.
     return QueuedMessage(
         id=row["id"],
         kind=row["type"],
