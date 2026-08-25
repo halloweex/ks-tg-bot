@@ -159,7 +159,7 @@ class OfferCache(Protocol):
     """
 
     async def record(self, offers: dict[str, Offer]) -> None:
-        """Write these offers down, keyed by sku, leaving the rest standing.
+        """Write these offers down, one row per sku, leaving the rest standing.
 
         **Per sku, never the whole table.** Skus absent from `offers` keep the
         values they had. The feed is paginated, and a short read is
@@ -173,10 +173,18 @@ class OfferCache(Protocol):
         The rule protects the whole catalogue from a single 500, and one guard
         for it is one more than can be deleted by a refactor that looks correct.
 
-        Takes the mapping `Storefront.get_offers` returns, key and all, rather
-        than an iterable whose skus it could re-derive. The moment the two ports
-        disagree about the shape, the scenario grows a loop whose only purpose
-        is to re-key data that arrived keyed.
+        **A mapping is taken, and the key is not read.** The parameter is what
+        `Storefront.get_offers` returns rather than an iterable, because the
+        moment two ports on one path disagree about the shape, the scenario
+        between them grows a loop whose only purpose is to re-key data that
+        arrived keyed. What each row is written under is `offer.sku` — the
+        values are what an implementation reads.
+
+        The two agree by construction: one parse builds the mapping and puts
+        the same sku on the offer inside it. Which one wins is said out loud
+        anyway, because it is the difference between a caller re-keying the
+        mapping to rename an offer and a caller doing that while nothing
+        happens.
 
         Returns nothing, deliberately. What the sweep logs is what it read, not
         what the table now holds; reading a count back would answer a question

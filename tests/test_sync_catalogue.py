@@ -40,6 +40,15 @@ def test_a_sweep_writes_what_the_shop_says(db):
     assert set(asyncio.run(get_offers(["1", "2"]))) == {"1", "2"}
 
 
+def test_the_row_is_written_under_the_offer_s_own_sku(db):
+    """The cache reads the values and not the keys, which the port now says
+    rather than implies. Worth a line of its own because the two normally agree
+    — one parse builds both — so the disagreement only ever shows up in a
+    caller who re-keyed the mapping and expected that to rename something."""
+    asyncio.run(SqliteOfferCache().record({"not-a-sku": _offer("1")}))
+    assert list(asyncio.run(get_offers(["1", "not-a-sku"]))) == ["1"]
+
+
 def test_a_failed_read_leaves_yesterday_standing(db):
     """The adapter says {} when it could not read the shop. Writing that through
     would take the buy button off every product until the next round — an hour
