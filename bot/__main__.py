@@ -15,8 +15,10 @@ from core.repos.catalogue import SqliteOfferCache
 from core.repos.outbox import SqliteMessageQueue
 from core.repos.referrals import SqliteReferralLedger
 from core.repos.stock import SqliteRestockWatchlist, SqliteStockSnapshot
-from core.repos.users import (SqliteChatsByEmail, SqliteKnownBirthdays,
-                              SqliteLanguageChoice)
+from core.repos.sync_state import SqliteSyncJournal
+from core.repos.uow import SqliteUnitOfWork
+from core.repos.users import (SqliteChatsByEmail, SqliteCustomerDirectory,
+                              SqliteKnownBirthdays, SqliteLanguageChoice)
 from core.repos.schema import init_db
 from bot.fsm_storage import SQLiteStorage
 from bot.alerts import check_support_chat
@@ -181,10 +183,13 @@ async def main() -> None:
                 ),
                 name="rivo_webhooks"))
 
-        loops.append(spawn(watch_orders(dp["keycrm"]), name="order_sync"))
-        loops.append(
-            spawn(watch_for_silence(bot, config.env.admin_ids), name="sync_watchdog")
-        )
+        loops.append(spawn(
+            watch_orders(dp["keycrm"], SqliteSyncJournal(),
+                         SqliteCustomerDirectory(), SqliteUnitOfWork),
+            name="order_sync"))
+        loops.append(spawn(
+            watch_for_silence(bot, config.env.admin_ids, SqliteSyncJournal()),
+            name="sync_watchdog"))
         # Everything the bot sends on its own initiative leaves through here
         # (§6). One sender, which is what makes the capture in
         # core/repos/outbox.py correct on SQLite.

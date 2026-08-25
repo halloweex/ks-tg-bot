@@ -96,6 +96,49 @@ def test_an_incremental_sweep_does_not_postpone_the_next_reconciliation(db):
     assert asyncio.run(db.get_state(SOURCE))["last_full_at"] == stamped
 
 
+# --- through the port -------------------------------------------------------
+
+def test_a_cursor_too_damaged_to_read_comes_back_as_missing(db):
+    """The deciding moved here in commit 21, and the direction of it is the
+    whole point. `plan_window` used to parse the column itself and treat an
+    unreadable value as "no cursor", which is the widest window. Now the
+    adapter decides, once — and if it ever decided the other way, by raising or
+    by inventing a recent moment, the sweep would skip the orders it could not
+    place a boundary around, permanently.
+    """
+    from core.repos.sync_state import SqliteSyncJournal
+
+    asyncio.run(db.finish_success(SOURCE, WINDOW_END))
+
+    async def damage_it() -> None:
+        from core.repos.base import connect
+
+        async with connect() as conn:
+            await conn.execute("UPDATE sync_state SET cursor = 'yesterday-ish'")
+            await conn.commit()
+
+    asyncio.run(damage_it())
+    state = asyncio.run(SqliteSyncJournal().state(SOURCE))
+    assert state is not None, "the row is still there; only the value is unreadable"
+    assert state.cursor is None
+
+
+def test_a_moment_survives_the_round_trip_through_the_port(db):
+    """Written as a datetime and read back as one, to the second. The column is
+    text in between, and that spelling is the adapter's business alone."""
+    from datetime import datetime, timezone
+
+    from core.repos.sync_state import SqliteSyncJournal
+
+    moment = datetime(2026, 8, 4, 16, 20, 0, tzinfo=timezone.utc)
+    journal = SqliteSyncJournal()
+    asyncio.run(journal.finished(SOURCE, moment))
+
+    state = asyncio.run(journal.state(SOURCE))
+    assert state.cursor == moment
+    assert asyncio.run(db.get_state(SOURCE))["cursor"] == WINDOW_END
+
+
 def test_a_long_error_is_truncated(db):
     """httpx puts the whole request URL in the message; this column is read by a
     person, and an alert quoting it should stay an alert."""

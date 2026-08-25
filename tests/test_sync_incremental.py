@@ -14,11 +14,14 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from core.domain.order import Order
+from core.domain.sync import SyncState
 from core.repos import base as repos_base
 from core.repos import sync_state
 from core.repos.orders import get_cached_orders
 from core.repos.schema import init_db
-from core.repos.users import save_user
+from core.repos.sync_state import SqliteSyncJournal
+from core.repos.uow import SqliteUnitOfWork
+from core.repos.users import SqliteCustomerDirectory, save_user
 from core.usecases.sync_incremental import (OVERLAP, RECONCILE_EVERY,
                                             RECONCILE_WINDOW, SOURCE, plan_window,
                                             route, sync_changed_orders)
@@ -31,6 +34,28 @@ PHONE = "+380670000000"
 def _stamp_of(moment: datetime) -> str:
     """The one format both the CRM filter and SQLite's datetime() speak."""
     return moment.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _sweep(crm, *, lookup=None, now=NOW, unit=SqliteUnitOfWork):
+    """One sweep against the real SQLite side of all three storage ports.
+
+    None of them is faked by default: what these tests are about is which rows
+    end up in two tables and where the cursor stops, so a fake would be a fake
+    of the subject. `unit` is a parameter only because one test needs a write
+    that fails.
+    """
+    return asyncio.run(sync_changed_orders(
+        crm, SqliteSyncJournal(), SqliteCustomerDirectory(), unit,
+        lookup=lookup, now=now,
+    ))
+
+
+def _state(cursor: str | None = None, last_full_at: str | None = None) -> SyncState:
+    """A state as the journal would hand it over: moments, not strings."""
+    from core.domain.sync import read_stamp
+
+    return SyncState(source=SOURCE, cursor=read_stamp(cursor),
+                     last_full_at=read_stamp(last_full_at))
 
 
 @pytest.fixture()
@@ -99,24 +124,28 @@ def test_a_database_that_was_never_swept_reads_the_reconciliation_window():
 def test_a_normal_sweep_starts_before_the_cursor():
     """§5.2. With a strict `>` the records written during the previous pass fall
     between the two windows and are never read."""
-    state = {"cursor": "2026-08-04 16:18:00",
-             "last_full_at": "2026-08-04 10:00:00"}
+    state = _state(cursor="2026-08-04 16:18:00", last_full_at="2026-08-04 10:00:00")
     start, _end, full = plan_window(state, NOW)
     assert start == datetime(2026, 8, 4, 16, 18, tzinfo=timezone.utc) - OVERLAP
     assert full is False
 
 
 def test_the_reconciliation_comes_back_once_a_week():
-    state = {"cursor": "2026-08-04 16:18:00",
-             "last_full_at": _stamp_of(NOW - RECONCILE_EVERY - timedelta(minutes=1))}
+    state = _state(cursor="2026-08-04 16:18:00",
+                   last_full_at=_stamp_of(NOW - RECONCILE_EVERY - timedelta(minutes=1)))
     _start, _end, full = plan_window(state, NOW)
     assert full is True
 
 
-def test_an_unreadable_timestamp_widens_the_window_rather_than_raising():
+def test_a_cursor_that_could_not_be_read_widens_the_window_rather_than_raising():
     """The safe answer to "I cannot tell how far back to read" is further back:
-    re-reading costs a request, not re-reading costs the orders in the gap."""
-    start, _end, full = plan_window({"cursor": "yesterday-ish"}, NOW)
+    re-reading costs a request, not re-reading costs the orders in the gap.
+
+    Since commit 21 the deciding happens once, in the adapter — an unparseable
+    column arrives here as None. That the adapter really does answer None for a
+    damaged cursor is pinned in tests/test_sync_state.py; this is the half that
+    says what the sweep then does with it."""
+    start, _end, full = plan_window(_state(cursor=None), NOW)
     assert start == NOW - RECONCILE_WINDOW
     assert full is True
 
@@ -188,7 +217,7 @@ def test_a_successful_sweep_writes_the_orders_and_moves_the_cursor(db):
     _register()
     crm = FakeCRM([_order()])
 
-    result = asyncio.run(sync_changed_orders(crm, now=NOW))
+    result = _sweep(crm)
 
     assert result.fetched == 1 and result.written == 1
     assert [row["source_order_id"] for row in asyncio.run(get_cached_orders(CHAT))] == ["900001"]
@@ -200,51 +229,92 @@ def test_a_failed_sweep_leaves_the_cursor_where_it_was(db):
     asyncio.run(sync_state.finish_success(SOURCE, "2026-08-04 16:00:00"))
 
     with pytest.raises(RuntimeError):
-        asyncio.run(sync_changed_orders(BrokenCRM(), now=NOW))
+        _sweep(BrokenCRM())
 
     state = asyncio.run(sync_state.get_state(SOURCE))
     assert state["cursor"] == "2026-08-04 16:00:00"
     assert state["last_error"] == "RuntimeError: the CRM is down"
 
 
-def test_a_sweep_that_cannot_write_does_not_report_success(db, monkeypatch):
+class BrokenUnit:
+    """A unit whose order write always fails, and which records how it ended.
+
+    Since commit 21 this is a fake port rather than a patched module attribute,
+    and the difference is not cosmetic: patching `sync_incremental.upsert_orders`
+    could not notice the scenario calling it with the wrong arguments, and it
+    could not see whether the block was committed either.
+    """
+
+    def __init__(self) -> None:
+        self.committed = 0
+        self.exited_with: list[type | None] = []
+        self.orders = self
+        self.users = None
+
+    async def upsert(self, user_id: int, rows: list) -> None:
+        raise RuntimeError("database is locked")
+
+    async def __aenter__(self) -> "BrokenUnit":
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        self.exited_with.append(exc_type)
+
+    async def commit(self) -> None:
+        self.committed += 1
+
+
+def test_a_sweep_that_cannot_write_does_not_report_success(db):
     """The failure between reading and writing. Recording success here would
     move the cursor past orders that were fetched and then dropped on the floor.
     """
-    from core.usecases import sync_incremental
-
-    async def broken_upsert(chat_id: int, rows: list) -> None:
-        raise RuntimeError("database is locked")
-
     _register()
-    monkeypatch.setattr(sync_incremental, "upsert_orders", broken_upsert)
+    broken = BrokenUnit()
 
     with pytest.raises(RuntimeError):
-        asyncio.run(sync_changed_orders(FakeCRM([_order()]), now=NOW))
+        _sweep(FakeCRM([_order()]), unit=lambda **kw: broken)
 
     assert asyncio.run(sync_state.get_state(SOURCE))["cursor"] is None
+    assert broken.committed == 0, "a block that raised must not have committed"
+    assert broken.exited_with == [RuntimeError], "and must have left through the error"
+
+
+def test_the_failure_is_recorded_outside_the_block_that_failed(db):
+    """A record of what went wrong is worth nothing if it disappears with the
+    transaction that went wrong. Under the shim nothing rolls back, so what is
+    pinned here is the ordering the real engine will need: the unit is left
+    first, and only then is the error written."""
+    _register()
+    broken = BrokenUnit()
+
+    with pytest.raises(RuntimeError):
+        _sweep(FakeCRM([_order()]), unit=lambda **kw: broken)
+
+    state = asyncio.run(sync_state.get_state(SOURCE))
+    assert state["last_error"] == "RuntimeError: database is locked"
+    assert broken.exited_with == [RuntimeError]
 
 
 def test_an_empty_window_is_a_success(db):
     """Most two-minute windows are empty, and an empty one is exactly the case
     where the cursor must still move — otherwise a quiet night makes the next
     sweep read from the last order rather than from the last check."""
-    result = asyncio.run(sync_changed_orders(FakeCRM(), now=NOW))
+    result = _sweep(FakeCRM())
     assert result.fetched == 0
     assert asyncio.run(sync_state.get_state(SOURCE))["cursor"] == _stamp_of(NOW)
 
 
 def test_the_first_sweep_asks_for_the_reconciliation_window(db):
     crm = FakeCRM()
-    asyncio.run(sync_changed_orders(crm, now=NOW))
+    _sweep(crm)
     assert crm.windows == [(_stamp_of(NOW - RECONCILE_WINDOW), _stamp_of(NOW))]
 
 
 def test_the_second_sweep_asks_from_the_cursor(db):
     crm = FakeCRM()
-    asyncio.run(sync_changed_orders(crm, now=NOW))
+    _sweep(crm)
     later = NOW + timedelta(minutes=2)
-    asyncio.run(sync_changed_orders(crm, now=later))
+    _sweep(crm, now=later)
 
     assert crm.windows[1] == (_stamp_of(NOW - OVERLAP), _stamp_of(later))
 
@@ -259,9 +329,9 @@ def test_a_week_later_the_full_window_comes_back(db):
     is a week past *now* rather than a week past NOW.
     """
     crm = FakeCRM()
-    asyncio.run(sync_changed_orders(crm, now=NOW))
+    _sweep(crm)
     later = datetime.now(timezone.utc) + RECONCILE_EVERY + timedelta(minutes=1)
-    asyncio.run(sync_changed_orders(crm, now=later))
+    _sweep(crm, now=later)
 
     assert crm.windows[1] == (_stamp_of(later - RECONCILE_WINDOW), _stamp_of(later))
 
@@ -276,7 +346,7 @@ def test_the_sweep_resolves_a_chat_nobody_has_looked_up_yet(db):
     lookup = FakeLookup([_order(order_id=44730, phone="+380670007962")])
     crm = FakeCRM([_order(order_id=44731, phone="+380670007962")])
 
-    result = asyncio.run(sync_changed_orders(crm, lookup=lookup, now=NOW))
+    result = _sweep(crm, lookup=lookup)
 
     assert lookup.asked == [PHONE]
     assert asyncio.run(registered_buyers()) == [(CHAT, BUYER)]
@@ -290,8 +360,8 @@ def test_a_chat_already_mapped_is_not_looked_up_again(db):
     """One request per customer, once — not one per sweep."""
     _register()
     lookup = FakeLookup([_order(order_id=44730)])
-    asyncio.run(sync_changed_orders(FakeCRM(), lookup=lookup, now=NOW))
-    asyncio.run(sync_changed_orders(FakeCRM(), lookup=lookup, now=NOW))
+    _sweep(FakeCRM(), lookup=lookup)
+    _sweep(FakeCRM(), lookup=lookup)
     assert lookup.asked == [PHONE]
 
 
@@ -303,8 +373,8 @@ def test_a_customer_the_crm_has_never_heard_of_is_asked_once_a_day(db):
     _register()
     lookup = FakeLookup([])                      # the CRM knows nobody by that number
 
-    asyncio.run(sync_changed_orders(FakeCRM(), lookup=lookup, now=NOW))
-    asyncio.run(sync_changed_orders(FakeCRM(), lookup=lookup, now=NOW))
+    _sweep(FakeCRM(), lookup=lookup)
+    _sweep(FakeCRM(), lookup=lookup)
 
     assert lookup.asked == [PHONE]
 
@@ -321,7 +391,7 @@ def test_the_day_after_they_are_asked_again(db):
     from core.repos.users import chats_without_crm_buyer
 
     _register()
-    asyncio.run(sync_changed_orders(FakeCRM(), lookup=FakeLookup([]), now=NOW))
+    _sweep(FakeCRM(), lookup=FakeLookup([]))
     assert asyncio.run(chats_without_crm_buyer()) == []
 
     async def age_the_stamp() -> None:
@@ -342,8 +412,7 @@ def test_a_failed_lookup_does_not_cost_the_sweep_its_window(db):
         async def get_orders_by_phone(self, phone: str) -> list:
             raise RuntimeError("the CRM is down")
 
-    result = asyncio.run(
-        sync_changed_orders(FakeCRM(), lookup=BrokenLookup(), now=NOW))
+    result = _sweep(FakeCRM(), lookup=BrokenLookup())
     assert result.fetched == 0
     assert asyncio.run(sync_state.get_state(SOURCE))["cursor"] == _stamp_of(NOW)
 
@@ -352,9 +421,6 @@ def test_an_order_for_a_stranger_costs_no_write(db):
     """Fetched and dropped, and the two numbers are reported separately: the gap
     between them is how much of the business is not in the bot yet."""
     _register()
-    result = asyncio.run(
-        sync_changed_orders(
-            FakeCRM([_order(phone="+380990000000", buyer="99999")]), now=NOW)
-    )
+    result = _sweep(FakeCRM([_order(phone="+380990000000", buyer="99999")]))
     assert (result.fetched, result.written) == (1, 0)
     assert asyncio.run(get_cached_orders(CHAT)) == []

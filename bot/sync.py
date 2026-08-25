@@ -30,11 +30,13 @@ from aiogram import Bot
 from loguru import logger
 
 from bot.alerts import tell_admins
+from core.domain.sync import SyncState, read_stamp, write_stamp
 from core.ports.crm import CrmOrders
+from core.ports.repositories import (CustomerDirectory, SyncJournal,
+                                     UnitOfWorkFactory)
 from core.repos.orders import get_last_sync_time
-from core.repos.sync_state import get_state
-from core.usecases.sync_incremental import (SOURCE, read_stamp,
-                                            sync_changed_orders)
+from core.repos.sync_state import SqliteSyncJournal
+from core.usecases.sync_incremental import SOURCE, sync_changed_orders
 
 # §5.1. Two minutes against a measured 269 orders changed in two days: most
 # sweeps read one page and find nothing new, which is the intended shape — the
@@ -61,7 +63,12 @@ REALERT_AFTER = timedelta(hours=1)
 STALE_AFTER = timedelta(hours=1)
 
 
-async def watch(keycrm: CrmOrders) -> None:
+async def watch(
+    keycrm: CrmOrders,
+    journal: SyncJournal,
+    directory: CustomerDirectory,
+    unit: UnitOfWorkFactory,
+) -> None:
     """Sweep the changed-orders window forever.
 
     One client, passed twice on purpose: the sweep reads the window through it
@@ -72,7 +79,8 @@ async def watch(keycrm: CrmOrders) -> None:
     logger.info("Order sync started ({}s interval)", POLL_INTERVAL_SECONDS)
     while True:
         try:
-            await sync_changed_orders(keycrm, lookup=keycrm)
+            await sync_changed_orders(keycrm, journal, directory, unit,
+                                      lookup=keycrm)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 — already recorded in sync_state
@@ -80,7 +88,8 @@ async def watch(keycrm: CrmOrders) -> None:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
 
-def silence(state: dict | None, *, now: datetime, since: datetime) -> timedelta:
+def silence(state: SyncState | None, *, now: datetime,
+            since: datetime) -> timedelta:
     """How long the data has been standing still.
 
     Measured from the last success, or from `since` — when the watcher started —
@@ -88,12 +97,12 @@ def silence(state: dict | None, *, now: datetime, since: datetime) -> timedelta:
     ran once would show a silence of zero forever, which is the failure this is
     for rather than an edge case of it.
     """
-    last = read_stamp((state or {}).get("last_success_at"))
+    last = state.last_success_at if state else None
     return now - (last or since)
 
 
 def data_age(
-    state: dict | None, chat_synced_at: str | None, *, now: datetime
+    state: SyncState | None, chat_synced_at: str | None, *, now: datetime
 ) -> timedelta | None:
     """How long ago what this customer sees was last confirmed current.
 
@@ -108,30 +117,46 @@ def data_age(
     None means nothing has ever been synced for them, which is the empty screen
     and not a staleness worth announcing.
     """
-    stamps = [read_stamp((state or {}).get("last_success_at")),
-              read_stamp(chat_synced_at)]
+    # One side arrives parsed and one does not: the sweep's own timestamp comes
+    # through SyncJournal as a moment, while `synced_at` is a column on `orders`
+    # that no port covers yet. read_stamp is the same function either way — it
+    # lives in core.domain.sync precisely so there is only one of it.
+    stamps = [state.last_success_at if state else None, read_stamp(chat_synced_at)]
     known = [stamp for stamp in stamps if stamp is not None]
     return now - max(known) if known else None
 
 
 async def stale_notice(chat_id: int, t, *, now: datetime | None = None) -> str:
-    """The line to put above a customer's orders, or '' when there is none."""
+    """The line to put above a customer's orders, or '' when there is none.
+
+    Builds its own journal, unlike the watchdog below which is handed one: the
+    caller is a screen, and there is no composition root for a screen to take it
+    from yet.
+    """
     now = now or datetime.now(timezone.utc)
-    age = data_age(await get_state(SOURCE), await get_last_sync_time(chat_id), now=now)
+    state = await SqliteSyncJournal().state(SOURCE)
+    age = data_age(state, await get_last_sync_time(chat_id), now=now)
     if age is None or age < STALE_AFTER:
         return ""
     return t.MSG_ORDERS_STALE.format(hours=int(age.total_seconds() // 3600))
 
 
-def _alert_text(state: dict | None, quiet_for: timedelta) -> str:
-    """English, like everything else an admin reads next to the logs."""
+def _alert_text(state: SyncState | None, quiet_for: timedelta) -> str:
+    """English, like everything else an admin reads next to the logs.
+
+    The timestamp is written back out in the stored spelling rather than printed
+    from a datetime: the alert used to carry the column verbatim, and an admin
+    comparing it against the row should not have to notice that one of them
+    grew a `+00:00`.
+    """
     minutes = int(quiet_for.total_seconds() // 60)
-    last = (state or {}).get("last_success_at") or "never"
+    success = state.last_success_at if state else None
+    last = write_stamp(success) if success else "never"
     lines = [
         f"⚠️ Order sync has not succeeded for {minutes} min.",
         f"Last success: {last} UTC",
     ]
-    error = (state or {}).get("last_error")
+    error = state.last_error if state else None
     if error:
         lines.append(f"Last error: {error}")
     else:
@@ -141,7 +166,8 @@ def _alert_text(state: dict | None, quiet_for: timedelta) -> str:
     return "\n".join(lines)
 
 
-async def watch_for_silence(bot: Bot, admin_ids: list[int]) -> None:
+async def watch_for_silence(bot: Bot, admin_ids: list[int],
+                            journal: SyncJournal) -> None:
     """Tell the admins when the orders stop moving, and when they move again."""
     if not admin_ids:
         logger.warning("No admin ids configured — a stalled sync will be silent")
@@ -155,7 +181,7 @@ async def watch_for_silence(bot: Bot, admin_ids: list[int]) -> None:
         await asyncio.sleep(WATCHDOG_INTERVAL_SECONDS)
         try:
             now = datetime.now(timezone.utc)
-            state = await get_state(SOURCE)
+            state = await journal.state(SOURCE)
             quiet_for = silence(state, now=now, since=since)
 
             if quiet_for >= SILENCE_AFTER:
@@ -163,10 +189,11 @@ async def watch_for_silence(bot: Bot, admin_ids: list[int]) -> None:
                     await tell_admins(bot, admin_ids, _alert_text(state, quiet_for))
                     alerted_at = now
             elif alerted_at is not None:
+                back = state.last_success_at if state else None
                 await tell_admins(
                     bot, admin_ids,
                     "✅ Order sync is back. Last success: "
-                    f"{(state or {}).get('last_success_at')} UTC",
+                    f"{write_stamp(back) if back else None} UTC",
                 )
                 alerted_at = None
         except asyncio.CancelledError:

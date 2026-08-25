@@ -250,6 +250,16 @@ forbidden_modules =
     core.repos.referrals
     core.repos.outbox
     core.repos.broadcast
+    core.repos.orders
+    core.repos.users
+    core.repos.sync_state
+    core.repos.uow
+# Последние четыре освободились на коммите 21, и вместе с ними список сравнялся
+# с содержимым `core/repos`. То есть этот контракт сделал свою работу и на
+# коммите 22 исчезает целиком: `core.usecases` въезжает в
+# `core-siblings-are-independent`, который запрещает то же самое одной строкой и
+# не требует дописывать её при каждом новом файле репозитория. Дописаны они всё
+# равно здесь, а не там: правило едет в том же коммите, что и код под ним.
 # `core.repos.outbox` и `core.repos.broadcast` освободились на коммите 16. У
 # очереди было шесть потребителей — это и есть тот случай, ради которого в
 # `docs/move-status.md` записано, что семейное правило ждёт последнего из них, а
@@ -314,6 +324,21 @@ source_modules =
     core.usecases.birthdays
 forbidden_modules =
     core.repos
+
+[importlinter:contract:sync-incremental-sees-ports-only]
+name = core.usecases.sync_incremental не знает ни одного репозитория
+# Причина: последний сценарий серии и самый дорогой в случае ошибки. Курсор —
+# единственная колонка, где ошибка теряет заказы навсегда: сдвинутый после
+# неполного чтения, он оставляет окно позади себя, и никто больше никогда не
+# спросит этот диапазон. На порту это проверяется поддельным журналом за
+# миллисекунды, включая тот случай, который против файла на диске не
+# воспроизвести — падение ровно между записью заказов и сдвигом курсора.
+type = forbidden
+source_modules =
+    core.usecases.sync_incremental
+forbidden_modules =
+    core.repos
+
 
 [importlinter:contract:register-sees-ports-only]
 name = core.usecases.register не знает ни одного репозитория

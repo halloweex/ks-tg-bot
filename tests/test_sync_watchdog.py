@@ -16,7 +16,9 @@ import pytest
 
 from bot.sync import (REALERT_AFTER, SILENCE_AFTER, _alert_text, data_age,
                       silence, watch_for_silence)
+from core.domain.sync import SyncState, read_stamp
 from core.i18n import customer_texts
+from core.repos.sync_state import SqliteSyncJournal
 from core.repos import base as repos_base
 from core.repos import sync_state
 from core.repos.schema import init_db
@@ -27,8 +29,15 @@ STARTED = NOW - timedelta(hours=2)
 ADMIN = 4242
 
 
+def _state(*, last_success_at: str | None = None,
+           last_error: str | None = None) -> SyncState:
+    """A row as SyncJournal hands it over: moments, not the stored strings."""
+    return SyncState(source=SOURCE, last_success_at=read_stamp(last_success_at),
+                     last_error=last_error)
+
+
 def test_silence_is_measured_from_the_last_success():
-    state = {"last_success_at": "2026-08-04 16:05:00"}
+    state = _state(last_success_at="2026-08-04 16:05:00")
     assert silence(state, now=NOW, since=STARTED) == timedelta(minutes=15)
 
 
@@ -36,23 +45,28 @@ def test_a_sweep_that_never_succeeded_is_measured_from_startup():
     """The failure this exists for. With no fallback, a sync that never ran once
     would report a silence of zero forever and never alert."""
     assert silence(None, now=NOW, since=STARTED) == timedelta(hours=2)
-    assert silence({"last_error": "boom"}, now=NOW, since=STARTED) == timedelta(hours=2)
+    assert silence(_state(last_error="boom"), now=NOW,
+                   since=STARTED) == timedelta(hours=2)
 
 
 def test_an_error_does_not_shorten_the_silence():
     """A failing sweep is not a succeeding one. The row records both; only one
     of them means the orders moved."""
-    state = {"last_success_at": "2026-08-04 15:00:00", "last_error": "ReadTimeout"}
+    state = _state(last_success_at="2026-08-04 15:00:00", last_error="ReadTimeout")
     assert silence(state, now=NOW, since=STARTED) == timedelta(hours=1, minutes=20)
 
 
 def test_the_alert_says_what_broke_when_there_is_an_error():
     text = _alert_text(
-        {"last_success_at": "2026-08-04 15:00:00", "last_error": "ReadTimeout: page 3"},
+        _state(last_success_at="2026-08-04 15:00:00",
+               last_error="ReadTimeout: page 3"),
         timedelta(minutes=80),
     )
     assert "80 min" in text
     assert "ReadTimeout: page 3" in text
+    assert "Last success: 2026-08-04 15:00:00 UTC" in text, (
+        "the stored spelling, so an admin can match it against the row"
+    )
 
 
 def test_the_alert_says_so_when_nothing_even_tried():
@@ -103,7 +117,7 @@ def clock(monkeypatch):
 def _run_watchdog(bot: FakeBot) -> None:
     async def go() -> None:
         with pytest.raises(asyncio.CancelledError):
-            await watch_for_silence(bot, [ADMIN])
+            await watch_for_silence(bot, [ADMIN], SqliteSyncJournal())
 
     asyncio.run(go())
 
@@ -203,7 +217,7 @@ def test_without_admins_it_says_so_and_stops(db, clock):
     """Rather than looping forever with nowhere to send. A stalled sync nobody
     is told about is the state this whole file exists to prevent."""
     async def go() -> None:
-        await watch_for_silence(FakeBot(), [])
+        await watch_for_silence(FakeBot(), [], SqliteSyncJournal())
 
     asyncio.run(go())
 
@@ -211,7 +225,7 @@ def test_without_admins_it_says_so_and_stops(db, clock):
 # --- the customer-facing half ----------------------------------------------
 
 def test_a_healthy_sync_shows_no_notice():
-    state = {"last_success_at": "2026-08-04 16:18:00"}
+    state = _state(last_success_at="2026-08-04 16:18:00")
     assert data_age(state, None, now=NOW) == timedelta(minutes=2)
 
 
@@ -219,14 +233,14 @@ def test_a_customer_whose_orders_never_change_is_not_told_they_are_stale():
     """The sweep writes only what changed, so somebody who last ordered in
     January has a January synced_at while the sync is perfectly healthy. Reading
     that alone would put a stale warning on a current list."""
-    state = {"last_success_at": "2026-08-04 16:18:00"}
+    state = _state(last_success_at="2026-08-04 16:18:00")
     assert data_age(state, "2026-01-04 10:00:00", now=NOW) == timedelta(minutes=2)
 
 
 def test_a_dead_sweep_is_covered_by_this_chat_s_own_refresh():
     """And the other way round: the on-demand refresh keeps one customer current
     while the sweep is dead, which the sweep's own timestamp cannot see."""
-    state = {"last_success_at": "2026-08-01 10:00:00"}
+    state = _state(last_success_at="2026-08-01 10:00:00")
     assert data_age(state, "2026-08-04 16:15:00", now=NOW) == timedelta(minutes=5)
 
 
