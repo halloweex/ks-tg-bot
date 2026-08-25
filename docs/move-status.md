@@ -94,6 +94,7 @@ Nova Poshta 83% → 85%; по трём клиентам вместе 61% → 73%
 | `f756e96` | `CustomerDirectory` + адаптер — пять методов, один цикл |
 | `e151c2c` | `UserProfiles.identify` не существует — правило идентичности переписано |
 | `5dd4cab` | **`sync_orders`** → `CustomerDirectory` + первый `UnitOfWork` в дереве |
+| `05ccd8e` | **`register`** → `bind_phone` с `VerifiedPhone` и write-once `source` на обоих движках |
 
 Плюс три коммита не из плана: `598212b` (сверка сигнатур портов), `f366fc2`
 (три `NameError` на клиентских путях) и `2f1e028` (pyflakes на неопределённые
@@ -107,10 +108,9 @@ Nova Poshta 83% → 85%; по трём клиентам вместе 61% → 73%
 группировки читает поля, а не распаковывает. Это единственное место коммита,
 которое стоит смотреть глазами, если понадобится состязательная сверка.
 
-Девять сценариев на портах — `analytics`, `sync_catalogue`, `support`, `notify`,
-`birthdays`, `stock`, `referrals`, `broadcast`, `sync_orders`. `core.repos`
-напрямую импортируют ещё два: `register` и `sync_incremental`. Итого
-одиннадцать, как и в абзаце про шим выше.
+Десять сценариев на портах. `core.repos` напрямую импортирует ровно один —
+`sync_incremental`, и его переезд это коммит 21. Итого одиннадцать, как и в
+абзаце про шим выше.
 
 `sync_incremental` при этом импортирует `core.repos.uow` временно и по делу: он
 строит `SqliteUnitOfWork` и `SqliteCustomerDirectory` в месте вызова
@@ -145,7 +145,7 @@ grep -lE '^[[:space:]]*(from|import) core\.repos' core/usecases/*.py
 | ~~16~~ | ~~**`broadcast`**~~ — сделано, `4f3d8e9` | `broadcast-sees-ports-only` + два семейных |
 | ~~17~~ | ~~`CustomerDirectory` + адаптер~~ — сделано, `f756e96` | — |
 | ~~18~~ | ~~**`sync_orders`**~~ — сделано, `5dd4cab` | `sync-orders-sees-ports-only` |
-| 19 | **`register`** (+ `source=` на `bind_phone`) | да |
+| ~~19~~ | ~~**`register`**~~ — сделано, `05ccd8e` | `register-sees-ports-only` |
 | 20 | `core/domain/sync.py` + `SyncJournal` + адаптер | — |
 | 21 | **`sync_incremental`** + `bot/sync.py` | да |
 | 22 | финал: `core.usecases` в `core-siblings-are-independent`, снос временных правил, этот раздел | — |
@@ -175,7 +175,15 @@ grep -lE '^[[:space:]]*(from|import) core\.repos\.<модуль>' core/usecases/
 после чего семейный контракт целиком заменяется на `core.usecases` внутри
 `core-siblings-are-independent` (22).
 
-**Найдено при проектировании 17 и ждёт 18-го: `save_user` и `update_profile` —
+**Не прогнано: две новые postgres-проверки write-once.** `05ccd8e` завёл
+`source` на `bind_phone` и реализовал правило на обоих движках — SQLite внутри
+`INSERT OR REPLACE`, Postgres внутри `ON CONFLICT`. Тесты на постгресовую
+половину написаны и лежат в `tests/test_pg_unit_of_work.py`, но пропускаются без
+`TEST_DATABASE_URL`, то есть **SQL проверен глазами, а не движком**. Конформанс
+это не ловит: он сверяет сигнатуры, а `source` принимают обе стороны в любом
+случае. Первое, что стоит прогнать при живой базе.
+
+**Найдено при проектировании 17 и закрыто 18-м: `save_user` и `update_profile` —
 не одна и та же операция.** Сценарий `sync_orders` сегодня зовёт
 `save_user(chat_id, phone, full_name=…, email=…)`, то есть передаёт телефон
 там, где хочет всего лишь дописать имя и почту. На порту такого нет намеренно:
