@@ -98,7 +98,8 @@ def test_no_code_means_the_manager_hands_it_over():
     code nobody created."""
     empty = _config(code="")
     offer = first_order_offer(T, empty)
-    assert "10%" in offer and "менеджеру" in offer
+    assert "10%" in offer and "промокод" in offer, (
+        "the promise stands, and the code arrives from a person")
     assert "посиланні" not in offer, (
         "the button under this text is the plain shop — promising the code is "
         "already in the link sends the customer to a checkout that disagrees")
@@ -151,7 +152,7 @@ def test_the_two_endings_are_exclusive():
     """One offer, two possible endings, and never both: either the link carries
     the code or a person still has to send it."""
     with_code = first_order_offer(T, _config())
-    assert "посиланні" in with_code and "менеджеру" not in with_code
+    assert "посиланні" in with_code and "промокод" not in with_code
 
 
 def test_the_offer_names_what_the_shop_promised():

@@ -39,7 +39,7 @@ EN: dict[str, str] = {
         "Welcome to {brand_name}! 🌸\n\n"
         "I'll show you where your order is, what you've bought before, and when "
         "a favourite is back in stock.\n\n"
-        "To find your orders, please share your phone number — the same one you "
+        "To find your orders, please share your phone number: the same one you "
         "used when ordering."
     ),
     "BTN_SHARE_PHONE": "📱 Share my number",
@@ -94,17 +94,17 @@ EN: dict[str, str] = {
     "MSG_ORDER_MORE_ITEMS": "…and {count} more",
     "BTN_SHOW_ITEMS": "🔎 All items ({count})",
     "BTN_HIDE_ITEMS": "🔼 Fold the items",
-    "MSG_ORDERS_EXPAND_HINT": "🔎 number — every item in that order",
+    "MSG_ORDERS_EXPAND_HINT": "🔎 number: every item in that order",
     "MSG_ORDERS_STALE": "⏳ Last updated over {hours} h ago",
     "MSG_ORDER_TRACKING": "🚚 Tracking: {code}",
     "MSG_ORDER_LOCATION": "📍 {location}",
     "MSG_NO_ORDERS": (
-        "No orders yet — a good moment to make the first one.\n\n"
-        "And if you have ordered from us, it may be under a different number — "
+        "No orders yet, a good moment to make the first one.\n\n"
+        "And if you have ordered from us, it may be under a different number: "
         "the one you gave at checkout rather than the one your Telegram uses. "
         "Message us and we'll find it manually."
     ),
-    "MSG_SUPPORT_FORWARDED": "We have your message — we'll look into it and reply here.",
+    "MSG_SUPPORT_FORWARDED": "We have your message. We'll look into it and reply here.",
     "MSG_SUPPORT_FORWARDED_OFF_HOURS": (
         "We have your message. We're offline right now, but we're back at {time} "
         "and will work it out with you."
@@ -116,14 +116,14 @@ EN: dict[str, str] = {
     "MSG_INFO_MENU": (
         "<b>ℹ️ Help</b>\n\n"
         "The shop, delivery and payment, briefly.\n"
-        "Need a person — «💬 Manager» in the menu.\n\n"
+        "Need a person: «💬 Manager» in the menu.\n\n"
         "Pick a section 👇"
     ),
     "MSG_SETTINGS_MENU": (
         "<b>⚙️ Settings</b>\n\n"
         "The phone number we find your orders by, and the bot's language."
     ),
-    "MSG_SUPPORT_PROMPT": "Tell us what's bothering you — we'll work it out together.",
+    "MSG_SUPPORT_PROMPT": "Tell us what's bothering you, and we'll work it out together.",
     "MSG_NEW_PHONE_PROMPT": "To update your number, share it using the button below 👇",
     "MSG_PHONE_CHANGED": "Phone number updated! ✅",
     "MSG_WELCOME_BACK": "Welcome back! 🌸",
@@ -150,7 +150,7 @@ EN: dict[str, str] = {
                                    "Tap to order again 👇"),
     "MSG_FAVOURITE_LINE": "orders: {orders} · {qty} pcs · last {date}",
     "MSG_NO_FAVOURITES": (
-        "Nothing to base favourites on yet — the products you order most often "
+        "Nothing to base favourites on yet. The products you order most often "
         "will show up here."
     ),
     "BTN_BUY_PRODUCT": "🛒 {name} · {price} ₴",
@@ -161,27 +161,27 @@ EN: dict[str, str] = {
     "BTN_WANT_DISCOUNT": "💰 I'd like a discount on these",
     "BTN_WANT_DISCOUNT_CARD": "💰 I'd like a discount",
     "MSG_DISCOUNT_SENT": (
-        "We've passed your discount request to a manager. We'll get back to you "
+        "We have your discount request. We'll get back to you "
         "here in the bot."
     ),
-    "MSG_DISCOUNT_ALREADY": "Your request is already with a manager — they will reply shortly.",
-    "MSG_DISCOUNT_FAILED": "We couldn't pass the request on. Please try again in a few minutes.",
+    "MSG_DISCOUNT_ALREADY": "Your request is already in hand. We will reply shortly.",
+    "MSG_DISCOUNT_FAILED": "The request did not get through. Please try again in a few minutes.",
     "MSG_SUPPORT_NOT_DELIVERED": (
-        "We couldn't get your message to a manager 😔\n"
-        "Please try again in a few minutes — your text is not lost, just send it again."
+        "Your message did not get through 😔\n"
+        "Please try again in a few minutes. Your text is not lost, just send it again."
     ),
     "MSG_DISCOUNT_ADMIN": "💰 Discount request\n👤 {who}",
     "MSG_CUSTOMER_UNKNOWN": "a customer",
     "MSG_BIRTHDAY": (
         "🎂 Happy birthday!\n\n"
-        "Thank you for being with us — may this year be kind to you 🌸\n"
+        "Thank you for being with us, and may this year be kind to you.\n"
         "Here are the ones you love most:"
     ),
     "BTN_BIRTHDAY_FAVOURITES": "⭐ My favourites",
     "MSG_BACK_IN_STOCK_HEADER": "🔔 Back in stock:",
     "BTN_NOTIFY_ME": "🔔 {product}",
     "BTN_NOTIFY_CANCEL": "🔕 {product}",
-    "MSG_STOCK_HINT": "🔔 number — we'll write when it is back",
+    "MSG_STOCK_HINT": "🔔 number: we'll write when it is back",
     "MSG_SUBSCRIBED": "We'll message you as soon as it is back.",
     "MSG_UNSUBSCRIBED": "We will not notify you about this product.",
     "MSG_FAVOURITE_OUT_OF_STOCK": "out of stock",
@@ -191,12 +191,12 @@ EN: dict[str, str] = {
     "MSG_INLINE_CARD": "<b>{name}</b>\n{detail}",
     "BTN_BUY": "🛒 Order",
     "BTN_NOTIFY_CARD": "🔔 Notify me when it's back",
-    "BTN_WAITING_CARD": "✅ Waiting — cancel",
+    "BTN_WAITING_CARD": "✅ Cancel the alert",
     "BTN_OPEN_PRODUCT": "🌐 View on the site",
     "MSG_INLINE_NOT_HERE": "Open this list in the chat with the bot",
     "MSG_INLINE_NEED_PHONE": "Share your number to see your products",
     "MSG_INLINE_EMPTY": "What you order will show up here",
-    "MSG_INLINE_NOTHING_FOUND": "Nothing found — try another name",
+    "MSG_INLINE_NOTHING_FOUND": "Nothing found, try another name",
     "MSG_INLINE_SCREEN": "⭐ Discount and back-in-stock alerts",
     "MSG_INLINE_ORDERS_PREFIX": "orders",
     "BTN_ORDERS_ALL": "🔍 All orders · searchable",
@@ -219,11 +219,11 @@ EN: dict[str, str] = {
         "<b>🎁 This will be your first order with us</b>\n\n"
         "{reward}."
     ),
-    "MSG_FIRST_ORDER_IN_LINK": " It is already in the link — just pick what you like.",
-    "MSG_FIRST_ORDER_BY_HAND": "\n\nMessage a manager for a code and the discount is yours.",
+    "MSG_FIRST_ORDER_IN_LINK": " It is already in the link: pick whatever you like.",
+    "MSG_FIRST_ORDER_BY_HAND": "\n\nWrite to us and we will send you a code.",
     "MSG_INVITE_SCREEN": (
         "<b>🎁 Invite a friend</b>\n\n"
-        "Send her the bot — and when she places her first order, we send "
+        "Send her the bot, and when she places her first order, we send "
         "you a promo code right here."
     ),
     "MSG_INVITE_COUNTS": "Invited: {invited} · already ordered: {earned}",
@@ -241,7 +241,7 @@ EN: dict[str, str] = {
         "Thank you for recommending us 🌸"
     ),
     "MSG_REFERRAL_CODE": "\n\nYour promo code: <code>{code}</code>\n{reward}",
-    "MSG_REFERRAL_BY_HAND": "\n\nA manager will send you a promo code shortly.",
+    "MSG_REFERRAL_BY_HAND": "\n\nWe will send you a promo code shortly.",
     "BTN_REFERRAL_USE": "🛒 Use the discount",
     "MSG_REFERRAL_ADMIN_SUMMARY": (
         "🎁 Referrals: {count} — friends have placed their first orders.\n"

@@ -388,7 +388,7 @@ def test_without_a_code_the_message_says_what_really_happens(db):
     _friend_who(f"{REFERRAL_PREFIX}{CHAT}", ordered=True)
     _sweep_with()
     payload = _queued_rewards()[0]["payload"]
-    assert "Менеджер надішле" in payload["text"]
+    assert "Надішлемо промокод" in payload["text"]
     assert "keyboard" not in payload
 
 
