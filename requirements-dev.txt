@@ -5,4 +5,7 @@
 pytest==8.4.2
 # Enforces the module boundaries in .importlinter. See docs/components.md §13.
 import-linter==2.13
+# Catches a name used where nothing provides it — the failure that raises at the
+# first tap rather than at import. See tests/test_no_undefined_names.py.
+pyflakes==3.4.0
 alembic==1.18.5
