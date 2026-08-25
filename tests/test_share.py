@@ -351,14 +351,15 @@ def test_the_invitation_says_the_offer_in_words_too(db):
     assert "10%" in query.results[0].caption
 
 
-def test_the_promise_and_the_button_hang_on_the_same_nail(db):
-    """No code, no claim: the wording said "10%" while the button said "open
-    the bot", which reads as broken and sends somebody to claim nothing."""
+def test_the_invitation_carries_the_offer_whether_or_not_a_code_exists(db):
+    """The invitation *is* the offer, so it says so always — and the arrival
+    honours it either way: a link when there is a code, a manager when there is
+    not (tests/test_first_order.py)."""
     query = _Query("поділитися")
     asyncio.run(inline_list(query, T, _config(first_order_code="")))
     row = query.results[0]
-    assert "10%" not in row.caption
-    assert row.reply_markup.inline_keyboard[0][0].text == T.BTN_INVITE_OPEN
+    assert "10%" in row.caption
+    assert row.reply_markup.inline_keyboard[0][0].text == T.BTN_FIRST_ORDER
 
 
 # --- what the reward actually is --------------------------------------------
@@ -411,12 +412,12 @@ def test_the_code_that_paid_is_recorded(db):
 
 
 def test_the_invitation_button_says_what_is_waiting(db):
-    """The button leads into the bot either way — that is how the referral is
-    attributed — so the label follows whether the discount is live."""
+    """«Забрати знижку» while the shop is offering one; without an offer the
+    button says what it actually does, which is open the bot."""
     query = _Query("поділитися")
     asyncio.run(inline_list(query, T, _config()))
     assert query.results[0].reply_markup.inline_keyboard[0][0].text == T.BTN_FIRST_ORDER
 
     query = _Query("поділитися")
-    asyncio.run(inline_list(query, T, _config(first_order_code="")))
+    asyncio.run(inline_list(query, T, _config(first_order_reward="")))
     assert query.results[0].reply_markup.inline_keyboard[0][0].text == T.BTN_INVITE_OPEN

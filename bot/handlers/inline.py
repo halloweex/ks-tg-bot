@@ -296,18 +296,21 @@ async def _answer_invite(query: InlineQuery, t: Texts, config: AppConfig) -> Non
     link = (f"https://t.me/{config.bot_username}?start={REFERRAL_PREFIX}"
             f"{query.from_user.id}")
     caption = t.MSG_INVITE_CARD.format(brand=escape(config.brand_name))
-    # Both halves of the promise hang on the same nail: whether there is a code
-    # to claim. The wording alone said "10%" while the button still said "open
-    # the bot", which reads as broken — and would have sent somebody to claim
-    # what nobody could give her.
-    if config.first_order_code and config.first_order_reward:
+    # The offer, whenever the shop has written one. It hung on the code as well
+    # until the owner asked for it plainly: the invitation *is* the offer, and
+    # an invitation that mentions it only sometimes is not one.
+    #
+    # What that costs is a promise the bot cannot finish alone, so the other
+    # end of it was made to hold either way: a friend who arrives when no code
+    # is configured is pointed at a manager rather than at nothing
+    # (bot/handlers/orders.py, first_order_kb).
+    if config.first_order_reward:
         caption += t.MSG_INVITE_REWARD.format(
             reward=escape(config.first_order_reward))
-    # «Забрати знижку» while there is a discount to claim, «Відкрити бота»
-    # while there is not. The button leads into the bot either way — that is
-    # how the referral is attributed — and the label is the promise, so it
-    # follows whether the offer is actually live.
-    label = t.BTN_FIRST_ORDER if config.first_order_code else t.BTN_INVITE_OPEN
+    # «Забрати знижку» whenever there is an offer to claim — the button leads
+    # into the bot either way, which is how the referral is attributed, and
+    # what waits there is the offer in one form or the other.
+    label = t.BTN_FIRST_ORDER if config.first_order_reward else t.BTN_INVITE_OPEN
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text=label, url=link, style=STYLE_CART)]])
     track(query.from_user.id, "invite_offered")

@@ -594,6 +594,10 @@ BTN_INVITE = "🎁 Запроси подругу"
 # Перше замовлення. Розмір знижки й код — у config.yaml: код заводиться в
 # адмінці магазину, і бот роздає посилання, а не вигадує знижку.
 BTN_FIRST_ORDER = "🛒 Забрати знижку"
+# When no code is configured, the offer still stands — the shop promised it in
+# the invitation — and a person hands it over. Saying so is what keeps the
+# promise honest without withdrawing it.
+MSG_FIRST_ORDER_BY_HAND = "\n\nНапиши менеджеру — і він надішле промокод."
 MSG_FIRST_ORDER = (
     "<b>🎁 Це буде твоє перше замовлення з нами</b>\n\n"
     "{reward}. Вона вже в посиланні — просто обери, що подобається."

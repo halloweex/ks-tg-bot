@@ -91,12 +91,16 @@ def test_a_customer_who_has_bought_before_is_not(db):
 
 # --- when it is not ---------------------------------------------------------
 
-def test_no_code_means_no_offer_anywhere():
-    """A button leading to a code that does not exist is worse than no button,
-    and the code is created by a person in the Shopify admin."""
+def test_no_code_means_the_manager_hands_it_over():
+    """The invitation promises this discount whether or not a code exists, so
+    the arrival honours it either way — with a link when there is a code, with
+    a person when there is not. What must never appear is a button leading to a
+    code nobody created."""
     empty = _config(code="")
-    assert first_order_offer(T, empty) == ""
+    offer = first_order_offer(T, empty)
+    assert "10%" in offer and "менеджеру" in offer
     assert T.BTN_FIRST_ORDER not in _labels(_no_orders_kb(T, empty))
+    assert T.BTN_SUPPORT in _labels(first_order_kb(T, empty))
 
 
 def test_no_wording_means_no_offer_either():

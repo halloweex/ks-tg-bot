@@ -412,9 +412,10 @@ def _no_orders_kb(t: Texts, config: AppConfig | None = None) -> InlineKeyboardMa
     The second most likely cause of an empty screen — the order sits under a
     different phone than their Telegram — is something only a manager can fix.
 
-    The discount button appears only where a code is configured. There is no
-    default code in the code, and there never should be: the bot hands out a
-    link that applies one, it does not invent discounts.
+    The discount button carries the code where one is configured, and points
+    at a manager where none is. There is no default code in the code, and there
+    never should be: the bot hands out a link that applies one, it does not
+    invent discounts.
     """
     builder = InlineKeyboardBuilder()
     if config is not None and config.first_order_code:
@@ -423,6 +424,7 @@ def _no_orders_kb(t: Texts, config: AppConfig | None = None) -> InlineKeyboardMa
             url=discount_url(config.website_url, config.first_order_code, t.lang),
             style=STYLE_CART,
         )
+    # No code: the offer above still stands and the manager below hands it over.
     builder.button(text=t.BTN_SUPPORT, callback_data=MenuAction(action="support"))
     builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="menu"))
     builder.adjust(1)
@@ -430,13 +432,21 @@ def _no_orders_kb(t: Texts, config: AppConfig | None = None) -> InlineKeyboardMa
 
 
 def first_order_kb(t: Texts, config: AppConfig) -> InlineKeyboardMarkup:
-    """Just the discount, for the message that follows registration."""
+    """The way to claim it: the link with the code, or the person who has one.
+
+    The invitation promises this discount unconditionally, so the arrival has
+    to honour it unconditionally too. With a code that is one tap; without one
+    it is a manager, which is slower and still a kept promise.
+    """
     builder = InlineKeyboardBuilder()
-    builder.button(
-        text=t.BTN_FIRST_ORDER,
-        url=discount_url(config.website_url, config.first_order_code, t.lang),
-        style=STYLE_CART,
-    )
+    if config.first_order_code:
+        builder.button(
+            text=t.BTN_FIRST_ORDER,
+            url=discount_url(config.website_url, config.first_order_code, t.lang),
+            style=STYLE_CART,
+        )
+    else:
+        builder.button(text=t.BTN_SUPPORT, callback_data=MenuAction(action="support"))
     return builder.as_markup()
 
 
@@ -447,9 +457,10 @@ def first_order_offer(t: Texts, config: AppConfig) -> str:
     the same thing, and a customer who has seen it once should not read three
     different versions of it.
     """
-    if not config.first_order_code or not config.first_order_reward:
+    if not config.first_order_reward:
         return ""
-    return t.MSG_FIRST_ORDER.format(reward=escape(config.first_order_reward))
+    offer = t.MSG_FIRST_ORDER.format(reward=escape(config.first_order_reward))
+    return offer if config.first_order_code else offer + t.MSG_FIRST_ORDER_BY_HAND
 
 
 def favourite_products(orders: list[dict], limit: int = 5) -> list[dict]:
