@@ -90,6 +90,7 @@ Nova Poshta 83% → 85%; по трём клиентам вместе 61% → 73%
 | `e63e1e3` | `ReferralLedger` + адаптер + `Earned` в домене |
 | `a9afef4` | **`referrals`** → `ReferralLedger`, `LanguageChoice`, `MessageQueue` |
 | `cfd6ef7` | `BroadcastJournal` + адаптер + `Job` в домене |
+| `4f3d8e9` | **`broadcast`** → `BroadcastJournal`, `MailingList`, `LanguageChoice`, `MessageQueue` |
 
 Плюс три коммита не из плана: `598212b` (сверка сигнатур портов), `f366fc2`
 (три `NameError` на клиентских путях) и `2f1e028` (pyflakes на неопределённые
@@ -103,9 +104,9 @@ Nova Poshta 83% → 85%; по трём клиентам вместе 61% → 73%
 группировки читает поля, а не распаковывает. Это единственное место коммита,
 которое стоит смотреть глазами, если понадобится состязательная сверка.
 
-Семь сценариев на портах — `analytics`, `sync_catalogue`, `support`, `notify`,
-`birthdays`, `stock`, `referrals`. `core.repos` напрямую импортируют ещё
-четыре: `broadcast`, `sync_orders`, `register`, `sync_incremental`. Итого
+Восемь сценариев на портах — `analytics`, `sync_catalogue`, `support`, `notify`,
+`birthdays`, `stock`, `referrals`, `broadcast`. `core.repos` напрямую
+импортируют ещё три: `sync_orders`, `register`, `sync_incremental`. Итого
 одиннадцать, как и в абзаце про шим выше.
 
 *Счёт здесь врал дважды, и второй раз — при попытке его починить.* До коммита 12
@@ -113,8 +114,17 @@ Nova Poshta 83% → 85%; по трём клиентам вместе 61% → 73%
 имён: на портах было пять, оставалось шесть, то есть неверны были **оба** числа,
 а список — верен. В `a617423` это прочли наоборот, поверили числу «пять», убрали
 из списка `stock` и увеличили шестёрку до семёрки — вторая половина расхождения
-уехала дальше. Числа теперь считаются командой, а не глазами:
-`grep -L 'core\.repos' core/usecases/*.py`.
+уехала дальше. Числа считаются командой, а не глазами — но команда должна
+смотреть на импорты, а не на текст:
+
+```
+grep -lE '^[[:space:]]*(from|import) core\.repos' core/usecases/*.py
+```
+
+Без якоря на начало строки она ловит и упоминания в докстрингах: на коммите 16
+`core/usecases/broadcast.py` объясняет в шапке, что он был шестым потребителем
+`core.repos.outbox`, — и предыдущая версия команды честно сосчитала его как
+непереехавший. Сверено с `ast`: тот же ответ.
 
 ### Порядок оставшихся коммитов
 
@@ -124,7 +134,7 @@ Nova Poshta 83% → 85%; по трём клиентам вместе 61% → 73%
 | ~~13~~ | ~~`ReferralLedger` + адаптер~~ — сделано, `e63e1e3` | — |
 | ~~14~~ | ~~**`referrals`**~~ — сделано, `a9afef4` | `referrals-sees-ports-only` + семейное |
 | ~~15~~ | ~~`BroadcastJournal` + адаптер~~ — сделано, `cfd6ef7` | — |
-| 16 | **`broadcast`** — последний потребитель очереди | да + семейное на `core.repos.outbox` и `core.repos.broadcast` |
+| ~~16~~ | ~~**`broadcast`**~~ — сделано, `4f3d8e9` | `broadcast-sees-ports-only` + два семейных |
 | 17 | `CustomerDirectory` + адаптер | — |
 | 18 | **`sync_orders`** — первый потребитель `UnitOfWorkFactory` | да |
 | 19 | **`register`** (+ `source=` на `bind_phone`) | да |
@@ -147,15 +157,15 @@ Nova Poshta 83% → 85%; по трём клиентам вместе 61% → 73%
 командой, а не памятью:
 
 ```
-grep -l "core\.repos\.<модуль>" core/usecases/*.py
+grep -lE '^[[:space:]]*(from|import) core\.repos\.<модуль>' core/usecases/*.py
 ```
 
 Пусто — значит строчка в `usecases-do-not-touch-repositories` едет в этом же
 коммите. Хендлеры в счёт не идут: правило про `core.usecases`. Уже в списке:
-`events`, `catalogue`, `stock`, `support`, `referrals`. Остаются `outbox` и
-`broadcast` (16), а `orders`, `users` и `sync_state` освобождаются все разом на
-21-м — после чего семейный контракт целиком заменяется на `core.usecases`
-внутри `core-siblings-are-independent` (22).
+`events`, `catalogue`, `stock`, `support`, `referrals`, `outbox`, `broadcast`.
+Остались `orders`, `users` и `sync_state` — освобождаются все разом на 21-м,
+после чего семейный контракт целиком заменяется на `core.usecases` внутри
+`core-siblings-are-independent` (22).
 
 **Где риск, по убыванию.** Коммит 18 — первый, кто вообще возьмёт `UnitOfWork` в
 руки: сегодня его не создаёт никто, ни в `bot/`, ни в `core/`. Коммит 19 трогает
