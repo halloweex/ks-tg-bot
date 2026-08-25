@@ -12,20 +12,60 @@ reads KeyCRM, and a second writer whose orders KeyCRM already mirrors buys
 nothing but a conflict rule nobody can test. The adapter is still there and
 still parsed — what changed is that nothing calls it to write an order.
 
-What is still direct is the database: repositories are imported rather than
-passed in. A repository port means a UnitOfWork, and that is a Postgres-shaped
-question (`SET LOCAL app.user_id`, transactions spanning several repos) worth
-answering against the real engine — docs/move-status.md.
+**The first scenario to open a UnitOfWork.** Until this commit nothing in the
+tree created one — the port and both implementations existed, and the shim in
+core/repos/uow.py said in its own docstring that it buys order rather than
+atomicity. That is still exactly what it buys here: the two writes below sit in
+one block and still commit separately, because the functions underneath each
+open their own connection. What changes is that the scenario now says which
+writes belong together, so the day SqlUnitOfWork goes under it, they do.
+
+**`user_id=chat_id`, and that is the deferred confusion, not a slip.** Under
+SQLite the surrogate and the chat id are the same number, so this is true today.
+Under Postgres it is not, and there is nowhere to ask: the only operation that
+hands back a surrogate is `bind_phone`, because it is the only one that can
+create a person (see the identity rule in core/ports/users.py). Fixing that is
+one of the four items docs/move-status.md defers until after the series.
+
+**What the buyer map is not part of.** `remember` stays outside the block. The
+map is additive and idempotent, so a crash after it costs one more lookup rather
+than a wrong answer, and it is written first for the same reason it always was —
+the sweep that routes by card must be able to find this chat even if everything
+after this line fails.
+
+**The profile write stopped carrying a phone, and writes the same one.** It used
+to call `save_user(chat_id, phone, …)` with the number this function was handed;
+`update_profile` refuses a phone by design, so the adapter reads it back from
+the row instead. Same value on every reachable path — both callers take the
+number from `users` in the first place, one through `get_user_phone` and one
+straight out of `chats_without_crm_buyer`. What the port does change is the
+unreachable path: `save_user` would have *created* a row for an unbound chat,
+and `update_profile` leaves it alone. Neither caller can reach that, so nothing
+observable moves; a write that could invent a user is simply no longer spellable
+from here.
+
+**The `except` inside the block is preserved and is a question for later.** The
+profile refresh is a nicety and the orders are the reason for the call, so a
+failing profile write must not cost them — that is today's behaviour and this
+commit keeps it. Under a real transaction, swallowing an error and carrying on
+is not free: Postgres marks the transaction aborted and the `upsert` after it
+fails too. That is a change to make with SqlUnitOfWork, where it can be tested
+against an engine that actually behaves that way.
 """
 from __future__ import annotations
 
 from core.domain.order import order_row
 from core.ports.crm import OrderSource
-from core.repos.orders import upsert_orders
-from core.repos.users import remember_crm_buyers, save_user
+from core.ports.repositories import CustomerDirectory, UnitOfWorkFactory
 
 
-async def sync_orders(chat_id: int, phone: str, keycrm: OrderSource) -> None:
+async def sync_orders(
+    chat_id: int,
+    phone: str,
+    keycrm: OrderSource,
+    directory: CustomerDirectory,
+    unit: UnitOfWorkFactory,
+) -> None:
     """Ask the CRM for this number's orders and write what came back.
 
     Never raises on the CRM being unavailable, because the adapter does not:
@@ -40,18 +80,20 @@ async def sync_orders(chat_id: int, phone: str, keycrm: OrderSource) -> None:
     # number resolves to — the CRM matched them, we did not. Recording it here
     # is what lets the window sweep, which sees orders by card and never by
     # number, route them to this chat.
-    await remember_crm_buyers(chat_id, {o.buyer_id for o in orders})
+    await directory.remember(chat_id, {o.buyer_id for o in orders})
 
-    # Silent buyer profile refresh
-    first = orders[0]
-    if first.buyer_name or first.buyer_email:
-        try:
-            await save_user(
-                chat_id, phone,
-                full_name=first.buyer_name or None,
-                email=first.buyer_email or None,
-            )
-        except Exception:  # noqa: BLE001
-            pass
+    async with unit(user_id=chat_id) as uow:
+        # Silent buyer profile refresh
+        first = orders[0]
+        if first.buyer_name or first.buyer_email:
+            try:
+                await uow.users.update_profile(
+                    chat_id,
+                    full_name=first.buyer_name or None,
+                    email=first.buyer_email or None,
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
-    await upsert_orders(chat_id, [order_row(o, chat_id) for o in orders])
+        await uow.orders.upsert(chat_id, [order_row(o, chat_id) for o in orders])
+        await uow.commit()

@@ -61,8 +61,10 @@ from core.ports.crm import ChangedOrderFeed, OrderSource
 from core.repos.orders import upsert_orders
 from core.repos.sync_state import (begin_run, finish_failure, finish_success,
                                    get_state)
-from core.repos.users import (chats_without_crm_buyer, mark_crm_checked,
-                              registered_buyers, registered_phones)
+from core.repos.uow import SqliteUnitOfWork
+from core.repos.users import (SqliteCustomerDirectory, chats_without_crm_buyer,
+                              mark_crm_checked, registered_buyers,
+                              registered_phones)
 
 # The name this integration keeps in sync_state. One source, one row.
 SOURCE = "keycrm"
@@ -210,10 +212,17 @@ async def resolve_unknown_buyers(lookup: OrderSource, limit: int) -> int:
     """
     from core.usecases.sync_orders import sync_orders
 
+    # Built here because this module has not moved onto ports yet — commit 21 in
+    # docs/move-status.md — and sync_orders has, as of 18. A scenario choosing an
+    # implementation is exactly what the series is removing, so this is the one
+    # place it is temporary by construction: when this file takes its own ports,
+    # these two arrive as arguments and this import goes with them.
+    directory = SqliteCustomerDirectory()
+
     asked = 0
     for chat_id, phone in (await chats_without_crm_buyer())[:limit]:
         try:
-            await sync_orders(chat_id, phone, lookup)
+            await sync_orders(chat_id, phone, lookup, directory, SqliteUnitOfWork)
             # After the call and whatever it found. A customer the CRM has never
             # heard of has no card to record, and without this they would be
             # looked up again in two minutes, and again, for as long as they

@@ -27,8 +27,8 @@ def called(monkeypatch):
     """Replaces the scenario with a recorder that has its exact signature."""
     calls: list[tuple] = []
 
-    async def fake_sync(chat_id: int, phone: str, keycrm) -> None:
-        calls.append((chat_id, phone, keycrm))
+    async def fake_sync(chat_id: int, phone: str, keycrm, directory, unit) -> None:
+        calls.append((chat_id, phone, keycrm, directory, unit))
 
     async def fake_phone(chat_id: int) -> str:
         return PHONE
@@ -42,7 +42,20 @@ def test_the_refresh_reaches_the_scenario(called):
     """The regression: this raised TypeError and got no further."""
     keycrm = object()
     asyncio.run(handler._refresh_orders(CHAT, keycrm))
-    assert called == [(CHAT, PHONE, keycrm)]
+    [(chat_id, phone, source, directory, unit)] = called
+    assert (chat_id, phone, source) == (CHAT, PHONE, keycrm)
+
+
+def test_the_refresh_hands_over_storage_the_scenario_can_use(called):
+    """The handler picks the implementations because there is no composition
+    root yet, so this is where a wrong one would be chosen. The factory is the
+    class rather than an instance: the port is a callable taking user_id."""
+    from core.ports.repositories import CustomerDirectory, UnitOfWork
+
+    asyncio.run(handler._refresh_orders(CHAT, object()))
+    [(_c, _p, _k, directory, unit)] = called
+    assert isinstance(directory, CustomerDirectory)
+    assert isinstance(unit(user_id=CHAT), UnitOfWork)
 
 
 def test_the_number_is_looked_up_here_and_not_passed_in(called):

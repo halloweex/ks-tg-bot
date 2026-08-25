@@ -315,6 +315,20 @@ source_modules =
 forbidden_modules =
     core.repos
 
+[importlinter:contract:sync-orders-sees-ports-only]
+name = core.usecases.sync_orders не знает ни одного репозитория
+# Причина: первый сценарий, который вообще берёт `UnitOfWork` в руки. До него
+# юнит существовал, но его никто не создавал, то есть шов был написан и не
+# проверен ни одним потребителем. Правило держит его на порту, пока под ним ещё
+# SQLite: цена ошибки здесь — чужая история заказов, и найти её надо на шиме, а
+# не на движке.
+type = forbidden
+source_modules =
+    core.usecases.sync_orders
+forbidden_modules =
+    core.repos
+
+
 [importlinter:contract:broadcast-sees-ports-only]
 name = core.usecases.broadcast не знает ни одного репозитория
 # Причина: единственный сценарий, который пишет двадцать тысяч строк одним

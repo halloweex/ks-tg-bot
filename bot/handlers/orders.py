@@ -29,7 +29,8 @@ from core.repos.stock import (add_stock_subscription, get_stock_levels,
 from core.repos.catalogue import get_offers
 from core.repos.orders import (CANCELLED_STATUS_GROUP, get_cached_orders,
                                get_last_sync_time)
-from core.repos.users import get_user_phone
+from core.repos.uow import SqliteUnitOfWork
+from core.repos.users import SqliteCustomerDirectory, get_user_phone
 from bot.keyboards import (STYLE_CART, STYLE_LIST, STYLE_UNDO, cart_url,
                            discount_url, shop_url)
 from bot.screen import render, typing
@@ -559,7 +560,12 @@ async def _refresh_orders(chat_id: int, keycrm: KeyCRMClient) -> None:
     if not phone:
         return
     async with _refresh_semaphore:
-        await sync_orders(chat_id, phone, keycrm)
+        # The handles are built here, as in cmd_stats and _queue_broadcast: no
+        # composition root exists yet, so this is where it is known which engine
+        # is underneath. SqliteUnitOfWork is passed as the factory itself — the
+        # port is a callable taking user_id, and the class is one.
+        await sync_orders(chat_id, phone, keycrm,
+                          SqliteCustomerDirectory(), SqliteUnitOfWork)
 
 
 # ---------------------------------------------------------------------------
