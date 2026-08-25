@@ -57,6 +57,7 @@ from loguru import logger
 
 from core.domain.order import order_row
 from core.domain.phone import normalize_phone
+from core.domain.sync import read_stamp, write_stamp
 from core.ports.crm import ChangedOrderFeed, OrderSource
 from core.repos.orders import upsert_orders
 from core.repos.sync_state import (begin_run, finish_failure, finish_success,
@@ -85,12 +86,11 @@ RECONCILE_EVERY = timedelta(days=7)
 # the map existed — registration fills it in for everyone since.
 _RESOLVE_PER_SWEEP = 5
 
-# Both the CRM filter and SQLite's datetime() speak this, in UTC. Which is also
-# why there is no clock parameter on the repository: the row is stamped by the
-# database and read back against the process clock, and those are the same UTC
-# clock everywhere this runs. The only place the difference is visible is a test
-# pretending today is another day.
-_STAMP = "%Y-%m-%d %H:%M:%S"
+# The timestamp format lives in core.domain.sync now — see the note below
+# `SweepResult`. What stays here is the reason there is no clock parameter on
+# the repository: the row is stamped by the database and read back against the
+# process clock, and those are the same UTC clock everywhere this runs. The only
+# place the difference is visible is a test pretending today is another day.
 
 
 @dataclass(frozen=True)
@@ -109,24 +109,15 @@ class SweepResult:
     written: int
 
 
-def _stamp(moment: datetime) -> str:
-    return moment.strftime(_STAMP)
-
-
-def read_stamp(stamp: str | None) -> datetime | None:
-    """A timestamp as stored, or None if it is missing or unreadable.
-
-    Unreadable is treated as missing rather than raised on: the callers use it
-    to decide how far back to read, and the safe answer to "I cannot tell" is
-    the wider window. Public because the watchdog reads the same columns, and
-    two spellings of one format is how they would eventually disagree.
-    """
-    if not stamp:
-        return None
-    try:
-        return datetime.strptime(stamp, _STAMP).replace(tzinfo=timezone.utc)
-    except (TypeError, ValueError):
-        return None
+# `read_stamp` and `_stamp` are core.domain.sync's since commit 20, imported
+# above rather than defined here. The format had to move because both ends of
+# the new SyncJournal need it — the adapter to store a moment and read it back,
+# this sweep to place a window — and two spellings of one timestamp format is
+# how they eventually disagree, which for this table means a cursor that reads
+# as missing. The names stay reachable from this module because bot/sync.py
+# imports `read_stamp` from here; that goes when the watchdog takes the port,
+# in commit 21.
+_stamp = write_stamp
 
 
 def plan_window(state: dict | None, now: datetime) -> tuple[datetime, datetime, bool]:

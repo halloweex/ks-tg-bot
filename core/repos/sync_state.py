@@ -34,8 +34,11 @@ range and no customer.
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 import aiosqlite
 
+from core.domain.sync import SyncState, read_stamp, write_stamp
 from core.repos.base import connect
 
 # What fits in an alert message and a glance at the row. httpx errors carry the
@@ -105,3 +108,41 @@ async def get_state(source: str) -> dict | None:
         )
         row = await cursor.fetchone()
         return dict(row) if row else None
+
+
+class SqliteSyncJournal:
+    """Implements core.ports.repositories.SyncJournal against today's table.
+
+    The one adapter in this series that does more than rename a call: the
+    columns are TEXT and the port speaks `datetime`, so this is where a moment
+    becomes the stored spelling and back. Both directions go through
+    core.domain.sync, which is the only place the format is written down — the
+    scenario used to carry its own copy, and two copies of a timestamp format is
+    one wrong parse away from a cursor that reads as missing.
+
+    The plain functions keep their own callers and their own tests. The seam
+    moves; the statements do not.
+    """
+
+    async def begin(self, source: str) -> None:
+        await begin_run(source)
+
+    async def finished(self, source: str, cursor: datetime, *,
+                       full: bool = False) -> None:
+        await finish_success(source, write_stamp(cursor), full=full)
+
+    async def failed(self, source: str, error: str) -> None:
+        await finish_failure(source, error)
+
+    async def state(self, source: str) -> SyncState | None:
+        row = await get_state(source)
+        if row is None:
+            return None
+        return SyncState(
+            source=row["source"],
+            cursor=read_stamp(row["cursor"]),
+            last_run_at=read_stamp(row["last_run_at"]),
+            last_success_at=read_stamp(row["last_success_at"]),
+            last_error=row["last_error"],
+            last_full_at=read_stamp(row["last_full_at"]),
+        )

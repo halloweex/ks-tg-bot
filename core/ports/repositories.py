@@ -22,6 +22,7 @@ no policy filtering, and deliberately hard to write by accident.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from types import TracebackType
 from typing import Protocol, runtime_checkable
 
@@ -30,6 +31,7 @@ from core.domain.offer import Offer
 from core.domain.phone import VerifiedPhone
 from core.domain.referral import Earned
 from core.domain.stock import Waiting
+from core.domain.sync import SyncState
 
 
 @runtime_checkable
@@ -525,5 +527,78 @@ class CustomerDirectory(Protocol):
         the stamp were a side effect of writing cards would leave every
         card-less customer unstamped, which is the state that costs a request
         every two minutes forever.
+        """
+        ...
+
+
+@runtime_checkable
+class SyncJournal(Protocol):
+    """How far an integration has read, and whether it is still reading.
+
+    One row per source, and the three writes are three different facts rather
+    than one status being updated: a sweep started, a sweep finished the whole
+    window, a sweep did not. Collapsing them into `set_status` would lose the
+    distinction §5.5 rests on — "sweeps are happening and failing" and "nothing
+    is running at all" look identical from an error column and have different
+    causes and different fixes.
+
+    **Times cross this port, never strings.** The scenario decides which window
+    to read from a moment and hands back a moment; the spelling belongs to
+    whoever stores it, because it is TEXT here and would be timestamptz under
+    Postgres. That is also the safer direction: a format known in two places is
+    one wrong parse away from a cursor that reads as missing, and this cursor is
+    the one column where being wrong loses orders permanently.
+
+    Not on the UnitOfWork, and here it is nearly the opposite of the usual
+    reason. The cursor must *not* share the transaction that writes the orders
+    it covers: it is moved only after a whole window was read to the end, and a
+    failure that rolls the orders back must leave the cursor exactly where it
+    was rather than rolling it back to a value that was already behind. The two
+    writes are deliberately independent, which is what makes the overlap in
+    §5.2 a safety margin instead of a duplicate.
+    """
+
+    async def begin(self, source: str) -> None:
+        """Record that a sweep started. Creates the row on the first ever run.
+
+        Written at the start and not at the end, which is the whole point of it
+        being its own call: it is the only evidence that distinguishes a sweep
+        that failed from a sweep that never happened.
+        """
+        ...
+
+    async def finished(self, source: str, cursor: datetime, *,
+                       full: bool = False) -> None:
+        """The whole window was read: move the cursor and clear the error.
+
+        `cursor` is the upper bound of the window just completed. It moves here
+        and at no other moment — a cursor advanced on a partial read turns one
+        transient error into orders nobody ever fetches again, because the
+        window that contained them is behind it forever (§5.2).
+
+        `full` marks a weekly reconciliation, which covers its window regardless
+        of where the cursor was and therefore also satisfies the incremental
+        one. An ordinary sweep must leave the reconciliation's own timestamp
+        untouched rather than writing "now" over it, or the weekly pass is
+        postponed by every successful two-minute run and never happens again.
+        """
+        ...
+
+    async def failed(self, source: str, error: str) -> None:
+        """Record why a sweep did not finish, leaving the cursor where it was.
+
+        The cursor staying put is the contract, not a side effect: this is the
+        call that makes a transient failure cost freshness instead of data.
+        Truncating the message is the implementation's business — it is an
+        operational note for a person, and nothing reads it back as data.
+        """
+        ...
+
+    async def state(self, source: str) -> SyncState | None:
+        """The row, or None if this source has never been swept.
+
+        None rather than a blank state, because "never run" and "ran and found
+        nothing" are the two answers the watchdog has to tell apart, and a
+        zero-valued object would make the first look like the second.
         """
         ...
