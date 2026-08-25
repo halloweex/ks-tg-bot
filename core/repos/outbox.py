@@ -40,6 +40,7 @@ from datetime import datetime, timedelta, timezone
 import aiosqlite
 
 from core.domain.campaign import CampaignKey
+from core.domain.delivery import CampaignTotals, OnUncertain, QueuedMessage
 from core.repos.base import connect
 
 # How long a captured row stays claimed. §6.3 says two minutes: long enough for
@@ -339,3 +340,131 @@ async def prune(*, payload_after: timedelta = timedelta(days=7),
         await db.commit()
         return {"payloads_cleared": cleared.rowcount or 0,
                 "rows_dropped": dropped.rowcount or 0}
+
+
+# --- the ports, implemented ---------------------------------------------------
+# Two classes over the functions above, in the shape core/repos/uow.py uses: the
+# functions keep their callers and their tests, and the seam moves. Nothing here
+# is a new query.
+
+
+def _to_message(row: dict) -> QueuedMessage:
+    """One cursor row as the sender needs to see it.
+
+    Two coercions live here rather than in the scenario, which is the point of
+    the type: `respect_quiet` is 0 or 1 in SQLite and a bool in the domain, and
+    `payload` is JSON text here where a jsonb column would hand back a dict.
+    Both were done in core/usecases/notify.py against a raw row; doing them at
+    the edge is what stops the next engine's spelling reaching the scenario.
+
+    A payload that will not parse becomes {} rather than raising. The message
+    still has a chat and a campaign, and refusing to build it would take down a
+    whole sweep over one bad row — the same reasoning the scenario used.
+    """
+    try:
+        payload = json.loads(row.get("payload") or "{}")
+    except (TypeError, ValueError):
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    return QueuedMessage(
+        id=row["id"],
+        kind=row["type"],
+        chat_id=row["chat_id"],
+        payload=payload,
+        campaign_key=row.get("campaign_key") or "",
+        attempts=row["attempts"],
+        last_error=row.get("last_error"),
+        respect_quiet=bool(row["respect_quiet"]),
+    )
+
+
+class SqliteMessageQueue:
+    """Implements core.ports.outbox.MessageQueue against today's table."""
+
+    async def queue(
+        self,
+        chat_id: int,
+        kind: str,
+        campaign: CampaignKey,
+        payload: dict,
+        *,
+        dedup_key: str | None = None,
+        on_uncertain: OnUncertain = OnUncertain.RETRY,
+        respect_quiet: bool = True,
+    ) -> int | None:
+        return await enqueue(
+            chat_id, kind, campaign, payload,
+            dedup_key=dedup_key,
+            on_uncertain=on_uncertain,
+            respect_quiet=respect_quiet,
+        )
+
+    async def queue_all(
+        self,
+        chat_ids: list[int],
+        kind: str,
+        campaign: CampaignKey,
+        payload: dict,
+        *,
+        dedup_prefix: str | None = None,
+        on_uncertain: OnUncertain = OnUncertain.RETRY,
+    ) -> int:
+        return await enqueue_many(
+            chat_ids, kind, campaign, payload,
+            on_uncertain=on_uncertain,
+            dedup_prefix=dedup_prefix,
+        )
+
+    async def campaign_totals(self, campaign: CampaignKey) -> CampaignTotals:
+        stats = await campaign_stats(str(campaign))
+        return CampaignTotals(
+            waiting=stats["waiting"],
+            sent=stats["sent"],
+            failed=stats["failed"],
+            blocked=stats["blocked"],
+        )
+
+
+class SqlitePendingMessages:
+    """Implements core.ports.outbox.PendingMessages against today's table.
+
+    `not_before` and `LOCK_FOR` stay off the port and out of this class. Neither
+    is imported by any scenario — scheduling a message into the future has no
+    caller — and surface added before a caller is surface that gets misused
+    before it gets used.
+    """
+
+    async def take_due(
+        self, limit: int = 50, *, now: datetime | None = None
+    ) -> list[QueuedMessage]:
+        return [_to_message(row) for row in await claim(limit, now=now)]
+
+    async def left_in_doubt(
+        self, *, now: datetime | None = None
+    ) -> list[QueuedMessage]:
+        return [_to_message(row) for row in await uncertain(now=now)]
+
+    async def mark_sent(self, message_id: int) -> None:
+        await mark_sent(message_id)
+
+    async def retry_later(
+        self,
+        message_id: int,
+        error: str,
+        *,
+        wait: timedelta,
+        now: datetime | None = None,
+    ) -> None:
+        await mark_failed(message_id, error, retry_in=wait, now=now)
+
+    async def shelve(
+        self, message_id: int, reason: str, *, recipient_gone: bool = False
+    ) -> None:
+        """The caller states the fact; the prefix stays an implementation detail.
+
+        The stored text is unchanged — the same "recipient gone: ..." the sender
+        used to compose itself — so the LIKE in campaign_stats keeps counting
+        blocked apart from failed.
+        """
+        await park(message_id, f"{GONE_PREFIX} {reason}" if recipient_gone else reason)

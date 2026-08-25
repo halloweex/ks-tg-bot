@@ -26,9 +26,11 @@ import inspect
 import pytest
 
 from core.ports.analytics import UsageStats
+from core.ports.outbox import MessageQueue, PendingMessages
 from core.ports.repositories import OfferCache, OrderCache, UnitOfWork, UserProfiles
 from core.repos.catalogue import SqliteOfferCache
 from core.repos.events import SqliteUsageStats
+from core.repos.outbox import SqliteMessageQueue, SqlitePendingMessages
 from core.repos.pg import PgOrderCache, PgUserProfiles, SqlUnitOfWork
 from core.repos.uow import SqliteOrderCache, SqliteUnitOfWork, SqliteUserProfiles
 
@@ -45,6 +47,8 @@ PAIRS = [
     (UnitOfWork, SqlUnitOfWork),
     (OfferCache, SqliteOfferCache),
     (UsageStats, SqliteUsageStats),
+    (MessageQueue, SqliteMessageQueue),
+    (PendingMessages, SqlitePendingMessages),
 ]
 
 
@@ -95,4 +99,5 @@ def test_every_port_in_the_migration_is_covered_here():
     so it is the one thing stated out loud.
     """
     covered = {port for port, _ in PAIRS}
-    assert covered == {OrderCache, UserProfiles, UnitOfWork, OfferCache, UsageStats}
+    assert covered == {OrderCache, UserProfiles, UnitOfWork, OfferCache, UsageStats,
+                       MessageQueue, PendingMessages}
