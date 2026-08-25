@@ -151,10 +151,34 @@ def test_every_screen_the_menu_opens_can_bring_it_back():
     """A menu entry replaces the menu message with the section, so each
     section carries the way back. Without it the only route is the keyboard
     below the input field, which answers with a new message — the trail all of
-    this exists to avoid."""
-    from bot.keyboards import info_menu_kb, settings_menu_kb
+    this exists to avoid.
 
-    for keyboard in (info_menu_kb(T), settings_menu_kb(T)):
+    Every screen, not only the sub-menus: this was reported from a chat where
+    somebody opened their orders and could not get out of them."""
+    import json
+
+    from bot.handlers.orders import _favourites_kb, _no_orders_kb, _orders_kb
+    from bot.keyboards import info_menu_kb, menu_kb, settings_menu_kb, website_kb
+    from core.domain.offer import Offer
+
+    order = {"id": 1, "order_name": "", "status_name": "completed",
+             "status_group_id": 1, "grand_total": 100, "currency": "грн",
+             "ordered_at": "2026-08-01T10:00:00", "tracking_code": "",
+             "products_json": json.dumps([{"name": "A", "qty": 1, "sku": "1"}])}
+    favourite = {"name": "A", "sku": "1", "orders": 2, "qty": 2, "last": "2026-08-01"}
+    offer = Offer(sku="1", variant_id=1, handle="h", title="A", price="680",
+                  available=True)
+
+    screens = (
+        info_menu_kb(T),
+        settings_menu_kb(T),
+        website_kb(T, SHOP),
+        menu_kb(T),
+        _orders_kb([order], T),
+        _no_orders_kb(T),
+        _favourites_kb([favourite], {"1": offer}, {}, set(), T, SHOP),
+    )
+    for keyboard in screens:
         actions = {MenuAction.unpack(b.callback_data).action
                    for row in keyboard.inline_keyboard for b in row
                    if b.callback_data and b.callback_data.startswith("menu:")}

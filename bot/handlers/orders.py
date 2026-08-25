@@ -381,6 +381,12 @@ def _orders_kb(
     if nav:
         layout.append(len(nav))
 
+    # Last row, and on every screen the menu opens: a menu entry replaces the
+    # menu message with the section, so without this the only way back is the
+    # keyboard below the input field — which answers with a new message.
+    builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="menu"))
+    layout.append(1)
+
     builder.adjust(*layout)
     return builder.as_markup()
 
@@ -394,6 +400,8 @@ def _no_orders_kb(t: Texts) -> InlineKeyboardMarkup:
     """
     builder = InlineKeyboardBuilder()
     builder.button(text=t.BTN_SUPPORT, callback_data=MenuAction(action="support"))
+    builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="menu"))
+    builder.adjust(1)
     return builder.as_markup()
 
 
@@ -778,6 +786,9 @@ def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
         rows += 1
 
     builder.button(text=t.BTN_WANT_DISCOUNT, callback_data=DiscountAction(action="ask"))
+    rows += 1
+    # The way back, for the same reason it is on every other screen.
+    builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="menu"))
     rows += 1
     builder.adjust(*([1] * rows))
     return builder.as_markup()

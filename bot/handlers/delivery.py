@@ -5,9 +5,11 @@ import json
 from datetime import datetime
 from html import escape
 
-from aiogram.types import Message
+from aiogram.types import InlineKeyboardMarkup, Message
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from core import texts
+from bot.callbacks import MenuAction
 from core.i18n import Texts
 from bot.analytics import track
 from core.repos.orders import get_cached_orders, get_orders_with_tracking
@@ -86,20 +88,28 @@ def _format_delivery_block(row: dict, tracking_info: dict | None, t: Texts) -> s
     return "\n".join(lines + parcel_lines(row, tracking_info, t))
 
 
+def _menu_kb(t: Texts) -> InlineKeyboardMarkup:
+    """The way back. Nothing else on this screen is pressable."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="menu"))
+    return builder.as_markup()
+
+
 async def delivery_screen(
     chat_id: int,
     t: Texts,
     novaposhta: NovaPoshtaClient | None,
     anchor: Message,
-) -> tuple[str, None]:
+) -> tuple[str, InlineKeyboardMarkup]:
     """The delivery screen: every parcel with a TTN, live from Nova Poshta.
 
-    Returns no keyboard — there is nothing to press here, and the menu is the
-    keyboard under the input field.
+    Reachable only from a keyboard sent before «🚚 Відслідкувати замовлення»
+    left the menu — what it answers now lives on the order card. Kept working,
+    and given the way back that every other screen has.
     """
     phone = await get_user_phone(chat_id)
     if not phone:
-        return t.ERR_PHONE_NOT_FOUND, None
+        return t.ERR_PHONE_NOT_FOUND, _menu_kb(t)
 
     tracked_orders = await get_orders_with_tracking(chat_id)
     track(chat_id, "delivery_viewed", found=len(tracked_orders))
@@ -107,7 +117,8 @@ async def delivery_screen(
     if not tracked_orders:
         # Distinguish "nothing shipped yet" from "nothing ordered yet".
         all_orders = await get_cached_orders(chat_id)
-        return (t.MSG_DELIVERY_NO_TRACKING if all_orders else t.MSG_NO_DELIVERIES), None
+        return ((t.MSG_DELIVERY_NO_TRACKING if all_orders else t.MSG_NO_DELIVERIES),
+                _menu_kb(t))
 
     # Nova Poshta can take a few seconds per parcel; show life instead of silence.
     await typing(anchor)
@@ -130,4 +141,4 @@ async def delivery_screen(
         blocks.append(block)
         current_len += len(block) + 4
 
-    return t.MSG_DELIVERY_HEADER + "\n\n" + "\n\n".join(blocks), None
+    return t.MSG_DELIVERY_HEADER + "\n\n" + "\n\n".join(blocks), _menu_kb(t)

@@ -193,9 +193,23 @@ def main_menu_inline_kb(t: Texts, website_url: str) -> InlineKeyboardMarkup:
 
 
 def website_kb(t: Texts, website_url: str) -> InlineKeyboardMarkup:
-    """The shop link, which only an inline button can carry."""
+    """The shop link, which only an inline button can carry — and the way back."""
     builder = InlineKeyboardBuilder()
     builder.button(text=t.BTN_WEBSITE, url=tagged_website_url(website_url))
+    builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="menu"))
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def menu_kb(t: Texts) -> InlineKeyboardMarkup:
+    """Just the way back, for a screen with nothing else to press.
+
+    The support prompt is the one: while it is on screen the customer is
+    expected to type, and until this existed the only way out of that was to
+    type something.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="menu"))
     return builder.as_markup()
 
 

@@ -36,7 +36,7 @@ from core.config import AppConfig
 from bot.handlers.delivery import delivery_screen
 from bot.handlers.orders import (favourites_screen, follow_up_parcel,
                                  orders_screen)
-from bot.keyboards import (info_menu_kb, main_menu_inline_kb,
+from bot.keyboards import (info_menu_kb, main_menu_inline_kb, menu_kb,
                            settings_menu_kb, website_kb)
 from bot.screen import render, send_main_menu
 from core.adapters.keycrm.client import KeyCRMClient
@@ -110,7 +110,7 @@ async def open_support(message: Message, state: FSMContext, t: Texts) -> None:
     """💬 — hand the conversation to a person."""
     track(message.chat.id, "support_opened")
     await state.set_state(SupportStates.waiting_message)
-    await message.answer(t.MSG_SUPPORT_PROMPT)
+    await message.answer(t.MSG_SUPPORT_PROMPT, reply_markup=menu_kb(t))
 
 
 @_menu("BTN_INFO")
@@ -215,7 +215,7 @@ async def support_from_menu(
     await callback.answer()
     track(callback.from_user.id, "support_opened")
     await state.set_state(SupportStates.waiting_message)
-    await render(callback, t.MSG_SUPPORT_PROMPT)
+    await render(callback, t.MSG_SUPPORT_PROMPT, menu_kb(t))
 
 
 @router.callback_query(MenuAction.filter(F.action == "menu"))
@@ -250,7 +250,7 @@ async def support_from_screen(
     await callback.answer()
     track(callback.from_user.id, "support_opened")
     await state.set_state(SupportStates.waiting_message)
-    await render(callback, t.MSG_SUPPORT_PROMPT)
+    await render(callback, t.MSG_SUPPORT_PROMPT, menu_kb(t))
 
 
 @router.callback_query(InfoAction.filter(F.page == "back"))

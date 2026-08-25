@@ -83,7 +83,9 @@ def wired(monkeypatch):
 
 def _render(novaposhta=None) -> str:
     text, markup = asyncio.run(screen.delivery_screen(CHAT, T, novaposhta, anchor=object()))
-    assert markup is None, "the delivery screen carries no keyboard by design"
+    # One button, and only one: the way back to the menu. The screen used to
+    # carry none, from when the menu was always under the input field.
+    assert [b.text for row in markup.inline_keyboard for b in row] == [T.BTN_MENU]
     return text
 
 

@@ -65,12 +65,12 @@ def _labels(buttons):
 
 
 def _products(buttons):
-    """Everything but the way into the inline panel.
+    """Everything but the way into the inline panel and the way back to the menu.
 
-    That one is the first button on the screen and is about the whole list
-    rather than about any one product, so the tests below — which are all about
-    one product — count from after it."""
-    return [b for b in buttons if b.switch_inline_query_current_chat is None]
+    Those two are about the screen rather than about any one product, and the
+    tests below are all about one product."""
+    return [b for b in buttons
+            if b.switch_inline_query_current_chat is None and b.text != T.BTN_MENU]
 
 
 # --- the buy button --------------------------------------------------------
