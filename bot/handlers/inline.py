@@ -36,9 +36,9 @@ from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (CallbackQuery, InlineKeyboardButton,
                            InlineKeyboardMarkup, InlineQuery,
-                           InlineQueryResultArticle, InlineQueryResultPhoto,
-                           InlineQueryResultsButton,
-                           InputTextMessageContent, SwitchInlineQueryChosenChat)
+                           InlineQueryResultArticle, InlineQueryResultsButton,
+                           InputTextMessageContent, LinkPreviewOptions,
+                           SwitchInlineQueryChosenChat)
 from loguru import logger
 
 from core import texts
@@ -299,33 +299,27 @@ async def _answer_invite(query: InlineQuery, t: Texts, config: AppConfig) -> Non
         InlineKeyboardButton(text=t.BTN_INVITE_OPEN, url=link)]])
     track(query.from_user.id, "invite_offered")
 
-    # The card itself, when there is one published: an invitation that arrives
-    # as the shop's own colours is a different thing from an invitation that
-    # arrives as a link. JPEG because the Bot API says a photo result must be
-    # one, and a url because Telegram fetches it itself.
-    result = (
-        InlineQueryResultPhoto(
-            id=f"i{query.from_user.id}",
-            photo_url=config.invite_card_url,
-            thumbnail_url=config.invite_card_url,
-            title=config.brand_name,
-            description=t.MSG_INVITE_ROW,
-            caption=caption,
-            parse_mode="HTML",
-            reply_markup=keyboard,
-        )
+    # An article rather than a photo result, and the card arrives as the link
+    # preview above the text. A photo result turns the panel into a gallery of
+    # thumbnails with no label on them, and the first person to use this could
+    # not tell there was anything to tap.
+    preview = (
+        LinkPreviewOptions(url=config.invite_card_url, prefer_large_media=True,
+                           show_above_text=True)
         if config.invite_card_url else
-        InlineQueryResultArticle(
-            id=f"i{query.from_user.id}",
-            title=config.brand_name,
-            description=t.MSG_INVITE_ROW,
-            input_message_content=InputTextMessageContent(
-                message_text=caption, parse_mode="HTML"),
-            reply_markup=keyboard,
-        )
+        LinkPreviewOptions(is_disabled=True)
     )
     await query.answer(
-        [result],
+        [InlineQueryResultArticle(
+            id=f"i{query.from_user.id}",
+            title=config.brand_name,
+            description=t.MSG_INVITE_ROW,
+            thumbnail_url=config.invite_card_url or None,
+            input_message_content=InputTextMessageContent(
+                message_text=caption, parse_mode="HTML",
+                link_preview_options=preview),
+            reply_markup=keyboard,
+        )],
         # Per person: the link in it is theirs, and a shared cache would hand
         # the next sharer somebody else's referral.
         cache_time=300,

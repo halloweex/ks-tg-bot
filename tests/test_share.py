@@ -230,13 +230,18 @@ def test_the_same_button_without_a_sku_invites_the_bot(db):
 
 
 def test_the_invitation_arrives_as_the_shops_own_card(db):
-    """An invitation in the brand's colours is a different thing from a link."""
+    """An invitation in the brand's colours is a different thing from a link —
+    and it arrives as the preview above the text rather than as a photo result,
+    because a photo result turns the panel into unlabelled thumbnails that the
+    first person to use this could not tell were tappable."""
     query = _Query("поділитися")
     asyncio.run(inline_list(query, T, _config()))
     row = query.results[0]
-    assert row.photo_url == CARD
-    assert "Korean Story" in row.caption
-    assert str(CHAT) not in row.caption
+    assert row.description == T.MSG_INVITE_ROW, "the row says what it does"
+    preview = row.input_message_content.link_preview_options
+    assert preview.url == CARD and preview.prefer_large_media
+    assert "Korean Story" in row.input_message_content.message_text
+    assert str(CHAT) not in row.input_message_content.message_text
 
 
 def test_without_a_published_card_the_invitation_is_still_sent(db):
@@ -245,6 +250,7 @@ def test_without_a_published_card_the_invitation_is_still_sent(db):
     asyncio.run(inline_list(query, T, _config(invite_card_url="")))
     row = query.results[0]
     assert "Korean Story" in row.input_message_content.message_text
+    assert row.input_message_content.link_preview_options.is_disabled
     assert row.reply_markup.inline_keyboard[0][0].url.endswith(str(CHAT))
 
 
