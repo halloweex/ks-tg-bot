@@ -105,14 +105,23 @@ def product_url(website_url: str, handle: str, lang: str = "uk",
     return f"{website_url.rstrip('/')}/products/{handle}?{_tags(campaign, lang)}"
 
 
-def share_phone_kb(t: Texts) -> ReplyKeyboardMarkup:
+def share_phone_kb(t: Texts, *, with_manager: bool = False) -> ReplyKeyboardMarkup:
     """Reply keyboard with the single request_contact button.
 
     request_contact is the only way to prove phone ownership: Telegram fills in
     contact.user_id with the sender's own id, which handlers verify.
+
+    `with_manager` adds a second key, for the one outcome where pressing the
+    first again cannot help: the contact arrived and the number inside it did
+    not parse. Sharing it once more produces the same number and the same
+    refusal, so that screen needs an exit that is not the button that just
+    failed.
     """
+    keyboard = [[KeyboardButton(text=t.BTN_SHARE_PHONE, request_contact=True)]]
+    if with_manager:
+        keyboard.append([KeyboardButton(text=t.BTN_SUPPORT)])
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=t.BTN_SHARE_PHONE, request_contact=True)]],
+        keyboard=keyboard,
         resize_keyboard=True,
         one_time_keyboard=True,
     )

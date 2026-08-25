@@ -57,7 +57,10 @@ EN: dict[str, str] = {
         "We couldn't find any orders for this number.\n"
         "Please check the number or contact support."
     ),
-    "ERR_INVALID_PHONE": "Invalid number format. Please use the international format, e.g. +380XXXXXXXXX.",
+    "ERR_INVALID_PHONE": (
+        "We could not read the number from your Telegram profile.\n"
+        "Tap «💬 Manager» and we will add it by hand."
+    ),
     "BTN_ORDERS": "📦 Orders",
     "BTN_INFO": "ℹ️ Help",
     "BTN_SUPPORT": "💬 Manager",

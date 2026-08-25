@@ -51,7 +51,10 @@ ERR_PHONE_NOT_FOUND = (
     "На жаль, ми не знайшли замовлень за цим номером.\n"
     "Перевір номер або напиши менеджеру — розберемось разом."
 )
-ERR_INVALID_PHONE = "Невірний формат номера. Введи у міжнародному форматі, наприклад +380XXXXXXXXX."
+ERR_INVALID_PHONE = (
+    "Не вдалося розібрати номер із твого профілю Telegram.\n"
+    "Натисни «💬 Менеджер» — підключимо номер вручну."
+)
 
 # Main menu buttons. Short by design: the menu is laid out two and three to a
 # row, and a long label there wraps to two lines and makes the grid ragged.

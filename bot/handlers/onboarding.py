@@ -6,17 +6,17 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from loguru import logger
 
-from core.i18n import Texts
+from core.i18n import Texts, variants
 from bot.analytics import track
 from core.config import AppConfig
 from core.effects import CONFETTI
-from bot.keyboards import share_phone_kb
+from bot.keyboards import menu_kb, share_phone_kb
 from bot.handlers.orders import first_order_kb, first_order_offer
 from bot.screen import send_main_menu, typing
 from core.adapters.keycrm.client import KeyCRMClient
 from core.domain.phone import VerifiedPhone, verified_phone
 from core.usecases.register import register_customer
-from bot.states import OnboardingStates
+from bot.states import OnboardingStates, SupportStates
 
 router = Router()
 
@@ -94,7 +94,9 @@ async def process_contact(
     phone = own_contact_phone(message)
     if not phone:
         track(message.chat.id, "contact_rejected", reason="invalid")
-        await message.answer(t.ERR_INVALID_PHONE, reply_markup=share_phone_kb(t))
+        await message.answer(
+            t.ERR_INVALID_PHONE, reply_markup=share_phone_kb(t, with_manager=True)
+        )
         return
     logger.info("Verified own contact registered for chat {}", message.chat.id)
 
@@ -104,6 +106,23 @@ async def process_contact(
     # be read minutes later as if it were news.
     await typing(message)
     await _register_user(message, state, phone, config, t, keycrm=keycrm)
+
+
+@router.message(OnboardingStates.waiting_phone, F.text.in_(variants("BTN_SUPPORT")))
+async def escape_to_support(message: Message, state: FSMContext, t: Texts) -> None:
+    """The exit from the share-phone flow, and the only one it has.
+
+    Menu keys are filtered out while a number is being shared (see menu.py):
+    for every other key that is right, because letting it through abandons the
+    flow halfway. This one is different — it is offered by the keyboard the
+    flow itself sends after a number it could not read, and pressing the share
+    button again would only reproduce the refusal. Handled here, where the
+    state is, and registered above the catch-all that would otherwise answer
+    "the number cannot be typed" to a button the bot drew.
+    """
+    track(message.chat.id, "support_opened", source="share_phone")
+    await state.set_state(SupportStates.waiting_message)
+    await message.answer(t.MSG_SUPPORT_PROMPT, reply_markup=menu_kb(t))
 
 
 @router.message(OnboardingStates.waiting_phone)

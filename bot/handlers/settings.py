@@ -5,15 +5,15 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from core.i18n import Texts, normalize
+from core.i18n import Texts, normalize, variants
 from bot.callbacks import SettingsAction
 from bot.analytics import track
 from core.config import AppConfig
 from core.repos.users import save_user, set_user_language
 from bot.handlers.onboarding import own_contact_phone
-from bot.keyboards import language_kb, share_phone_kb
+from bot.keyboards import language_kb, menu_kb, share_phone_kb
 from bot.screen import render, send_main_menu
-from bot.states import SettingsStates
+from bot.states import SettingsStates, SupportStates
 
 router = Router()
 
@@ -47,13 +47,27 @@ async def process_new_contact(
 
     phone = own_contact_phone(message)
     if not phone:
-        await message.answer(t.ERR_INVALID_PHONE, reply_markup=share_phone_kb(t))
+        await message.answer(
+            t.ERR_INVALID_PHONE, reply_markup=share_phone_kb(t, with_manager=True)
+        )
         return
 
     await save_user(message.chat.id, phone.e164)
     await state.clear()
     # Sending the menu keyboard replaces the share-phone one it is answering.
     await send_main_menu(message, t, config, t.MSG_PHONE_CHANGED)
+
+
+@router.message(SettingsStates.waiting_new_phone, F.text.in_(variants("BTN_SUPPORT")))
+async def escape_to_support(message: Message, state: FSMContext, t: Texts) -> None:
+    """The same exit as in onboarding, for the same unreadable number.
+
+    Changing a phone hits the identical wall: the contact parses or it does
+    not, and the customer cannot type their way around it.
+    """
+    track(message.chat.id, "support_opened", source="share_phone")
+    await state.set_state(SupportStates.waiting_message)
+    await message.answer(t.MSG_SUPPORT_PROMPT, reply_markup=menu_kb(t))
 
 
 @router.message(SettingsStates.waiting_new_phone)
