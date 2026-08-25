@@ -263,6 +263,18 @@ source_modules =
 forbidden_modules =
     core.repos
 
+
+[importlinter:contract:notify-sees-ports-only]
+name = core.usecases.notify не знает ни одного репозитория
+# Причина: единственный отправитель. Он решает, что значит неудачная отправка —
+# повторить, отложить или положить на полку, — и отвечать за это он должен
+# против поддельной очереди, а не против файла на диске.
+type = forbidden
+source_modules =
+    core.usecases.notify
+forbidden_modules =
+    core.repos
+
 [importlinter:contract:ports-are-only-signatures]
 name = core.ports не знает ничего, кроме домена
 # Причина: порт — это Protocol и ничего больше. Любой его импорт немедленно

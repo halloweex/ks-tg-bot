@@ -14,11 +14,23 @@ import pytest
 from core.domain.campaign import CampaignKey
 from core.ports.notifier import RateLimited, RecipientGone
 from core.repos import base as repos_base
-from core.repos import outbox
-from core.repos.outbox import LOCK_FOR, MAX_ATTEMPTS, REVIEW, claim, enqueue
+from core.repos.outbox import (LOCK_FOR, REVIEW, SqlitePendingMessages, claim,
+                              enqueue)
 from core.repos.schema import init_db
-from core.repos.users import is_opted_out, save_user
-from core.usecases.notify import backoff, deliver_once
+from core.repos.users import SqliteMailingList, is_opted_out, save_user
+from core.usecases.notify import MAX_ATTEMPTS, backoff, deliver_once
+
+
+def _deliver(notifier, **kwargs):
+    """One pass, wired to the real SQLite queue and mailing list.
+
+    The scenario takes both as arguments now. Writing that out at fourteen call
+    sites would say nothing fourteen times; what the tests are about is what
+    happens to a message, and that is what stays visible above.
+    """
+    return deliver_once(
+        notifier, SqlitePendingMessages(), SqliteMailingList(), **kwargs
+    )
 
 CHAT = 555
 CAMPAIGN = CampaignKey("stock", "260819")
@@ -70,7 +82,7 @@ def _row(message_id: int) -> dict:
 
 def test_a_due_message_is_sent_and_marked(db):
     message_id = _put()
-    result = asyncio.run(deliver_once(FakeNotifier(), now=NOON))
+    result = asyncio.run(_deliver(FakeNotifier(), now=NOON))
 
     assert result.sent == 1
     assert _row(message_id)["sent_at"] is not None
@@ -81,13 +93,13 @@ def test_the_campaign_key_travels_with_the_payload(db):
     be handed it — the row knows it, the payload did not."""
     _put(payload={"text": "back in stock"})
     notifier = FakeNotifier()
-    asyncio.run(deliver_once(notifier, now=NOON))
+    asyncio.run(_deliver(notifier, now=NOON))
 
     assert notifier.sent[0][1]["campaign_key"] == "stock.260819"
 
 
 def test_nothing_due_is_a_quiet_pass(db):
-    result = asyncio.run(deliver_once(FakeNotifier(), now=NOON))
+    result = asyncio.run(_deliver(FakeNotifier(), now=NOON))
     assert result == type(result)()
 
 
@@ -96,12 +108,12 @@ def test_at_night_the_message_still_goes_but_silently(db):
     It arrives without a sound and is waiting, unread and unresented."""
     _put(not_before=NIGHT)
     notifier = FakeNotifier()
-    asyncio.run(deliver_once(notifier, now=NIGHT))
+    asyncio.run(_deliver(notifier, now=NIGHT))
 
     assert notifier.sent[0][2] is True
     notifier_day = FakeNotifier()
     _put()
-    asyncio.run(deliver_once(notifier_day, now=NOON))
+    asyncio.run(_deliver(notifier_day, now=NOON))
     assert notifier_day.sent[0][2] is False
 
 
@@ -111,7 +123,7 @@ def test_a_rate_limit_reschedules_by_the_wait_the_transport_named(db):
     """Guessing shorter earns another 429; guessing longer wastes the time it
     just told us about."""
     message_id = _put()
-    asyncio.run(deliver_once(FakeNotifier(RateLimited(45)), now=NOON))
+    asyncio.run(_deliver(FakeNotifier(RateLimited(45)), now=NOON))
 
     row = _row(message_id)
     assert row["sent_at"] is None
@@ -126,7 +138,7 @@ def test_a_blocked_chat_is_parked_and_unsubscribed(db):
     asyncio.run(save_user(CHAT, "+380670000000"))
     message_id = _put()
 
-    result = asyncio.run(deliver_once(FakeNotifier(RecipientGone("blocked")), now=NOON))
+    result = asyncio.run(_deliver(FakeNotifier(RecipientGone("blocked")), now=NOON))
 
     assert (result.parked, result.unsubscribed) == (1, 1)
     assert _row(message_id)["failed_at"] is not None
@@ -135,7 +147,7 @@ def test_a_blocked_chat_is_parked_and_unsubscribed(db):
 
 def test_an_unknown_failure_is_retried_with_a_backoff(db):
     message_id = _put()
-    asyncio.run(deliver_once(FakeNotifier(RuntimeError("bad gateway")), now=NOON))
+    asyncio.run(_deliver(FakeNotifier(RuntimeError("bad gateway")), now=NOON))
 
     row = _row(message_id)
     assert row["last_error"].startswith("RuntimeError")
@@ -156,7 +168,7 @@ def test_a_message_that_will_never_send_lands_on_the_shelf(db):
 
     moment = NOON
     for _ in range(MAX_ATTEMPTS + 1):
-        asyncio.run(deliver_once(notifier, now=moment))
+        asyncio.run(_deliver(notifier, now=moment))
         moment += timedelta(hours=1)
 
     row = _row(message_id)
@@ -174,7 +186,7 @@ def test_a_broadcast_left_in_doubt_is_parked_rather_than_resent(db):
     asyncio.run(claim(now=NOON))          # captured, then the process "dies"
 
     notifier = FakeNotifier()
-    result = asyncio.run(deliver_once(notifier, now=NOON + LOCK_FOR + timedelta(minutes=1)))
+    result = asyncio.run(_deliver(notifier, now=NOON + LOCK_FOR + timedelta(minutes=1)))
 
     assert notifier.sent == []
     assert result.parked == 1
@@ -188,7 +200,7 @@ def test_a_delivery_status_left_in_doubt_is_sent_again(db):
     asyncio.run(claim(now=NOON))
 
     notifier = FakeNotifier()
-    result = asyncio.run(deliver_once(notifier, now=NOON + LOCK_FOR + timedelta(minutes=1)))
+    result = asyncio.run(_deliver(notifier, now=NOON + LOCK_FOR + timedelta(minutes=1)))
 
     assert result.sent == 1
     assert len(notifier.sent) == 1
@@ -211,7 +223,7 @@ def test_one_failing_message_does_not_hold_up_the_others(db):
     asyncio.run(enqueue(557, "stock", CAMPAIGN, {"text": "hi"}, not_before=NOON))
 
     notifier = OnlyChatOneFails()
-    result = asyncio.run(deliver_once(notifier, now=NOON))
+    result = asyncio.run(_deliver(notifier, now=NOON))
 
     assert notifier.sent == [556, 557]
     assert (result.sent, result.retried) == (2, 1)
@@ -231,7 +243,7 @@ def test_a_pruned_payload_does_not_take_the_pass_down(db):
 
     asyncio.run(blank())
     notifier = FakeNotifier()
-    result = asyncio.run(deliver_once(notifier, now=NOON))
+    result = asyncio.run(_deliver(notifier, now=NOON))
 
     assert result.sent == 1
     assert notifier.sent[0][1] == {"campaign_key": "stock.260819"}
@@ -239,5 +251,5 @@ def test_a_pruned_payload_does_not_take_the_pass_down(db):
 
 def test_the_pass_reports_what_it_did(db):
     _put()
-    assert asyncio.run(deliver_once(FakeNotifier(), now=NOON)).touched == 1
-    assert outbox.MAX_ATTEMPTS == 5
+    assert asyncio.run(_deliver(FakeNotifier(), now=NOON)).touched == 1
+    assert MAX_ATTEMPTS == 5, "the sender owns this number now"

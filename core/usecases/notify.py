@@ -7,7 +7,7 @@ patience.
 
 What one pass does, in order:
 
-1. **Park what nobody can resolve.** A row whose lock expired without being
+1. **Shelve what nobody can resolve.** A row whose lock expired without being
    released, on a type that would rather be missed than doubled (§6.2), is put
    on the shelf. It is the only outcome that is neither sent nor retried, and
    leaving it in the queue would mean a broadcast that resends itself after
@@ -21,6 +21,10 @@ Quiet hours are applied here rather than in the transport: the rule is the
 shop's (§ core.domain.quiet), and the transport only does as it is told. Nothing
 is deferred until morning — a restock at 03:00 is still true at 03:00, it simply
 arrives without a sound.
+
+The queue and the mailing list arrive as arguments. This scenario is the one
+that decides what a failed send means, and it should be answerable for that
+against a fake queue rather than against a file on disk.
 """
 from __future__ import annotations
 
@@ -29,11 +33,21 @@ from datetime import datetime, timedelta, timezone
 
 from loguru import logger
 
+from core.domain.delivery import QueuedMessage
 from core.domain.quiet import is_quiet_now
 from core.ports.notifier import Notifier, RateLimited, RecipientGone
-from core.repos.outbox import (GONE_PREFIX, MAX_ATTEMPTS, claim, mark_failed,
-                               mark_sent, park, uncertain)
-from core.repos.users import opt_out_user
+from core.ports.outbox import PendingMessages
+from core.ports.users import MailingList
+
+# How many captures one message gets before it goes on the shelf. Five, because
+# the failures worth retrying are transient by definition — a network blip, a
+# rate limit — and anything surviving five attempts is a message that will never
+# be sent, quietly costing a send slot every two minutes.
+#
+# The sender's policy, so it lives with the sender. It sat in the repository
+# only because that is where `attempts` is incremented, and nothing there ever
+# read it: capture does not filter on attempts, this loop decides.
+MAX_ATTEMPTS = 5
 
 # The first retry waits a minute, then two, four, eight — capped, because past
 # half an hour the wait is no longer about the failure and a person should be
@@ -68,64 +82,82 @@ def backoff(attempts: int) -> timedelta:
 
 
 async def deliver_once(
-    notifier: Notifier, *, limit: int = 50, now: datetime | None = None
+    notifier: Notifier,
+    pending: PendingMessages,
+    mailing: MailingList,
+    *,
+    limit: int = 50,
+    now: datetime | None = None,
 ) -> Delivered:
     """One pass over what is due. Returns what happened to it."""
     moment = now or datetime.now(timezone.utc)
     sent = retried = parked = unsubscribed = 0
 
-    for row in await uncertain(now=moment):
+    for message in await pending.left_in_doubt(now=moment):
         # Not a failure of this pass: it is a message from before a crash whose
-        # type refuses to guess. Parked so that it is visible and finite.
-        await park(row["id"], "left in doubt by a restart; policy is review")
+        # type refuses to guess. Shelved so that it is visible and finite.
+        await pending.shelve(
+            message.id, "left in doubt by a restart; policy is review"
+        )
         parked += 1
         logger.warning(
             "Outbox: {} #{} parked for review — a restart left it unresolved",
-            row["type"], row["id"],
+            message.kind, message.id,
         )
 
-    for row in await claim(limit, now=moment):
-        message_id = row["id"]
+    for message in await pending.take_due(limit, now=moment):
+        message_id = message.id
 
-        if row["attempts"] > MAX_ATTEMPTS:
-            await park(message_id,
-                       f"{row['attempts']} attempts, last: {row['last_error']}")
+        if message.attempts > MAX_ATTEMPTS:
+            await pending.shelve(
+                message_id,
+                f"{message.attempts} attempts, last: {message.last_error}",
+            )
             parked += 1
             logger.error("Outbox: {} #{} parked after {} attempts, last error: {}",
-                         row["type"], message_id, row["attempts"], row["last_error"])
+                         message.kind, message_id, message.attempts,
+                         message.last_error)
             continue
 
         try:
             # Quiet hours are the bot's manners about its own messages. A
             # manager answering a customer is not the bot's idea, and the row
             # says so.
-            silent = bool(row["respect_quiet"]) and is_quiet_now(moment)
-            await notifier.send(row["chat_id"], _payload(row), silent=silent)
+            silent = message.respect_quiet and is_quiet_now(moment)
+            await notifier.send(message.chat_id, _payload(message), silent=silent)
         except RecipientGone as exc:
             # Both halves matter: the message can never arrive, and neither can
             # the next one. Unsubscribing is what stops a blocked chat costing a
             # send slot on every broadcast from now on (§6.1).
-            await park(message_id, f"{GONE_PREFIX} {exc}")
-            await opt_out_user(row["chat_id"])
+            #
+            # The fact is stated, not spelled: the queue composes whatever text
+            # it needs to count this apart from a send that merely broke.
+            await pending.shelve(message_id, str(exc), recipient_gone=True)
+            await mailing.opt_out(message.chat_id)
             parked += 1
             unsubscribed += 1
             logger.info("Outbox: chat {} is gone, parked and unsubscribed",
-                        row["chat_id"])
+                        message.chat_id)
         except RateLimited as exc:
             # The wait comes from the answer rather than from the backoff table:
             # guessing shorter gets another 429, guessing longer wastes the time
             # the transport just told us about.
-            await mark_failed(message_id, f"rate limited {exc.retry_after}s",
-                              retry_in=timedelta(seconds=exc.retry_after), now=moment)
+            await pending.retry_later(
+                message_id, f"rate limited {exc.retry_after}s",
+                wait=timedelta(seconds=exc.retry_after), now=moment,
+            )
             retried += 1
         except Exception as exc:  # noqa: BLE001 — unknown means "try again later"
-            await mark_failed(message_id, f"{type(exc).__name__}: {exc}",
-                              retry_in=backoff(row["attempts"]), now=moment)
+            await pending.retry_later(
+                message_id, f"{type(exc).__name__}: {exc}",
+                wait=backoff(message.attempts), now=moment,
+            )
             retried += 1
             logger.warning("Outbox: {} #{} failed ({}), attempt {} of {}",
-                           row["type"], message_id, exc, row["attempts"], MAX_ATTEMPTS)
+                           message.kind, message_id, exc, message.attempts,
+                           MAX_ATTEMPTS)
         else:
-            await mark_sent(message_id)
+            await pending.mark_sent(message_id)
             sent += 1
 
     result = Delivered(sent=sent, retried=retried, parked=parked,
@@ -136,19 +168,18 @@ async def deliver_once(
     return result
 
 
-def _payload(row: dict) -> dict:
-    """The message as the transport needs it, from the row as stored.
+def _payload(message: QueuedMessage) -> dict:
+    """The message as the transport needs it.
 
-    Tolerant on purpose: a row whose payload was pruned (§6.4) or written by an
-    older version must not take the whole pass down with a decode error. It
-    fails as one message the sender reports, which is the only failure mode with
-    a person attached to it.
+    A copy, not the stored mapping: the campaign key is added for the
+    transport's benefit and the message is supposed to be a record of what was
+    queued, not of what was handed to Telegram afterwards.
+
+    The tolerance that used to live here — a payload that will not decode
+    becomes {} rather than taking the whole pass down — moved into the queue
+    with the decoding itself. It is still true, and it is now true for anybody
+    reading the queue rather than only for this function.
     """
-    import json
-
-    try:
-        payload = json.loads(row.get("payload") or "{}")
-    except (TypeError, ValueError):
-        payload = {}
-    payload.setdefault("campaign_key", row.get("campaign_key", ""))
+    payload = dict(message.payload)
+    payload.setdefault("campaign_key", message.campaign_key)
     return payload

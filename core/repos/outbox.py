@@ -48,11 +48,9 @@ from core.repos.base import connect
 # not park its batch for the afternoon.
 LOCK_FOR = timedelta(minutes=2)
 
-# How many captures one message gets before it goes on the shelf. Five, because
-# the failures worth retrying are transient by definition — a network blip, a
-# rate limit — and anything surviving five attempts is a message that will never
-# be sent, quietly costing a send slot every two minutes.
-MAX_ATTEMPTS = 5
+# How many captures a message gets before the shelf is not decided here: nothing
+# in this module reads it, because capture does not filter on `attempts`. It is
+# the sender's policy and lives with the sender, in core.usecases.notify.
 
 # What to do with a row whose lock expired without anybody releasing it (§6.2).
 RETRY = "retry"    # a delivery status: a miss is worse than a duplicate

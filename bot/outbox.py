@@ -32,7 +32,8 @@ from loguru import logger
 
 from bot.alerts import tell_admins
 from core.ports.notifier import RateLimited, RecipientGone
-from core.repos.outbox import prune, queue_depth
+from core.repos.outbox import SqlitePendingMessages, prune, queue_depth
+from core.repos.users import SqliteMailingList
 from core.usecases.broadcast import report_finished_jobs
 from core.usecases.notify import deliver_once
 
@@ -217,7 +218,9 @@ async def watch(bot: Bot, admin_ids: list[int] | None = None) -> None:
 
     while True:
         try:
-            result = await deliver_once(notifier, limit=BATCH)
+            result = await deliver_once(
+                notifier, SqlitePendingMessages(), SqliteMailingList(), limit=BATCH
+            )
             # Whoever started a broadcast is waiting for its summary, and this
             # loop is the thing already awake when the last message of it goes.
             await report_finished_jobs()
