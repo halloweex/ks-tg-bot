@@ -24,6 +24,12 @@ class EnvSettings(BaseSettings):
     # webhook of §4.4, and cost two lines until then.
     shopify_api_token: str | None = None
     shopify_store_url: str | None = None
+    # The loyalty programme's webhook: the signing key Rivo shows in its
+    # settings, and the secret segment of the path we give them. Both empty and
+    # the endpoint is not started at all — the bot goes on being a thing that
+    # only Telegram can reach.
+    rivo_webhook_secret: str | None = None
+    rivo_webhook_path: str | None = None
     admin_user_ids: str = ""
     # One key or several, comma-separated. Six legal entities ship orders, but
     # any one key tracks any parcel when the phone is supplied (measured), so one
@@ -133,6 +139,9 @@ class AppConfig:
     # can act on. 0 keeps the old behaviour: no code is created, and whatever
     # `referral_code` holds (or a manager) pays the reward.
     referral_percent: int = 0
+    # Where the customer's points actually live. A button under every loyalty
+    # message, because the bot reports and the shop is where they are spent.
+    loyalty_account_url: str = ""
     bottom_menu: bool = True
     support_hours_from: str = ""
     support_hours_to: str = ""
@@ -215,6 +224,7 @@ def load_config(config_path: str | Path = "config.yaml") -> AppConfig:
         instagram_url=yaml_data.get("instagram_url", ""),
         referral_reward=yaml_data.get("referral_reward", "").strip(),
         referral_percent=int(yaml_data.get("referral_percent", 0) or 0),
+        loyalty_account_url=str(yaml_data.get("loyalty_account_url", "")).strip(),
         referral_code=yaml_data.get("referral_code", "").strip(),
         first_order_code=yaml_data.get("first_order_code", "").strip(),
         first_order_reward=yaml_data.get("first_order_reward", "").strip(),

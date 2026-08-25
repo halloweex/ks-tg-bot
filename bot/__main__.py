@@ -15,7 +15,8 @@ from core.repos.catalogue import SqliteOfferCache
 from core.repos.outbox import SqliteMessageQueue
 from core.repos.referrals import SqliteReferralLedger
 from core.repos.stock import SqliteRestockWatchlist, SqliteStockSnapshot
-from core.repos.users import SqliteKnownBirthdays, SqliteLanguageChoice
+from core.repos.users import (SqliteChatsByEmail, SqliteKnownBirthdays,
+                              SqliteLanguageChoice)
 from core.repos.schema import init_db
 from bot.fsm_storage import SQLiteStorage
 from bot.alerts import check_support_chat
@@ -37,6 +38,7 @@ from core.adapters.novaposhta.client import NovaPoshtaClient
 from bot.middlewares import DropCustomEmoji, LanguageMiddleware
 from bot import profile
 from bot.outbox import watch as watch_outbox
+from bot import webhooks
 from bot.birthdays import watch as watch_birthdays
 from bot.handlers.common import REFERRAL_PREFIX
 from bot.referrals import watch as watch_referrals
@@ -161,6 +163,24 @@ async def main() -> None:
         # Pull whatever changed in the CRM into the local cache, and — as a
         # separate task, so it survives that one dying — watch that it keeps
         # happening (docs/architecture.md §5.5).
+        # The only door into this bot from outside Telegram, and it opens only
+        # when both halves of the lock are configured: the signing key from
+        # Rivo and the secret segment of the path we hand them.
+        if config.env.rivo_webhook_secret and config.env.rivo_webhook_path:
+            loops.append(spawn(
+                webhooks.serve(
+                    webhooks.build_app(
+                        path=config.env.rivo_webhook_path,
+                        secret=config.env.rivo_webhook_secret,
+                        chats=SqliteChatsByEmail(),
+                        languages=SqliteLanguageChoice(),
+                        queue=SqliteMessageQueue(),
+                        account_url=config.loyalty_account_url,
+                    ),
+                    webhooks.PORT,
+                ),
+                name="rivo_webhooks"))
+
         loops.append(spawn(watch_orders(dp["keycrm"]), name="order_sync"))
         loops.append(
             spawn(watch_for_silence(bot, config.env.admin_ids), name="sync_watchdog")

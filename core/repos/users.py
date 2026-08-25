@@ -308,6 +308,32 @@ async def get_source(chat_id: int) -> str:
         return (row[0] or "") if row else ""
 
 
+async def chat_by_email(email: str) -> int | None:
+    """The chat registered under this email, or None.
+
+    Case-insensitive on purpose: a customer types their address into the shop
+    in whatever case they like, and the CRM stores it as typed. Matching
+    exactly would silently drop the people whose two systems disagree only
+    about a capital letter.
+    """
+    if not email.strip():
+        return None
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT chat_id FROM users WHERE lower(email) = lower(?) LIMIT 1",
+            (email.strip(),),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None
+
+
+class SqliteChatsByEmail:
+    """Implements core.ports.users.ChatsByEmail against today's table."""
+
+    async def chat_for(self, email: str) -> int | None:
+        return await chat_by_email(email)
+
+
 class SqliteLanguageChoice:
     """Implements core.ports.users.LanguageChoice against today's table."""
 

@@ -119,6 +119,23 @@ EN: dict[str, str] = {
         "Need a person: «💬 Manager» in the menu.\n\n"
         "Pick a section 👇"
     ),
+    "MSG_LOYALTY_POINTS": (
+        "<b>💛 You have earned {points} points</b>\n\n"
+        "Your balance: {balance}."
+    ),
+    "MSG_LOYALTY_TIER": (
+        "<b>✨ You have a new tier</b>\n\n"
+        "You are {tier} now. Thank you for choosing us."
+    ),
+    "MSG_LOYALTY_EXPIRING": (
+        "<b>⏳ Your points are about to expire</b>\n\n"
+        "You have {balance}. Spend them on something you like."
+    ),
+    "MSG_LOYALTY_REFERRAL": (
+        "<b>🎁 Your friend has placed an order</b>\n\n"
+        "Your reward is already in your account. Thank you for the recommendation."
+    ),
+    "BTN_LOYALTY_ACCOUNT": "💛 My account",
     "MSG_SETTINGS_MENU": (
         "<b>⚙️ Settings</b>\n\n"
         "The phone number we find your orders by, and the bot's language."

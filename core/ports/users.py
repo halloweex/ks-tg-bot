@@ -38,6 +38,22 @@ from typing import Protocol, runtime_checkable
 
 
 @runtime_checkable
+class ChatsByEmail(Protocol):
+    """Which chat a loyalty programme's customer is, if any.
+
+    The loyalty programme knows people by email; this bot knows them by chat,
+    and the email it holds came from the CRM card at registration. So the join
+    is one lookup, and it fails for most people: somebody who never registered
+    here, or whose CRM card carried no email, simply has no chat to write to.
+    None is that answer, and it is not an error.
+    """
+
+    async def chat_for(self, email: str) -> int | None:
+        """The chat that email belongs to, or None."""
+        ...
+
+
+@runtime_checkable
 class LanguageChoice(Protocol):
     """The language a customer picked for themselves, if they ever did."""
 
