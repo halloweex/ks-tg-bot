@@ -411,3 +411,104 @@ class BroadcastJournal(Protocol):
         of the sender's loop, forever.
         """
         ...
+
+
+@runtime_checkable
+class CustomerDirectory(Protocol):
+    """Who a chat is to the CRM, and who we have not managed to ask about.
+
+    The bot knows people by `chat_id`; the CRM knows them by buyer card, and a
+    card holds several numbers. That gap is the reason this port exists, and it
+    is not theoretical: the first version of the window sweep matched orders on
+    the number alone and silently wrote nothing for the one real customer in
+    production — twenty-five orders, every one found by their number and not one
+    of them carrying it.
+
+    **All five in one port, because they are one loop.** Find the chats with no
+    card (`unidentified`), ask the CRM, write down what it said (`remember`),
+    stamp that the question was asked whatever the answer (`mark_asked`) — and
+    then `buyers` and `phones` are the map that loop exists to fill. Split
+    across ports, the test that proves the loop closes would need several fakes
+    agreeing about two tables none of them owns, which is how they stop
+    agreeing. `MailingList` is in the codebase for the same reason.
+
+    **Not on the UnitOfWork.** The unit is two attributes by an explicit
+    decision, and this is not one of the two writes that must land together:
+    the map is additive and idempotent, so losing it to a crash costs one more
+    lookup rather than a wrong answer. There is also nothing yet to join —
+    `user_crm_buyers` is not among the tables in Alembic revision 001, and
+    neither is the `crm_checked_at` column the stamp is written to.
+
+    Keyed by `chat_id` throughout, per the identity rule in core/ports/users.py.
+    """
+
+    async def remember(self, chat_id: int, buyer_ids: set[str]) -> None:
+        """Record which CRM buyer cards this chat turned out to be.
+
+        Written by the paths that ask the CRM by number and therefore already
+        know the answer: registration, the orders screen's refresh, and the
+        sweep resolving a chat it does not recognise.
+
+        **Additive, never replacing.** A card seen once is kept, because the
+        CRM's own by-number search keeps returning its orders — dropping it here
+        would make those orders disappear from the sweep alone, which is the
+        kind of failure that shows up as "some of my orders are missing" months
+        later. An empty set writes nothing rather than clearing anything.
+        """
+        ...
+
+    async def buyers(self) -> list[tuple[int, str]]:
+        """(chat_id, buyer_id) for every card any chat is known to be.
+
+        One chat can be several cards. Read whole, because the caller is
+        routing a window of changed orders and needs the map, not a lookup —
+        and the answer is one narrow row per card against a request that just
+        cost a second of network.
+        """
+        ...
+
+    async def phones(self) -> list[tuple[int, str]]:
+        """(chat_id, phone) for every registered chat, as stored.
+
+        The second matching rule, for what a card cannot cover: a new buyer
+        card made for a number we already know, which no by-number request has
+        been made against yet.
+
+        Deliberately raw. Both sides only agree after `normalize_phone`, and
+        that is domain logic — expressing it a second time as SQL string
+        functions is how the two spellings drift apart.
+        """
+        ...
+
+    async def unidentified(self, *, retry_after_hours: int) -> list[tuple[int, str]]:
+        """(chat_id, phone) for registered chats with no card on file yet.
+
+        These are the ones the sweep cannot route. Everyone who registered
+        before the map existed is here until something asks the CRM by their
+        number.
+
+        `retry_after_hours` is how long an unproductive ask counts as an ask.
+        A customer who has never ordered has no card to find, so without it they
+        would be looked up on every sweep for as long as they stay registered —
+        two of the three people in production are exactly that. It has no
+        default here, for the same reason `KnownBirthdays.to_ask` gives none:
+        how often the sweep spends a request is the sweep's policy, and a
+        default down here is a second place where it is decided.
+
+        The whole list, unlimited. The caller takes a slice of it, and that is
+        left as it is on purpose — a `LIMIT` in the query would return a
+        different, unordered subset, and a sweep quietly asking about different
+        people is not a change worth making inside a move.
+        """
+        ...
+
+    async def mark_asked(self, chat_id: int) -> None:
+        """Record that the CRM was asked about this chat, whatever it answered.
+
+        Separate from `remember` precisely because the two do not always happen
+        together: the useful case is the ask that found nothing. A port where
+        the stamp were a side effect of writing cards would leave every
+        card-less customer unstamped, which is the state that costs a request
+        every two minutes forever.
+        """
+        ...

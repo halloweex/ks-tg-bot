@@ -348,3 +348,31 @@ class SqliteKnownBirthdays:
 
     async def celebrating_on(self, month_day: str) -> list[int]:
         return await chats_with_birthday_on(month_day)
+
+
+class SqliteCustomerDirectory:
+    """Implements core.ports.repositories.CustomerDirectory against two tables.
+
+    `user_crm_buyers` holds the map; `users.crm_checked_at` holds the stamp that
+    keeps a card-less customer from being asked about every two minutes. Two
+    tables behind one port because they are one loop — see the port.
+
+    `retry_after_hours` arrives from the caller. The function below keeps its
+    own default for its own callers and its own tests; what the port refuses is
+    a second place where the sweep's cost is decided.
+    """
+
+    async def remember(self, chat_id: int, buyer_ids: set[str]) -> None:
+        await remember_crm_buyers(chat_id, buyer_ids)
+
+    async def buyers(self) -> list[tuple[int, str]]:
+        return await registered_buyers()
+
+    async def phones(self) -> list[tuple[int, str]]:
+        return await registered_phones()
+
+    async def unidentified(self, *, retry_after_hours: int) -> list[tuple[int, str]]:
+        return await chats_without_crm_buyer(retry_after_hours=retry_after_hours)
+
+    async def mark_asked(self, chat_id: int) -> None:
+        await mark_crm_checked(chat_id)
