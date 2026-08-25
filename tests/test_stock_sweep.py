@@ -3,6 +3,12 @@
 It had none while it lived in bot/stock.py, because reaching it meant building
 an aiogram Bot and a message. Now the poll answers from a port and the message
 lands in a table, so a restock is testable end to end with neither.
+
+The sweep takes five ports since the move. Only the first — the shop's own
+answer about availability — is faked here, because it is the only one that would
+otherwise be a network call; the other four answer from the temporary database
+the fixture builds, so what these tests check is still the whole path down to
+the rows.
 """
 from __future__ import annotations
 
@@ -14,11 +20,12 @@ import pytest
 
 from core.domain.stock import restocked
 from core.repos import base as repos_base
-from core.repos.outbox import claim
+from core.repos.outbox import SqliteMessageQueue, claim
 from core.repos.schema import init_db
-from core.repos.stock import (add_stock_subscription, get_stock_levels,
+from core.repos.stock import (SqliteRestockWatchlist, SqliteStockSnapshot,
+                              add_stock_subscription, get_stock_levels,
                               get_subscribed_skus, save_stock_levels)
-from core.repos.users import save_user
+from core.repos.users import SqliteLanguageChoice, save_user
 from core.usecases.stock import CONFETTI_EFFECT_ID, check_once
 
 CHAT = 555
@@ -45,8 +52,15 @@ def _subscribe(chat_id: int, sku: str, name: str) -> None:
     asyncio.run(add_stock_subscription(chat_id, sku, name))
 
 
+def _run(levels: dict[str, int]):
+    """One sweep against the real SQLite side of all four storage ports."""
+    return check_once(FakeCatalogue(levels), SqliteStockSnapshot(),
+                      SqliteRestockWatchlist(), SqliteLanguageChoice(),
+                      SqliteMessageQueue(), today=TODAY)
+
+
 def _sweep(levels: dict[str, int]):
-    return asyncio.run(check_once(FakeCatalogue(levels), today=TODAY))
+    return asyncio.run(_run(levels))
 
 
 def _queued() -> list[dict]:
@@ -135,12 +149,12 @@ def test_a_crash_between_queueing_and_clearing_does_not_double_the_message(db):
     still there, the sweep runs again, and the customer must not be told twice."""
     _subscribe(CHAT, "A", "Cream")
     asyncio.run(save_stock_levels({"A": 0}))
-    asyncio.run(check_once(FakeCatalogue({"A": 1}), today=TODAY))
+    _sweep({"A": 1})
 
     # As if the clearing never happened.
     _subscribe(CHAT, "A", "Cream")
     asyncio.run(save_stock_levels({"A": 0}))
-    result = asyncio.run(check_once(FakeCatalogue({"A": 1}), today=TODAY))
+    result = _sweep({"A": 1})
 
     assert result.chats_queued == 0, "the second copy was refused by the dedup key"
     assert len(_queued()) == 1

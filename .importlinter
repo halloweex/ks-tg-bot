@@ -289,6 +289,20 @@ source_modules =
 forbidden_modules =
     core.repos
 
+[importlinter:contract:stock-sees-ports-only]
+name = core.usecases.stock не знает ни одного репозитория
+# Причина: свип трогает две таблицы с разными правами. Снимок доступности он
+# заменяет целиком, а обещания клиентов имеет право только снимать — создаёт их
+# экран. Пока это два прямых импорта из одного модуля, разница держится на том,
+# что автор помнит, какие функции оттуда брать можно; на портах она выражена
+# тем, что подписки в RestockWatchlist просто нет.
+type = forbidden
+source_modules =
+    core.usecases.stock
+forbidden_modules =
+    core.repos
+
+
 [importlinter:contract:ports-are-only-signatures]
 name = core.ports не знает ничего, кроме домена
 # Причина: порт — это Protocol и ничего больше. Любой его импорт немедленно

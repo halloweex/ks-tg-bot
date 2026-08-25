@@ -12,6 +12,7 @@ from core.config import load_config
 from core.repos.base import configure as configure_db
 from core.repos.catalogue import SqliteOfferCache
 from core.repos.outbox import SqliteMessageQueue
+from core.repos.stock import SqliteRestockWatchlist, SqliteStockSnapshot
 from core.repos.users import SqliteKnownBirthdays, SqliteLanguageChoice
 from core.repos.schema import init_db
 from bot.fsm_storage import SQLiteStorage
@@ -113,8 +114,15 @@ async def main() -> None:
         await check_support_chat(bot, config.support_chat_id, config.env.admin_ids)
         # Poll KeyCRM for restocks and queue a message for whoever subscribed.
         # No bot argument any more: since stage 6 the sweep queues and the
-        # outbox sends, so nothing in that path knows about Telegram.
-        loops.append(spawn(watch_stock(dp["keycrm"]), name="stock_watcher"))
+        # outbox sends, so nothing in that path knows about Telegram. The four
+        # storage handles are picked here for the same reason the catalogue
+        # cache below is: this is the only place that knows which engine is
+        # underneath.
+        loops.append(spawn(
+            watch_stock(dp["keycrm"], SqliteStockSnapshot(),
+                        SqliteRestockWatchlist(), SqliteLanguageChoice(),
+                        SqliteMessageQueue()),
+            name="stock_watcher"))
         # Keep the storefront's offers fresh, so the favourites screen can
         # offer to buy one and address the cart link to the right variant.
         # The cache is chosen here, next to the storefront it mirrors — this is

@@ -18,6 +18,9 @@ import asyncio
 from loguru import logger
 
 from core.ports.catalog import StockLevels
+from core.ports.outbox import MessageQueue
+from core.ports.repositories import RestockWatchlist, StockSnapshot
+from core.ports.users import LanguageChoice
 from core.usecases.stock import check_once
 
 # A full sweep costs ~14s and 18 requests. Every 15 minutes is far inside the
@@ -25,12 +28,18 @@ from core.usecases.stock import check_once
 POLL_INTERVAL_SECONDS = 15 * 60
 
 
-async def watch(catalogue: StockLevels) -> None:
+async def watch(
+    catalogue: StockLevels,
+    snapshot: StockSnapshot,
+    watchlist: RestockWatchlist,
+    languages: LanguageChoice,
+    queue: MessageQueue,
+) -> None:
     """Poll forever. Never lets one bad round kill the loop."""
     logger.info("Back-in-stock watcher started ({}s interval)", POLL_INTERVAL_SECONDS)
     while True:
         try:
-            await check_once(catalogue)
+            await check_once(catalogue, snapshot, watchlist, languages, queue)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001
