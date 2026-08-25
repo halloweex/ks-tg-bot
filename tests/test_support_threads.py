@@ -138,7 +138,10 @@ def _manager_message(bot, *, text, replied):
 
 @pytest.fixture()
 def config():
-    return SimpleNamespace(support_chat_id=SUPPORT_CHAT)
+    # No support window: these tests are about the relay, and an unconfigured
+    # window is what keeps the confirmation the plain one they assert on.
+    # The window itself is tested in tests/test_support_hours.py.
+    return SimpleNamespace(support_chat_id=SUPPORT_CHAT, support_window=None)
 
 
 def _queued_replies() -> list[dict]:
