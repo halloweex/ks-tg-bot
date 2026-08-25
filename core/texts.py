@@ -67,6 +67,8 @@ BTN_CONTACTS = "Контакти"
 BTN_PAYMENT = "Оплата"
 BTN_DELIVERY = "Доставка"
 BTN_BACK = "◀️ Назад"
+# No emoji in the label: the button carries Instagram's own logo as its icon.
+BTN_INSTAGRAM = "Instagram"
 BTN_MENU = "📋 Меню"
 BTN_CHANGE_PHONE = "📱 Змінити номер"
 BTN_LANGUAGE = "🌍 Мова"
@@ -312,7 +314,9 @@ BTN_CANCELLED_HIDE = "🙈 Сховати скасовані"
 MSG_CANCELLED_HEADER = "❌ Скасовані:"
 # On the card, when the parcel has a number: the live answer from Nova Poshta,
 # which the shop's own record does not have.
-BTN_WHERE_PARCEL = "🚚 Де посилка?"
+# No emoji in the label: the button carries Nova Poshta's own mark as its icon
+# (icon_custom_emoji_id), and a lorry beside the logo is one picture too many.
+BTN_WHERE_PARCEL = "Де посилка?"
 BTN_ORDERS_NEWER = "◀️ Новіші"
 BTN_ORDERS_OLDER = "Старіші ▶️"
 MSG_ORDERS_TRUNCATED = "...та інші замовлення"

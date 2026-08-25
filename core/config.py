@@ -98,6 +98,7 @@ class AppConfig:
     # text, which is what it was before there was a card.
     assets_url: str
     support_chat_id: int
+    instagram_url: str
     about_text: str
     contacts_text: str
     payment_text: str
@@ -134,6 +135,7 @@ def load_config(config_path: str | Path = "config.yaml") -> AppConfig:
         webapp_url=yaml_data.get("webapp_url", ""),
         assets_url=yaml_data.get("assets_url", "").rstrip("/"),
         support_chat_id=yaml_data["support_chat_id"],
+        instagram_url=yaml_data.get("instagram_url", ""),
         about_text=yaml_data.get("about_text", ""),
         contacts_text=yaml_data.get("contacts_text", ""),
         payment_text=yaml_data.get("payment_text", ""),

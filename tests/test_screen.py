@@ -192,3 +192,42 @@ def test_every_custom_emoji_id_is_a_telegram_id():
     for name in ("NOVA_POSHTA", "VISA", "MASTERCARD", "MONOBANK", "PRIVAT24"):
         value = getattr(texts, name)
         assert value.isdigit() and len(value) >= 18, name
+
+
+# --- logos on the buttons ---------------------------------------------------
+
+def _keyboard(icon: str | None):
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+        text="Де посилка?", callback_data="x", icon_custom_emoji_id=icon)]])
+
+
+def test_a_refused_button_icon_costs_the_icon_and_not_the_button():
+    """A button icon is the same privilege as a logo in the text, and fails the
+    same way. «Де посилка?» is usually the point of the message it is on."""
+    sent = []
+
+    async def make_request(bot, method):
+        icon = method.reply_markup.inline_keyboard[0][0].icon_custom_emoji_id
+        sent.append(icon)
+        if icon:
+            raise _bad_request("Bad Request: CUSTOM_EMOJI_INVALID")
+        return "sent"
+
+    method = SendMessage(chat_id=1, text="картка", reply_markup=_keyboard("42"))
+    assert asyncio.run(DropCustomEmoji()(make_request, None, method)) == "sent"
+    assert sent == ["42", None], "the second try is the same button, plain"
+
+
+def test_a_keyboard_without_icons_is_not_a_reason_to_retry():
+    calls = []
+
+    async def make_request(bot, method):
+        calls.append(method)
+        raise _bad_request("Bad Request: CUSTOM_EMOJI_INVALID")
+
+    with pytest.raises(TelegramBadRequest):
+        asyncio.run(DropCustomEmoji()(
+            make_request, None,
+            SendMessage(chat_id=1, text="картка", reply_markup=_keyboard(None))))
+    assert len(calls) == 1

@@ -339,6 +339,10 @@ def _orders_kb(
             text=t.BTN_WHERE_PARCEL,
             callback_data=OrderAction(action="track", order_id=card.get("id", 0),
                                       page=page, state=state),
+            # The carrier's own mark, on the button that asks the carrier. Same
+            # permission as the logos in the text, and the same fallback: a
+            # refused icon costs the icon, not the message (bot/middlewares.py).
+            icon_custom_emoji_id=texts.NOVA_POSHTA,
         )
         layout.append(1)
 

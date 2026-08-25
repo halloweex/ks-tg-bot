@@ -18,6 +18,10 @@ assets_url: "https://halloweex.github.io/ks-tg-bot"
 # request, lands in this one chat; whoever sits here replies by replying to the
 # forwarded message. One id, so moving support means moving it here.
 support_chat_id: 7444906573
+# The shop's Instagram, from the brand deck's own gift-certificate slide. Shown
+# as a button on the contacts page, wearing Instagram's logo. Empty means no
+# button — better than a link to an account that may have moved.
+instagram_url: "https://instagram.com/korean_story_official"
 
 # Info pages — text shown in Phase 3 menus
 # Placeholder content — owner will fill in real text

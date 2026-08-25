@@ -89,10 +89,12 @@ def _is_emoji_refusal(exc: TelegramBadRequest) -> bool:
 
 
 def _without_custom_emoji(method: TelegramMethod) -> TelegramMethod | None:
-    """The same call with the tags reduced, or None if it carried none.
+    """The same call with every custom emoji taken out, or None if it had none.
 
-    Only the two fields a `<tg-emoji>` can live in are touched. Returning None
-    for everything else is what keeps an unrelated failure from being retried.
+    Two places carry them: the text — where a `<tg-emoji>` reduces to the plain
+    emoji it already contains — and the buttons, where `icon_custom_emoji_id`
+    simply goes and the label keeps whatever it says. Returning None for a call
+    with neither is what keeps an unrelated failure from being retried.
     """
     update = {}
     for field in ("text", "caption"):
@@ -101,4 +103,29 @@ def _without_custom_emoji(method: TelegramMethod) -> TelegramMethod | None:
             plain = texts.strip_custom_emoji(value)
             if plain != value:
                 update[field] = plain
+
+    markup = getattr(method, "reply_markup", None)
+    plain_markup = _markup_without_icons(markup)
+    if plain_markup is not None:
+        update["reply_markup"] = plain_markup
+
     return method.model_copy(update=update) if update else None
+
+
+def _markup_without_icons(markup):
+    """The same keyboard with the button icons dropped, or None if it had none.
+
+    A refused icon fails the whole send, and the button it decorates is usually
+    the point of the message — «Де посилка?» is not worth losing to a lapsed
+    subscription.
+    """
+    rows = getattr(markup, "inline_keyboard", None) or getattr(markup, "keyboard", None)
+    if not rows:
+        return None
+    if not any(getattr(button, "icon_custom_emoji_id", None)
+               for row in rows for button in row):
+        return None
+    stripped = [[button.model_copy(update={"icon_custom_emoji_id": None})
+                 for button in row] for row in rows]
+    field = "inline_keyboard" if hasattr(markup, "inline_keyboard") else "keyboard"
+    return markup.model_copy(update={field: stripped})
