@@ -24,6 +24,19 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+    # Two networks. Its own, and the one the neighbouring project's nginx sits
+    # on: that nginx holds 80 and 443 and terminates TLS for the box, and the
+    # loyalty webhook has to arrive through it. Nothing is published here — the
+    # port stays inside Docker, reachable by container name and nothing else.
+    networks:
+      - default
+      - webproxy
 
 volumes:
   botdata:
+
+networks:
+  default:
+  webproxy:
+    external: true
+    name: key-api-bot_default
