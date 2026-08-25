@@ -92,6 +92,8 @@ Nova Poshta 83% → 85%; по трём клиентам вместе 61% → 73%
 | `cfd6ef7` | `BroadcastJournal` + адаптер + `Job` в домене |
 | `4f3d8e9` | **`broadcast`** → `BroadcastJournal`, `MailingList`, `LanguageChoice`, `MessageQueue` |
 | `f756e96` | `CustomerDirectory` + адаптер — пять методов, один цикл |
+| `e151c2c` | `UserProfiles.identify` не существует — правило идентичности переписано |
+| `5dd4cab` | **`sync_orders`** → `CustomerDirectory` + первый `UnitOfWork` в дереве |
 
 Плюс три коммита не из плана: `598212b` (сверка сигнатур портов), `f366fc2`
 (три `NameError` на клиентских путях) и `2f1e028` (pyflakes на неопределённые
@@ -105,10 +107,15 @@ Nova Poshta 83% → 85%; по трём клиентам вместе 61% → 73%
 группировки читает поля, а не распаковывает. Это единственное место коммита,
 которое стоит смотреть глазами, если понадобится состязательная сверка.
 
-Восемь сценариев на портах — `analytics`, `sync_catalogue`, `support`, `notify`,
-`birthdays`, `stock`, `referrals`, `broadcast`. `core.repos` напрямую
-импортируют ещё три: `sync_orders`, `register`, `sync_incremental`. Итого
+Девять сценариев на портах — `analytics`, `sync_catalogue`, `support`, `notify`,
+`birthdays`, `stock`, `referrals`, `broadcast`, `sync_orders`. `core.repos`
+напрямую импортируют ещё два: `register` и `sync_incremental`. Итого
 одиннадцать, как и в абзаце про шим выше.
+
+`sync_incremental` при этом импортирует `core.repos.uow` временно и по делу: он
+строит `SqliteUnitOfWork` и `SqliteCustomerDirectory` в месте вызова
+`sync_orders`, который уже на портах. Строчка помечена в коде и исчезает на 21-м
+вместе с остальными импортами этого модуля.
 
 *Счёт здесь врал дважды, и второй раз — при попытке его починить.* До коммита 12
 стояло «Шесть сценариев на портах … импортируют ещё пять» над списком из шести
@@ -137,7 +144,7 @@ grep -lE '^[[:space:]]*(from|import) core\.repos' core/usecases/*.py
 | ~~15~~ | ~~`BroadcastJournal` + адаптер~~ — сделано, `cfd6ef7` | — |
 | ~~16~~ | ~~**`broadcast`**~~ — сделано, `4f3d8e9` | `broadcast-sees-ports-only` + два семейных |
 | ~~17~~ | ~~`CustomerDirectory` + адаптер~~ — сделано, `f756e96` | — |
-| 18 | **`sync_orders`** — первый потребитель `UnitOfWorkFactory` | да |
+| ~~18~~ | ~~**`sync_orders`**~~ — сделано, `5dd4cab` | `sync-orders-sees-ports-only` |
 | 19 | **`register`** (+ `source=` на `bind_phone`) | да |
 | 20 | `core/domain/sync.py` + `SyncJournal` + адаптер | — |
 | 21 | **`sync_incremental`** + `bot/sync.py` | да |
