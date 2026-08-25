@@ -25,6 +25,7 @@ from __future__ import annotations
 from types import TracebackType
 from typing import Protocol, runtime_checkable
 
+from core.domain.broadcast import Job
 from core.domain.offer import Offer
 from core.domain.phone import VerifiedPhone
 from core.domain.referral import Earned
@@ -351,5 +352,62 @@ class ReferralLedger(Protocol):
         Nothing in the running system reads it back yet; it is what somebody
         auditing the programme will ask for, and it is written at the moment the
         answer is still true.
+        """
+        ...
+
+
+@runtime_checkable
+class BroadcastJournal(Protocol):
+    """What was sent, by whom, and whether the send is over.
+
+    Deliberately small, because the queue already answers most of what used to
+    be asked here. Outcomes per message — sent, blocked, failed, still waiting —
+    are `MessageQueue.campaign_totals`, and the recipient snapshot is the queued
+    rows themselves. `broadcast_targets` was all three at once, written for one
+    feature, and stage 6 replaced it rather than adapting it. What is left is
+    the header: a text a person typed, an author, and a status that gives a
+    campaign an end.
+
+    Not on the UnitOfWork, and here the second reason is worth more than the
+    first. `broadcast_jobs` is not among the twelve tables in revision 001; but
+    also the header is written *before* the messages are queued, on purpose, so
+    that a crash in between leaves a job whose campaign is empty — which the
+    sweep then closes with zeros and a summary saying nothing went out. One
+    transaction over both would erase that state and the handling written for
+    it.
+    """
+
+    async def record(self, text: str, admin_id: int) -> int:
+        """Write the header down and return the job's id.
+
+        The id becomes the campaign — `bcast.<job id>` — so a send on Tuesday
+        and a send on Wednesday are two campaigns in the funnel rather than one
+        bucket called "broadcast". That is why this hands the number back
+        instead of writing and forgetting: the caller cannot queue anything
+        until it knows which campaign it is queueing into.
+        """
+        ...
+
+    async def unfinished(self) -> list[Job]:
+        """Jobs still marked running, oldest first.
+
+        Not a resume list, and the distinction is what stage 6 bought: nothing
+        needs resuming when the messages are rows in a queue that outlives the
+        process. This is read by the sender's loop — the thing already awake —
+        to notice which jobs have drained.
+
+        The order is part of the contract. The oldest running job is the one
+        somebody has been waiting longest to hear about, and a caller that
+        reported them in whatever order the engine liked would look
+        intermittently broken for exactly the jobs people remember.
+        """
+        ...
+
+    async def finish(self, job_id: int) -> None:
+        """Close the job out.
+
+        After this the job stops coming back from `unfinished()`, which is the
+        whole point: a job left running is one that gets checked on every pass
+        of the sender's loop, forever.
         """
         ...

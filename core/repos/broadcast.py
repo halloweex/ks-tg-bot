@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import aiosqlite
 
+from core.domain.broadcast import Job
 from core.repos.base import connect
 
 
@@ -59,6 +60,26 @@ async def finish_broadcast_job(job_id: int) -> None:
             (job_id,),
         )
         await db.commit()
+
+
+class SqliteBroadcastJournal:
+    """Implements core.ports.repositories.BroadcastJournal against today's table.
+
+    `unfinished` narrows each row to two fields on the way out. The query is
+    unchanged and still selects `text`; the port simply does not carry it,
+    because nothing asks — the only reader is the sweep that closes drained
+    jobs, and its summary counts outcomes rather than quoting the message.
+    """
+
+    async def record(self, text: str, admin_id: int) -> int:
+        return await create_broadcast_job(text, admin_id)
+
+    async def unfinished(self) -> list[Job]:
+        return [Job(id=row["id"], created_by=row["created_by"])
+                for row in await get_unfinished_broadcasts()]
+
+    async def finish(self, job_id: int) -> None:
+        await finish_broadcast_job(job_id)
 
 
 # broadcast_job_stats lived here and is gone: the numbers now come from the
