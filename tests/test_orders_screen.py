@@ -8,13 +8,35 @@ a line says, what the card says, and what is folded away.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import re
+
+import pytest
+
+from core.repos import base as repos_base
+from core.repos.orders import upsert_orders
+from core.repos.schema import init_db
+from core.repos.users import save_user
 
 from bot.handlers.orders import _format_orders_from_cache, _orders_kb
 from core.i18n import Texts
 
 T = Texts("uk")
+
+
+@pytest.fixture()
+def db_with_orders(tmp_path, monkeypatch):
+    """The background refresh re-reads the cache, so it needs one."""
+    monkeypatch.setattr(repos_base, "DB_PATH", str(tmp_path / "bot_data.db"))
+    asyncio.run(init_db())
+    asyncio.run(save_user(1, "+380670000000"))
+    asyncio.run(upsert_orders(1, [
+        {**row, "chat_id": 1, "source": "keycrm",
+         "source_order_id": str(row["id"]), "external_id": str(row["id"]),
+         "buyer_name": "", "payment_status": "", "recipient_name": ""}
+        for row in HISTORY
+    ]))
 
 
 def _order(order_id: int, *, at: str, total: float = 1465, items: int = 3,
@@ -167,3 +189,96 @@ def test_a_long_history_pages_by_ten():
 
 def test_an_empty_history_says_so():
     assert _format_orders_from_cache([], T) == T.MSG_NO_ORDERS
+
+
+# --- the parcel status that arrives by itself -------------------------------
+
+class _Sent:
+    """As much of a Message as the background refresh touches."""
+
+    def __init__(self):
+        self.edits: list[dict] = []
+
+    async def edit_text(self, text, reply_markup=None, **kw):
+        self.edits.append({"text": text, "markup": reply_markup})
+
+
+class _NovaPoshta:
+    """The carrier, answering from a dict."""
+
+    def __init__(self, answers=None, ttn_seen=None):
+        self.answers = answers or {}
+        self.asked: list[list[str]] = []
+
+    async def track_many(self, ttns, phone=""):
+        self.asked.append(list(ttns))
+        return {ttn: self.answers[ttn] for ttn in ttns if ttn in self.answers}
+
+
+def _status(**kw):
+    from types import SimpleNamespace
+    base = {"status": "in_transit", "warehouse_recipient": "Відділення №12",
+            "actual_delivery": "", "scheduled_delivery": "29-08-2026 12:00:00"}
+    return SimpleNamespace(**{**base, **kw})
+
+
+def _run_refresh(db_orders, novaposhta, **state):
+    """Run the background half directly — the spawn is the handler's business."""
+    import asyncio
+
+    from bot.handlers import orders as module
+
+    sent = _Sent()
+    asyncio.run(module._fill_in_parcel(
+        sent, 1, T, novaposhta,
+        **{"shown_id": 0, "page": 0, "cancelled": False, "expanded": False, **state}))
+    return sent
+
+
+def test_the_parcel_status_arrives_without_being_asked_for(db_with_orders):
+    """The screen opens from the cache instantly, and the carrier's answer —
+    which costs a second or three — edits itself in a moment later."""
+    np = _NovaPoshta({"59000123456": _status()})
+    sent = _run_refresh(HISTORY, np)
+    assert np.asked == [["59000123456"]]
+    body = _plain(sent.edits[0]["text"])
+    assert "Відділення №12" in body
+    assert "29.08.2026" in body
+
+
+def test_the_answer_takes_the_button_with_it(db_with_orders):
+    np = _NovaPoshta({"59000123456": _status()})
+    sent = _run_refresh(HISTORY, np)
+    assert T.BTN_WHERE_PARCEL not in _labels(sent.edits[0]["markup"])
+
+
+def test_a_parcel_the_carrier_cannot_place_leaves_the_screen_alone(db_with_orders):
+    """Nova Poshta not answering is ordinary. The screen stays as it was, with
+    the button still offering to ask."""
+    sent = _run_refresh(HISTORY, _NovaPoshta({}))
+    assert sent.edits == []
+
+
+def test_a_newer_lookup_cancels_the_one_still_in_flight(db_with_orders):
+    """Open the screen, tap another order a second later: without this the
+    first answer lands afterwards and puts the old card back."""
+    from bot.handlers import orders as module
+
+    class _Slow:
+        async def track_many(self, ttns, phone=""):
+            await asyncio.sleep(5)
+            return {}
+
+    async def run():
+        sent = _Sent()
+        module.follow_up_parcel(sent, 1, T, _Slow())
+        first = module._parcel_tasks[1]
+        await asyncio.sleep(0.05)          # let it get as far as the lookup
+
+        module.follow_up_parcel(sent, 1, T, _Slow(), shown_id=4)
+        second = module._parcel_tasks[1]
+        await asyncio.sleep(0)
+        assert first.cancelled(), "the stale lookup is dropped"
+        second.cancel()
+
+    asyncio.run(run())

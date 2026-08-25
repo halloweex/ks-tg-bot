@@ -12,8 +12,10 @@ from core.config import AppConfig
 from core.repos.users import get_user, get_user_language, is_opted_out, opt_in_user
 from bot.keyboards import language_kb, share_phone_kb
 from bot.screen import ephemeral, send_main_menu
-from bot.handlers.orders import favourites_screen, orders_screen
+from bot.handlers.orders import (favourites_screen, follow_up_parcel,
+                                 orders_screen)
 from core.adapters.keycrm.client import KeyCRMClient
+from core.adapters.novaposhta.client import NovaPoshtaClient
 from bot.profile import ensure_menu_button
 from bot.states import OnboardingStates
 
@@ -50,6 +52,7 @@ async def cmd_start(
     config: AppConfig,
     state: FSMContext,
     keycrm: KeyCRMClient,
+    novaposhta: NovaPoshtaClient | None,
     t: Texts,
     lang: str,
     tg_lang: str,
@@ -93,7 +96,8 @@ async def cmd_start(
             return
         if payload == ORDERS_DEEP_LINK:
             text, markup = await orders_screen(message.chat.id, t, keycrm, message)
-            await message.answer(text, reply_markup=markup)
+            sent = await message.answer(text, reply_markup=markup)
+            follow_up_parcel(sent, message.chat.id, t, novaposhta)
             return
 
         # The greeting carries the menu keyboard — sending a keyboard replaces

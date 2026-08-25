@@ -526,6 +526,80 @@ async def orders_screen(
     )
 
 
+# The parcel lookup in flight for a chat, so the next one can cancel it. Without
+# this, a customer who opens the screen and immediately taps another order gets
+# the first lookup landing afterwards and putting the old card back.
+_parcel_tasks: dict[int, asyncio.Task] = {}
+
+
+def follow_up_parcel(
+    sent: Message | None, chat_id: int, t: Texts,
+    novaposhta: NovaPoshtaClient | None, *, shown_id: int = 0, page: int = 0,
+    cancelled: bool = False, expanded: bool = False,
+) -> None:
+    """Ask Nova Poshta where the card's parcel is, and put it there.
+
+    In the background, after the screen is already on the customer's phone: the
+    lookup takes a second or three and the orders screen is the one that has to
+    open instantly. So it opens from the cache, and the live line appears in it
+    a moment later — the same trick the screen already uses to refresh itself
+    from the CRM.
+
+    Nothing here is awaited by the handler. A parcel that cannot be looked up
+    leaves the screen exactly as it was, with the button still offering to ask.
+    """
+    if sent is None or novaposhta is None:
+        return
+    previous = _parcel_tasks.pop(chat_id, None)
+    if previous is not None and not previous.done():
+        previous.cancel()
+    task = spawn(_fill_in_parcel(sent, chat_id, t, novaposhta, shown_id=shown_id,
+                                 page=page, cancelled=cancelled, expanded=expanded),
+                 name="parcel_status")
+    _parcel_tasks[chat_id] = task
+    task.add_done_callback(lambda done: _parcel_tasks.pop(chat_id, None)
+                           if _parcel_tasks.get(chat_id) is done else None)
+
+
+async def _fill_in_parcel(
+    sent: Message, chat_id: int, t: Texts, novaposhta: NovaPoshtaClient, *,
+    shown_id: int, page: int, cancelled: bool, expanded: bool,
+) -> None:
+    """The background half of follow_up_parcel."""
+    cached = await get_cached_orders(chat_id)
+    active, _cancelled = _split_cancelled(cached)
+    visible, page = _page_slice(active, page)
+    card = _card_row(visible, shown_id)
+    ttn = str((card or {}).get("tracking_code") or "")
+    if not ttn:
+        return
+
+    # The number authorises the lookup: Nova Poshta answers a TTN in full only
+    # to the phone that sent or receives the parcel.
+    phone = await get_user_phone(chat_id)
+    if not phone:
+        return
+
+    found = await novaposhta.track_many([ttn], phone)
+    lines = parcel_lines(card, found.get(ttn), t)
+    if not lines:
+        return
+
+    try:
+        await sent.edit_text(
+            _format_orders_from_cache(cached, t, shown_id=card.get("id", 0),
+                                      page=page, cancelled=cancelled,
+                                      expanded=expanded, parcel=lines),
+            reply_markup=_orders_kb(cached, t, shown_id=card.get("id", 0),
+                                    page=page, cancelled=cancelled,
+                                    expanded=expanded, parcel=True),
+        )
+    except TelegramAPIError as exc:
+        # The customer has moved on, or the screen already says this. Neither
+        # is worth more than a line in the debug log.
+        logger.debug("Could not put the parcel status on the screen: {}", exc)
+
+
 async def favourites_screen(
     chat_id: int,
     t: Texts,
@@ -857,6 +931,7 @@ async def _redraw_favourites(callback: CallbackQuery, chat_id: int, t: Texts,
 async def show_order(
     callback: CallbackQuery,
     callback_data: OrderAction,
+    novaposhta: NovaPoshtaClient | None,
     t: Texts,
 ) -> None:
     """Draw a different order as the card, or fold the cancelled ones away.
@@ -875,7 +950,7 @@ async def show_order(
     if not cached:
         return
 
-    await render(
+    sent = await render(
         callback,
         _format_orders_from_cache(cached, t, shown_id=callback_data.order_id,
                                   page=callback_data.page,
@@ -886,6 +961,11 @@ async def show_order(
                    cancelled="c" in callback_data.state,
                    expanded="x" in callback_data.state),
     )
+    # Whichever order became the card, its parcel is looked up the same way.
+    follow_up_parcel(sent, callback.from_user.id, t, novaposhta,
+                     shown_id=callback_data.order_id, page=callback_data.page,
+                     cancelled="c" in callback_data.state,
+                     expanded="x" in callback_data.state)
 
 
 @router.callback_query(OrderAction.filter(F.action == "track"))

@@ -329,7 +329,8 @@ def test_the_deep_link_opens_the_favourites_screen(db):
         SimpleNamespace(args=FAVOURITES_DEEP_LINK),
         _config(),
         SimpleNamespace(clear=nothing),
-        None,
+        None,          # keycrm — the cache is warm, so nobody asks the CRM
+        None,          # novaposhta — no parcel to look up on this screen
         Texts("uk"),
         "uk",
         "uk",

@@ -34,7 +34,8 @@ from bot.callbacks import InfoAction, MenuAction
 from bot.analytics import track
 from core.config import AppConfig
 from bot.handlers.delivery import delivery_screen
-from bot.handlers.orders import favourites_screen, orders_screen
+from bot.handlers.orders import (favourites_screen, follow_up_parcel,
+                                 orders_screen)
 from bot.keyboards import (info_menu_kb, main_menu_inline_kb,
                            settings_menu_kb, website_kb)
 from bot.screen import render, send_main_menu
@@ -63,12 +64,16 @@ async def open_orders(
     message: Message,
     state: FSMContext,
     keycrm: KeyCRMClient,
+    novaposhta: NovaPoshtaClient | None,
     t: Texts,
 ) -> None:
     """📦 — the order history, newest first."""
     await state.clear()
     text, markup = await orders_screen(message.chat.id, t, keycrm, message)
-    await message.answer(text, reply_markup=markup)
+    sent = await message.answer(text, reply_markup=markup)
+    # And a moment later, where the parcel is — from the carrier, in the
+    # background, so this screen still opens from the cache instantly.
+    follow_up_parcel(sent, message.chat.id, t, novaposhta)
 
 
 @_menu("BTN_DELIVERY_STATUS")
@@ -155,6 +160,7 @@ async def orders_from_menu(
     callback: CallbackQuery,
     state: FSMContext,
     keycrm: KeyCRMClient,
+    novaposhta: NovaPoshtaClient | None,
     t: Texts,
 ) -> None:
     """📦 from the menu in the message. Same screen as the key below it."""
@@ -163,7 +169,8 @@ async def orders_from_menu(
     text, markup = await orders_screen(
         callback.from_user.id, t, keycrm, callback.message
     )
-    await render(callback, text, markup)
+    follow_up_parcel(await render(callback, text, markup),
+                     callback.from_user.id, t, novaposhta)
 
 
 @router.callback_query(MenuAction.filter(F.action == "open_delivery"))
