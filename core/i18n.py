@@ -229,8 +229,11 @@ EN: dict[str, str] = {
     "BTN_INVITE_OPEN": "Open the bot",
     "MSG_REFERRAL_EARNED": (
         "🎁 Your friend has placed her first order!\n"
-        "Thank you for recommending us — your promo code is on its way."
+        "Thank you for recommending us 🌸"
     ),
+    "MSG_REFERRAL_CODE": "\n\nYour promo code: <code>{code}</code>\n{reward}",
+    "MSG_REFERRAL_BY_HAND": "\n\nA manager will send you a promo code shortly.",
+    "BTN_REFERRAL_USE": "🛒 Use the discount",
     "MSG_REFERRAL_ADMIN_SUMMARY": (
         "🎁 Referrals: {count} — friends have placed their first orders.\n"
         "Time to write promo codes for whoever brought them."

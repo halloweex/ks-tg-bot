@@ -123,8 +123,7 @@ async def main() -> None:
             name="birthday_watcher"))
         # Pay for a recommendation once the friend it brought has ordered.
         loops.append(spawn(
-            watch_referrals(bot, REFERRAL_PREFIX, config.support_chat_id,
-                            config.env.admin_ids),
+            watch_referrals(bot, REFERRAL_PREFIX, config, config.env.admin_ids),
             name="referral_watcher"))
         # Pull whatever changed in the CRM into the local cache, and — as a
         # separate task, so it survives that one dying — watch that it keeps

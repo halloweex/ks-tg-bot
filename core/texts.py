@@ -620,8 +620,15 @@ BTN_INVITE_OPEN = "Відкрити бота"
 # Приходить, коли подруга зробила перше замовлення.
 MSG_REFERRAL_EARNED = (
     "🎁 Твоя подруга зробила перше замовлення!\n"
-    "Дякуємо, що порадила нас — промокод уже в дорозі."
+    "Дякуємо, що порадила нас 🌸"
 )
+# With a code configured the reward is in the message, and the button applies
+# it. Without one the message says what actually happens — a person writes it —
+# because "промокод уже в дорозі" from a bot that cannot send one is the kind
+# of promise that quietly stops being kept.
+MSG_REFERRAL_CODE = "\n\nТвій промокод: <code>{code}</code>\n{reward}"
+MSG_REFERRAL_BY_HAND = "\n\nМенеджер надішле промокод найближчим часом."
+BTN_REFERRAL_USE = "🛒 Використати знижку"
 # Іде менеджеру: поки промокоди виписує людина, це його сигнал до дії.
 MSG_REFERRAL_ADMIN_SUMMARY = (
     "🎁 Реферали: {count} — подруги зробили перші замовлення.\n"

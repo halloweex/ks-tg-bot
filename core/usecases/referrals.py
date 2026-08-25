@@ -23,7 +23,8 @@ from loguru import logger
 from core.domain.campaign import daily
 from core.i18n import customer_texts
 from core.repos.outbox import enqueue
-from core.repos.referrals import earned_referrals, record_reward
+from core.repos.referrals import (earned_referrals, record_reward,
+                                  set_reward_code)
 from core.repos.users import get_user_language
 
 KIND = "referral"
@@ -40,8 +41,16 @@ class Swept:
     earned: int = 0
 
 
-async def check_once(prefix: str) -> Swept:
-    """Find the referrals that have come good, and pay for them once."""
+async def check_once(prefix: str, *, code: str = "", reward: str = "",
+                     discount_link: str = "") -> Swept:
+    """Find the referrals that have come good, and pay for them once.
+
+    `code` is what the shop created in its admin; with one, the customer gets
+    it in the message and a button that applies it, and the reward is finished
+    the moment she is told. Without one the message says a manager will write —
+    which is what then happens — because a bot promising a code it cannot send
+    is a promise that quietly stops being kept.
+    """
     pairs = await earned_referrals(prefix, PER_RUN)
     if not pairs:
         return Swept()
@@ -56,11 +65,23 @@ async def check_once(prefix: str) -> Swept:
             continue
 
         t = customer_texts(await get_user_language(referrer_chat_id))
+        payload: dict = {"text": t.MSG_REFERRAL_EARNED + (
+            t.MSG_REFERRAL_CODE.format(code=code, reward=reward) if code
+            else t.MSG_REFERRAL_BY_HAND)}
+        if code and discount_link:
+            # One tap: the link puts the code in her session and lands her in
+            # the shop, the same mechanism the first-order offer uses.
+            payload["keyboard"] = {"inline_keyboard": [[{
+                "text": t.BTN_REFERRAL_USE, "url": discount_link,
+                "style": "success"}]]}
         await enqueue(
-            referrer_chat_id, KIND, campaign,
-            {"text": t.MSG_REFERRAL_EARNED},
+            referrer_chat_id, KIND, campaign, payload,
             dedup_key=f"{campaign}:{friend_chat_id}",
         )
+        # What was paid, recorded with the payment: a code handed out is the
+        # thing anybody auditing this will ask about.
+        if code:
+            await set_reward_code(friend_chat_id, code)
         earned += 1
 
     logger.info("Referrals: {} of {} earned referral(s) paid for",

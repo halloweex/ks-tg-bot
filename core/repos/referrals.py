@@ -84,3 +84,16 @@ async def referral_counts(referrer_chat_id: int, prefix: str) -> tuple[int, int]
             (referrer_chat_id,),
         )
         return invited, (await cursor.fetchone())[0]
+
+
+async def set_reward_code(friend_chat_id: int, code: str) -> None:
+    """Record which code paid for this referral.
+
+    Written after the row exists, not with it: the row is what stops a second
+    payment and has to be there before anything is sent, while the code is what
+    was actually handed over and is worth keeping for whoever asks later.
+    """
+    async with connect() as db:
+        await db.execute("UPDATE referrals SET code = ? WHERE friend_chat_id = ?",
+                         (code, friend_chat_id))
+        await db.commit()

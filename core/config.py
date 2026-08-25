@@ -107,6 +107,9 @@ class AppConfig:
     # admin — the bot hands out a link that applies it and never creates one.
     # Empty means the offer is not shown at all: a button leading to a code
     # that does not exist is worse than no button.
+    # The code a referral is paid with, as it is written in the Shopify admin.
+    # Empty and the bot says a manager will send one, which is what happens.
+    referral_code: str
     first_order_code: str
     first_order_reward: str
     # Bumped whenever a published card changes — see _assets_version.
@@ -175,6 +178,7 @@ def load_config(config_path: str | Path = "config.yaml") -> AppConfig:
         support_chat_id=yaml_data["support_chat_id"],
         instagram_url=yaml_data.get("instagram_url", ""),
         referral_reward=yaml_data.get("referral_reward", "").strip(),
+        referral_code=yaml_data.get("referral_code", "").strip(),
         first_order_code=yaml_data.get("first_order_code", "").strip(),
         first_order_reward=yaml_data.get("first_order_reward", "").strip(),
         assets_version=str(yaml_data.get("assets_version", "1")).strip(),

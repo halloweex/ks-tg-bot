@@ -357,3 +357,52 @@ def test_no_reward_no_line(db):
     query = _Query("поділитися")
     asyncio.run(inline_list(query, T, _config(first_order_reward="")))
     assert "10%" not in query.results[0].input_message_content.message_text
+
+
+# --- what the reward actually is --------------------------------------------
+
+def _sweep_with(code: str = "", reward: str = "Знижка 10%", link: str = ""):
+    from core.usecases.referrals import check_once
+
+    return asyncio.run(check_once(REFERRAL_PREFIX, code=code, reward=reward,
+                                  discount_link=link))
+
+
+def test_with_a_code_the_reward_arrives_finished(db):
+    """The customer is told and paid in the same message: the code is in it,
+    and the button applies it."""
+    _friend_who(f"{REFERRAL_PREFIX}{CHAT}", ordered=True)
+    _sweep_with(code="REF10", link=f"{SHOP}/discount/REF10")
+    payload = _queued_rewards()[0]["payload"]
+    assert "REF10" in payload["text"]
+    button = payload["keyboard"]["inline_keyboard"][0][0]
+    assert button["url"] == f"{SHOP}/discount/REF10"
+
+
+def test_without_a_code_the_message_says_what_really_happens(db):
+    """A bot promising a code it cannot send is a promise that quietly stops
+    being kept. Until the shop creates one, a person writes it."""
+    _friend_who(f"{REFERRAL_PREFIX}{CHAT}", ordered=True)
+    _sweep_with()
+    payload = _queued_rewards()[0]["payload"]
+    assert "Менеджер надішле" in payload["text"]
+    assert "keyboard" not in payload
+
+
+def test_the_code_that_paid_is_recorded(db):
+    """What was handed over is the thing anybody auditing this asks about."""
+    import aiosqlite
+
+    from core.repos.base import connect
+
+    _friend_who(f"{REFERRAL_PREFIX}{CHAT}", ordered=True)
+    _sweep_with(code="REF10", link=f"{SHOP}/discount/REF10")
+
+    async def read():
+        async with connect() as db_:
+            db_.row_factory = aiosqlite.Row
+            cursor = await db_.execute(
+                "SELECT code FROM referrals WHERE friend_chat_id = ?", (FRIEND,))
+            return (await cursor.fetchone())["code"]
+
+    assert asyncio.run(read()) == "REF10"
