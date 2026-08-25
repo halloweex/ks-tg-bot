@@ -247,6 +247,10 @@ forbidden_modules =
     core.repos.catalogue
     core.repos.stock
     core.repos.support
+    core.repos.referrals
+# `core.repos.referrals` освободился на коммите 14 — `referral_counts` остался
+# только у экрана приглашения, а хендлеры это правило не трогает.
+#
 # `core.repos.stock` освободился на коммите 12 и должен был появиться здесь в
 # том же коммите — правило про семейство добавляется бесплатно там, где
 # семейство теряет последнего потребителя. `core.repos.support` освободился
@@ -302,6 +306,19 @@ source_modules =
     core.usecases.birthdays
 forbidden_modules =
     core.repos
+
+[importlinter:contract:referrals-sees-ports-only]
+name = core.usecases.referrals не знает ни одного репозитория
+# Причина: сценарий про деньги. Он решает, кому и сколько причитается, и порядок
+# двух его записей — сначала строка, потом сообщение — это решение о том, какой
+# отказ дешевле: не поблагодарить или заплатить дважды. Отвечать за это он должен
+# против поддельного гроссбуха, а не против файла на диске.
+type = forbidden
+source_modules =
+    core.usecases.referrals
+forbidden_modules =
+    core.repos
+
 
 [importlinter:contract:stock-sees-ports-only]
 name = core.usecases.stock не знает ни одного репозитория

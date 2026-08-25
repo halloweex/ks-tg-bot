@@ -12,6 +12,7 @@ from core.config import load_config
 from core.repos.base import configure as configure_db
 from core.repos.catalogue import SqliteOfferCache
 from core.repos.outbox import SqliteMessageQueue
+from core.repos.referrals import SqliteReferralLedger
 from core.repos.stock import SqliteRestockWatchlist, SqliteStockSnapshot
 from core.repos.users import SqliteKnownBirthdays, SqliteLanguageChoice
 from core.repos.schema import init_db
@@ -139,9 +140,14 @@ async def main() -> None:
                             SqliteLanguageChoice(), SqliteMessageQueue(),
                             config.birthday_card_url),
             name="birthday_watcher"))
-        # Pay for a recommendation once the friend it brought has ordered.
+        # Pay for a recommendation once the friend it brought has ordered. The
+        # bot is still here, unlike the two sweeps above: the customer's half
+        # goes through the queue, but the note that prompts a person to write
+        # the promo code is a send, and it lives in bot/referrals.py.
         loops.append(spawn(
-            watch_referrals(bot, REFERRAL_PREFIX, config, config.env.admin_ids),
+            watch_referrals(bot, REFERRAL_PREFIX, config, config.env.admin_ids,
+                            SqliteReferralLedger(), SqliteLanguageChoice(),
+                            SqliteMessageQueue()),
             name="referral_watcher"))
         # Pull whatever changed in the CRM into the local cache, and — as a
         # separate task, so it survives that one dying — watch that it keeps

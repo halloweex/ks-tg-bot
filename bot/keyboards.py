@@ -4,7 +4,7 @@ from __future__ import annotations
 from urllib.parse import quote, urlencode, urlparse
 
 from aiogram.types import (InlineKeyboardMarkup, KeyboardButton,
-                           ReplyKeyboardMarkup, WebAppInfo)
+                           ReplyKeyboardMarkup)
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
 from bot.callbacks import (BroadcastAction, InfoAction, MenuAction,
@@ -139,7 +139,7 @@ def share_phone_kb(t: Texts, *, with_manager: bool = False) -> ReplyKeyboardMark
     )
 
 
-def main_menu_kb(t: Texts, webapp_url: str = "") -> ReplyKeyboardMarkup:
+def main_menu_kb(t: Texts) -> ReplyKeyboardMarkup:
     """The main menu, as the keyboard under the input field.
 
     It is a reply keyboard and not an inline one for a reason that has nothing
@@ -163,14 +163,13 @@ def main_menu_kb(t: Texts, webapp_url: str = "") -> ReplyKeyboardMarkup:
     «🌐 Сайт» is a key like the others because a reply button cannot carry a
     URL — pressing it makes the bot answer with the link.
 
-    «⭐ Улюблені» is the one exception to all of that, and only when
-    `webapp_url` is set. It is then a `web_app` key: pressing it opens the page
-    in webapp/, which asks the client to write "@bot " into the input field and
-    closes. That is the only way a key down here can open the inline list —
-    `switch_inline_query_current_chat` exists on InlineKeyboardButton alone, and
-    no API writes into an input field, so the insertion has to be asked for from
-    inside the client. Without the url the key is an ordinary text key again and
-    opens the favourites screen, which is what it did before.
+    Every key opens a screen, «⭐ Улюблені» included. It used to be a `web_app`
+    key wherever `webapp_url` was set: the page in webapp/ asked the client to
+    write "@bot " into the input field and closed, which opened the inline list
+    without ever showing the screen. Two entries that looked alike behaved
+    differently — «📦 Замовлення» opened a screen, «⭐ Улюблені» opened a search
+    box — and the search is one tap further in, behind «🔍» on the screen
+    itself, where somebody who wants to search will look for it.
     """
     builder = ReplyKeyboardBuilder()
     # Six, not seven: «🚚 Відслідкувати замовлення» was a second key for what a
@@ -179,9 +178,6 @@ def main_menu_kb(t: Texts, webapp_url: str = "") -> ReplyKeyboardMarkup:
     for label in (t.BTN_ORDERS, t.BTN_FAVOURITES,
                   t.BTN_SUPPORT, t.BTN_INVITE,
                   t.BTN_WEBSITE, t.BTN_INFO, t.BTN_SETTINGS):
-        if label == t.BTN_FAVOURITES and webapp_url:
-            builder.button(text=label, web_app=WebAppInfo(url=webapp_url))
-            continue
         builder.button(text=label)
     builder.adjust(2, 2, 3)
     return builder.as_markup(
@@ -194,16 +190,14 @@ def main_menu_kb(t: Texts, webapp_url: str = "") -> ReplyKeyboardMarkup:
 def main_menu_inline_kb(t: Texts, website_url: str) -> InlineKeyboardMarkup:
     """The main menu as buttons inside a message, beside the keyboard below.
 
-    It exists for one button the keyboard below cannot carry. «⭐ Улюблені»
-    here is a switch_inline_query_current_chat button: tapping it makes the
-    client write "@bot " into the input field and open the inline list over the
-    keyboard (bot/handlers/inline.py). A KeyboardButton has no such field — it
-    carries text, a web app or a contact request, and nothing else — and no API
-    writes into anybody's input field.
+    Both menus lead to the same screens, favourites included: a menu entry
+    answers "show me my products", and the panel that searches them is one tap
+    further in, behind «🔍» on the screen it opens.
 
-    Both menus lead to the same screens. Only favourites differs, and that is
-    the whole reason this one exists: from the keyboard below it opens the
-    screen, from here it opens the list with photos.
+    This menu still exists for what only an inline button can do — the panel
+    behind that «🔍» is a switch_inline_query_current_chat button, and a
+    KeyboardButton has no such field. It is just no longer the menu entry
+    itself.
 
     The keyboard below stays where it is. It is what draws the ☰ toggle in the
     input row — no API creates that — and it is what the customer reaches for
@@ -220,8 +214,8 @@ def main_menu_inline_kb(t: Texts, website_url: str) -> InlineKeyboardMarkup:
     # for a person" *inside* a screen, and those two edit the message they came
     # from. A menu entry must not — it would replace the menu with the section.
     builder.button(text=t.BTN_ORDERS, callback_data=MenuAction(action="open_orders"))
-    # The one button this menu is for.
-    builder.button(text=t.BTN_FAVOURITES, switch_inline_query_current_chat="")
+    builder.button(text=t.BTN_FAVOURITES,
+                   callback_data=MenuAction(action="open_favourites"))
     builder.button(text=t.BTN_SUPPORT,
                    callback_data=MenuAction(action="open_support"))
     builder.button(text=t.BTN_INVITE,

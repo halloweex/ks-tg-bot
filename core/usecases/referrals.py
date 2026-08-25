@@ -13,6 +13,19 @@ module is the only thing that changes.
 
 Idempotency is a row, not a guess: the sweep runs every quarter of an hour and
 a reward is owed once.
+
+**Three ports since the move, and the ledger is deliberately one of them rather
+than two.** Finding what has come good and writing that it has been paid are the
+same table answering the same question from both ends — the row this sweep
+writes is precisely what stops the next `earned()` returning that referral
+again. Split across two ports, the test that proves exactly that (pay once, run
+again, get nothing) would need two fakes agreeing about a table neither of them
+owns, which is how they stop agreeing.
+
+What is still not atomic is the pair of writes inside the loop: the reward row
+goes down, then the message is queued. That order is the choice — the other one
+pays twice when the process dies in between — and the port series does not close
+it.
 """
 from __future__ import annotations
 
@@ -22,10 +35,9 @@ from loguru import logger
 
 from core.domain.campaign import daily
 from core.i18n import customer_texts
-from core.repos.outbox import enqueue
-from core.repos.referrals import (earned_referrals, record_reward,
-                                  set_reward_code)
-from core.repos.users import get_user_language
+from core.ports.outbox import MessageQueue
+from core.ports.repositories import ReferralLedger
+from core.ports.users import LanguageChoice
 
 KIND = "referral"
 
@@ -41,9 +53,21 @@ class Swept:
     earned: int = 0
 
 
-async def check_once(prefix: str, *, code: str = "", reward: str = "",
-                     discount_link: str = "") -> Swept:
+async def check_once(
+    prefix: str,
+    ledger: ReferralLedger,
+    languages: LanguageChoice,
+    queue: MessageQueue,
+    *,
+    code: str = "",
+    reward: str = "",
+    discount_link: str = "",
+) -> Swept:
     """Find the referrals that have come good, and pay for them once.
+
+    `prefix` stays the first argument rather than joining the ports behind it:
+    it is not an outside thing being handed in, it is what the sweep is looking
+    for. The deep link belongs to the bot, so the entry point says which one.
 
     `code` is what the shop created in its admin; with one, the customer gets
     it in the message and a button that applies it, and the reward is finished
@@ -51,20 +75,22 @@ async def check_once(prefix: str, *, code: str = "", reward: str = "",
     which is what then happens — because a bot promising a code it cannot send
     is a promise that quietly stops being kept.
     """
-    pairs = await earned_referrals(prefix, PER_RUN)
+    pairs = await ledger.earned(prefix, PER_RUN)
     if not pairs:
         return Swept()
 
     campaign = daily(KIND)
     earned = 0
-    for friend_chat_id, referrer_chat_id in pairs:
+    for pair in pairs:
+        friend_chat_id = pair.friend_chat_id
+        referrer_chat_id = pair.referrer_chat_id
         # The row first: if this process dies before the message is queued, the
         # customer is told nothing and nobody is paid twice. The other order
         # round would pay twice, and that is the worse failure.
-        if not await record_reward(friend_chat_id, referrer_chat_id):
+        if not await ledger.record_reward(friend_chat_id, referrer_chat_id):
             continue
 
-        t = customer_texts(await get_user_language(referrer_chat_id))
+        t = customer_texts(await languages.chosen_by(referrer_chat_id))
         payload: dict = {"text": t.MSG_REFERRAL_EARNED + (
             t.MSG_REFERRAL_CODE.format(code=code, reward=reward) if code
             else t.MSG_REFERRAL_BY_HAND)}
@@ -74,14 +100,14 @@ async def check_once(prefix: str, *, code: str = "", reward: str = "",
             payload["keyboard"] = {"inline_keyboard": [[{
                 "text": t.BTN_REFERRAL_USE, "url": discount_link,
                 "style": "success"}]]}
-        await enqueue(
+        await queue.queue(
             referrer_chat_id, KIND, campaign, payload,
             dedup_key=f"{campaign}:{friend_chat_id}",
         )
         # What was paid, recorded with the payment: a code handed out is the
         # thing anybody auditing this will ask about.
         if code:
-            await set_reward_code(friend_chat_id, code)
+            await ledger.record_code(friend_chat_id, code)
         earned += 1
 
     logger.info("Referrals: {} of {} earned referral(s) paid for",

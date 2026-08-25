@@ -22,20 +22,31 @@ from bot.customer import describe
 from bot.keyboards import discount_url
 from core.config import AppConfig
 from core.i18n import operator_texts
+from core.ports.outbox import MessageQueue
+from core.ports.repositories import ReferralLedger
+from core.ports.users import LanguageChoice
 from core.usecases.referrals import check_once
 
 POLL_INTERVAL_SECONDS = 15 * 60
 
 
-async def watch(bot: Bot, prefix: str, config: AppConfig,
-                admin_ids: list[int]) -> None:
+async def watch(
+    bot: Bot,
+    prefix: str,
+    config: AppConfig,
+    admin_ids: list[int],
+    ledger: ReferralLedger,
+    languages: LanguageChoice,
+    queue: MessageQueue,
+) -> None:
     """Poll forever. Never lets one bad round kill the loop."""
     logger.info("Referral watcher started ({}s interval)", POLL_INTERVAL_SECONDS)
     link = (discount_url(config.website_url, config.referral_code)
             if config.referral_code else "")
     while True:
         try:
-            swept = await check_once(prefix, code=config.referral_code,
+            swept = await check_once(prefix, ledger, languages, queue,
+                                     code=config.referral_code,
                                      reward=config.referral_reward,
                                      discount_link=link)
             # Somebody still writes the codes while there is no code to hand

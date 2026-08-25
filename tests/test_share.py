@@ -23,8 +23,10 @@ from core.domain.offer import Offer
 from core.i18n import Texts
 from core.repos import base as repos_base
 from core.repos.catalogue import save_offers
+from core.repos.outbox import SqliteMessageQueue
+from core.repos.referrals import SqliteReferralLedger
 from core.repos.schema import init_db
-from core.repos.users import get_source, save_user
+from core.repos.users import SqliteLanguageChoice, get_source, save_user
 
 CHAT = 6060
 FRIEND = 7070
@@ -278,9 +280,15 @@ def _friend_who(source: str, *, ordered: bool, cancelled: bool = False,
 
 
 def _sweep():
+    """One sweep against the real SQLite side of all three ports.
+
+    None of them is faked: the sweep's whole subject is what the ledger already
+    holds, and a fake ledger would be a fake of the thing under test.
+    """
     from core.usecases.referrals import check_once
 
-    return asyncio.run(check_once(REFERRAL_PREFIX))
+    return asyncio.run(check_once(REFERRAL_PREFIX, SqliteReferralLedger(),
+                                  SqliteLanguageChoice(), SqliteMessageQueue()))
 
 
 def _queued_rewards() -> list[dict]:
@@ -367,8 +375,9 @@ def test_the_invitation_carries_the_offer_whether_or_not_a_code_exists(db):
 def _sweep_with(code: str = "", reward: str = "Знижка 10%", link: str = ""):
     from core.usecases.referrals import check_once
 
-    return asyncio.run(check_once(REFERRAL_PREFIX, code=code, reward=reward,
-                                  discount_link=link))
+    return asyncio.run(check_once(REFERRAL_PREFIX, SqliteReferralLedger(),
+                                  SqliteLanguageChoice(), SqliteMessageQueue(),
+                                  code=code, reward=reward, discount_link=link))
 
 
 def test_with_a_code_the_reward_arrives_finished(db):

@@ -78,14 +78,21 @@ def test_the_menu_does_not_reuse_the_callbacks_that_edit_a_screen():
     assert not actions & {"info", "support"}
 
 
-# --- the button the whole thing is for -------------------------------------
+# --- every entry opens a screen --------------------------------------------
 
-def test_favourites_hands_the_input_field_to_the_inline_list():
-    """The empty query is what makes the client write "@bot " and open the
-    list. A KeyboardButton has no such field, which is why this menu exists."""
+def test_favourites_opens_a_screen_like_every_other_entry():
+    """It used to hand the input field straight to the inline list, so the two
+    halves of one menu behaved differently: «📦 Замовлення» opened a screen and
+    «⭐ Улюблені» opened a search box. The search is still there, one tap in,
+    behind «🔍» on the screen this opens."""
     favourites = next(b for b in _inline_buttons() if b.text == T.BTN_FAVOURITES)
-    assert favourites.switch_inline_query_current_chat == ""
-    assert favourites.callback_data is None
+    assert favourites.switch_inline_query_current_chat is None
+    assert MenuAction.unpack(favourites.callback_data).action == "open_favourites"
+
+
+def test_no_menu_entry_takes_over_the_input_field():
+    assert not any(b.switch_inline_query_current_chat is not None
+                   for b in _inline_buttons())
 
 
 def test_the_shop_is_a_link_here_and_a_message_below():
@@ -108,20 +115,13 @@ def test_every_label_is_short_enough_to_share_a_row():
     assert max(len(b.text) for b in _inline_buttons()) <= 20
 
 
-def test_the_key_below_opens_the_mini_app_that_fills_the_input_field():
-    """A KeyboardButton has no switch_inline field — the insertion can only be
-    asked for from inside the client, and a Mini App is the only thing down
-    here that runs there (webapp/index.html)."""
-    key = _favourites_key(main_menu_kb(T, WEBAPP))
-    assert key.web_app is not None and key.web_app.url == WEBAPP
-
-
-def test_without_the_page_the_key_is_the_plain_one_it_used_to_be():
-    """The page is published separately from the bot. Until it is up, the key
-    must open the favourites screen rather than a Telegram sheet with a 404 in
-    it — which is what an unpublished Mini App url looks like to a customer."""
-    key = _favourites_key(main_menu_kb(T, ""))
+def test_the_key_below_is_a_plain_key_and_opens_the_screen():
+    """It was a Mini App key wherever a page was published: opening it asked
+    the client to write "@bot " into the input field and closed, which is how a
+    menu key ended up opening a search box instead of a screen."""
+    key = _favourites_key(main_menu_kb(T))
     assert key.web_app is None
+    assert key.text == T.BTN_FAVOURITES
 
 
 def _favourites_key(keyboard):

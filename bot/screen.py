@@ -122,7 +122,7 @@ async def send_main_menu(message: Message, t: Texts, config: AppConfig,
     that does it natively (bot/keyboards.py).
     """
     await with_effect(message, intro or t.MSG_MAIN_MENU, effect,
-                      reply_markup=main_menu_kb(t, config.webapp_url))
+                      reply_markup=main_menu_kb(t))
     await message.answer(t.MSG_MENU_PICK,
                          reply_markup=main_menu_inline_kb(t, config.website_url))
 

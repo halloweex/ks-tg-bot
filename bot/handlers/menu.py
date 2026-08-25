@@ -195,6 +195,29 @@ async def orders_from_menu(
                      callback.from_user.id, t, novaposhta)
 
 
+@router.callback_query(MenuAction.filter(F.action == "open_favourites"))
+async def favourites_from_menu(
+    callback: CallbackQuery,
+    state: FSMContext,
+    keycrm: KeyCRMClient,
+    config: AppConfig,
+    t: Texts,
+) -> None:
+    """⭐ from the menu in the message. Same screen as the key below it.
+
+    It used to open the inline list straight from here, which made the two
+    halves of one menu behave differently. The list is still one tap away, on
+    the screen this opens, where it is next to what it searches.
+    """
+    await callback.answer()
+    await state.clear()
+    text, markup = await favourites_screen(
+        callback.from_user.id, t, keycrm, callback.message, config.website_url,
+        config
+    )
+    await render(callback, text, markup)
+
+
 @router.callback_query(MenuAction.filter(F.action == "open_delivery"))
 async def delivery_from_menu(
     callback: CallbackQuery,
