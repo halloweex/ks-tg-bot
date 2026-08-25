@@ -20,8 +20,11 @@ from bot.analytics import track
 from core.config import AppConfig
 from core.usecases.analytics import usage_report
 from core.usecases.broadcast import start_broadcast
+from core.repos.broadcast import SqliteBroadcastJournal
 from core.repos.events import SqliteUsageStats
-from core.repos.users import get_broadcast_recipients, get_user_language, opt_out_user
+from core.repos.outbox import SqliteMessageQueue
+from core.repos.users import (SqliteMailingList, get_broadcast_recipients,
+                              get_user_language, opt_out_user)
 from bot.keyboards import broadcast_confirm_kb
 from bot.states import BroadcastStates
 
@@ -54,8 +57,16 @@ async def _queue_broadcast(text: str, admin_id: int) -> None:
     the outbox sender empties them at its own pace — which is what makes a
     redeploy in the middle of a broadcast a non-event instead of the reason
     resume_broadcasts existed.
+
+    The three handles are built here for the same reason cmd_stats builds its
+    store: there is no composition root yet, so the handler is where it is known
+    which engine is underneath. When one exists, this line takes them as
+    arguments like everything else.
     """
-    started = await start_broadcast(text, admin_id)
+    started = await start_broadcast(
+        text, admin_id,
+        SqliteBroadcastJournal(), SqliteMailingList(), SqliteMessageQueue(),
+    )
     logger.info("Broadcast job #{} queued for {} recipient(s)",
                 started.job_id, started.queued)
 

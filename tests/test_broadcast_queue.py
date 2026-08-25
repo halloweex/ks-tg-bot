@@ -4,6 +4,11 @@ What used to be `broadcast_targets` plus a driver plus a resume-on-startup is
 now rows in the outbox, so these tests are about the two things that had to
 survive the swap — the recipient snapshot and the summary — and the one that
 had to change: a crash no longer resends, it stops.
+
+Both scenarios take ports since commit 16, and none of them is faked here. The
+subject of every test below is what actually landed in two tables, so a fake
+queue would be a fake of the thing under test; the ports answer from the
+temporary database the fixture builds.
 """
 from __future__ import annotations
 
@@ -13,10 +18,12 @@ import json
 import pytest
 
 from core.repos import base as repos_base
-from core.repos.broadcast import get_unfinished_broadcasts
-from core.repos.outbox import LOCK_FOR, REVIEW, campaign_stats, claim, mark_sent
+from core.repos.broadcast import SqliteBroadcastJournal, get_unfinished_broadcasts
+from core.repos.outbox import (LOCK_FOR, REVIEW, SqliteMessageQueue,
+                               campaign_stats, claim, mark_sent)
 from core.repos.schema import init_db
-from core.repos.users import opt_out_user, save_user
+from core.repos.users import (SqliteLanguageChoice, SqliteMailingList,
+                              opt_out_user, save_user)
 from core.usecases.broadcast import (campaign_for, report_finished_jobs,
                                      start_broadcast)
 
@@ -34,8 +41,17 @@ def db(tmp_path, monkeypatch):
 
 
 def _start() -> tuple[int, int]:
-    started = asyncio.run(start_broadcast(TEXT, ADMIN))
+    started = asyncio.run(start_broadcast(
+        TEXT, ADMIN,
+        SqliteBroadcastJournal(), SqliteMailingList(), SqliteMessageQueue(),
+    ))
     return started.job_id, started.queued
+
+
+def _report() -> list[int]:
+    return asyncio.run(report_finished_jobs(
+        SqliteBroadcastJournal(), SqliteLanguageChoice(), SqliteMessageQueue(),
+    ))
 
 
 def test_every_recipient_gets_a_queued_message(db):
@@ -102,7 +118,7 @@ def test_queueing_one_campaign_twice_writes_nothing_the_second_time(db):
 
 def test_a_job_is_not_finished_while_anything_is_waiting(db):
     job_id, _ = _start()
-    assert asyncio.run(report_finished_jobs()) == []
+    assert _report() == []
     assert [job["id"] for job in asyncio.run(get_unfinished_broadcasts())] == [job_id]
 
 
@@ -111,7 +127,7 @@ def test_when_the_last_message_is_decided_the_admin_gets_the_summary(db):
     for row in asyncio.run(claim(50)):
         asyncio.run(mark_sent(row["id"]))
 
-    assert asyncio.run(report_finished_jobs()) == [job_id]
+    assert _report() == [job_id]
     assert asyncio.run(get_unfinished_broadcasts()) == []
 
     # The summary is itself a queued message rather than the one send that
@@ -126,8 +142,8 @@ def test_the_summary_is_sent_once(db):
     for row in asyncio.run(claim(50)):
         asyncio.run(mark_sent(row["id"]))
 
-    asyncio.run(report_finished_jobs())
-    asyncio.run(report_finished_jobs())
+    _report()
+    _report()
 
     reports = [row for row in asyncio.run(claim(50)) if row["chat_id"] == ADMIN]
     assert len(reports) == 1
@@ -157,6 +173,6 @@ def test_a_job_whose_messages_were_never_queued_is_closed_with_zeros(db):
 
     job_id = asyncio.run(create_broadcast_job(TEXT, ADMIN))
 
-    assert asyncio.run(report_finished_jobs()) == [job_id]
+    assert _report() == [job_id]
     [report] = [row for row in asyncio.run(claim(50)) if row["chat_id"] == ADMIN]
     assert "0" in json.loads(report["payload"])["text"]

@@ -248,6 +248,14 @@ forbidden_modules =
     core.repos.stock
     core.repos.support
     core.repos.referrals
+    core.repos.outbox
+    core.repos.broadcast
+# `core.repos.outbox` и `core.repos.broadcast` освободились на коммите 16. У
+# очереди было шесть потребителей — это и есть тот случай, ради которого в
+# `docs/move-status.md` записано, что семейное правило ждёт последнего из них, а
+# правило про сценарий ложится сразу. Ждали пять коммитов; теперь оно защищает
+# `enqueue`, `claim` и `park` от любого сценария, а не только от шести бывших.
+#
 # `core.repos.referrals` освободился на коммите 14 — `referral_counts` остался
 # только у экрана приглашения, а хендлеры это правило не трогает.
 #
@@ -306,6 +314,19 @@ source_modules =
     core.usecases.birthdays
 forbidden_modules =
     core.repos
+
+[importlinter:contract:broadcast-sees-ports-only]
+name = core.usecases.broadcast не знает ни одного репозитория
+# Причина: единственный сценарий, который пишет двадцать тысяч строк одним
+# вызовом, и единственный, чья политика — `review`: продублированная рассылка
+# хуже пропущенной. И то и другое проверяется против поддельной очереди за
+# миллисекунды, а против файла на диске — двадцатью тысячами строк.
+type = forbidden
+source_modules =
+    core.usecases.broadcast
+forbidden_modules =
+    core.repos
+
 
 [importlinter:contract:referrals-sees-ports-only]
 name = core.usecases.referrals не знает ни одного репозитория
