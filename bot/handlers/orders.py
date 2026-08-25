@@ -20,7 +20,9 @@ from bot.analytics import track
 from bot.customer import describe
 from core.config import AppConfig
 from core.domain.offer import Offer
-from core.repos.support import (add_discount_request, recent_discount_request,
+from core.repos.support import (PENDING_LIMIT, add_discount_request,
+                                pending_discount_count,
+                                pending_discount_request,
                                 remember_support_thread)
 from core.repos.stock import (add_stock_subscription, get_stock_levels,
                               get_subscribed_skus, remove_stock_subscription)
@@ -899,8 +901,18 @@ async def request_discount(
     # Answered as a pop-up rather than a message: the confirmation belongs to
     # the tap, and the favourites list the customer is looking at should stay
     # where it is.
-    if await recent_discount_request(chat_id):
+    #
+    # Scoped to the product asked about. The old rule was one ask a week per
+    # customer, which meant a question about a cream also refused every other
+    # product — and said "already in hand" for seven days whether or not
+    # anyone had read it. Now only the same ask is refused, only while it is
+    # actually unanswered, and the cap below is what keeps a long list from
+    # becoming a long queue.
+    if await pending_discount_request(chat_id, callback_data.sku):
         await callback.answer(t.MSG_DISCOUNT_ALREADY, show_alert=True)
+        return
+    if await pending_discount_count(chat_id) >= PENDING_LIMIT:
+        await callback.answer(t.MSG_DISCOUNT_MANY, show_alert=True)
         return
 
     # One product when the ask came from its card in the inline list, the whole
@@ -958,10 +970,18 @@ async def request_discount(
 
     # Written down only now: what is in this table is what a manager was asked,
     # and it is also what the week-long throttle above reads.
-    await add_discount_request(chat_id, json.dumps(
-        [{"sku": f["sku"], "name": f["name"], "orders": f["orders"]} for f in favourites],
-        ensure_ascii=False,
-    ))
+    await add_discount_request(
+        chat_id,
+        json.dumps(
+            [{"sku": f["sku"], "name": f["name"], "orders": f["orders"]}
+             for f in favourites],
+            ensure_ascii=False,
+        ),
+        sku=callback_data.sku,
+        # What a manager replies to. Their answer closes this ask, and the
+        # customer can raise it again the same minute if they need to.
+        thread_message_id=sent.message_id,
+    )
     track(chat_id, "discount_requested", products=len(favourites),
           source="card" if callback_data.sku else "screen")
 

@@ -17,7 +17,8 @@ from bot.analytics import track
 from bot.customer import describe
 from core.config import AppConfig
 from core.repos.outbox import SqliteMessageQueue
-from core.repos.support import (album_in_progress, remember_support_thread, start_album,
+from core.repos.support import (album_in_progress, mark_discount_answered,
+                                remember_support_thread, start_album,
                                 support_thread_owner)
 from core.usecases.support import queue_reply
 from bot.screen import ephemeral, seen
@@ -223,6 +224,11 @@ async def admin_reply(
     # Chosen here for the same reason as everywhere else in bot/: there is no
     # composition root yet, and the scenario must not pick its own storage.
     queue = SqliteMessageQueue()
+
+    # If what they replied to was a discount ask, it is answered now. Nothing
+    # here knows or cares whether it was — the id either matches a request or
+    # matches nothing, and the customer stops being told to wait either way.
+    await mark_discount_answered(replied.message_id)
 
     if message.text:
         await queue_reply(queue, user_chat_id, text=message.text)

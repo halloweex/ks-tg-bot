@@ -484,7 +484,11 @@ BTN_WANT_DISCOUNT_CARD = "💰 Хочу знижку"
 MSG_DISCOUNT_SENT = (
     "Твій запит на знижку вже у нас. Відповімо тут, у боті."
 )
-MSG_DISCOUNT_ALREADY = "Твій запит уже в роботі. Відповімо найближчим часом."
+# Shown only while this exact ask is still unanswered, so it can say so
+# without inventing anything. A manager's reply clears it at once.
+MSG_DISCOUNT_ALREADY = "Про це ми вже запитали. Щойно менеджер відповість, напишемо сюди."
+# And when several asks are waiting at once.
+MSG_DISCOUNT_MANY = "Ми вже зібрали кілька твоїх запитів. Відповімо на всі разом."
 # Said when the message did not reach the manager. It used to say the opposite:
 # the send was attempted, the failure was logged, and the customer was thanked
 # for a request nobody received. A shop that says "passed on" when nothing was

@@ -39,6 +39,14 @@ _LATE_COLUMNS: tuple[tuple[str, str, str], ...] = (
     # empty for anyone who found the bot by themselves. Written once, at
     # registration, so it stays the *first* touch rather than the latest.
     ("users", "source", "TEXT DEFAULT ''"),
+    # Which product a discount was asked about, empty for the whole favourites
+    # list; the message in the support chat that carried the ask, so a reply to
+    # it can close the request; and when that reply came. Together they turn
+    # "already asked" into "this ask is still with a manager", which is the only
+    # version of it that is true a week later.
+    ("discount_requests", "sku", "TEXT DEFAULT ''"),
+    ("discount_requests", "thread_message_id", "INTEGER DEFAULT 0"),
+    ("discount_requests", "answered_at", "TEXT"),
     ("orders", "external_id", "TEXT DEFAULT ''"),
     ("orders", "status_group_id", "INTEGER DEFAULT 0"),
     # When the CRM was last asked who this chat is (user_crm_buyers). Stamped
@@ -368,7 +376,7 @@ CREATE INDEX IF NOT EXISTS ix_referrals_referrer ON referrals(referrer_chat_id);
 # It could not express this change (SQLite cannot alter a UNIQUE constraint),
 # and it silently swallowed real failures — a full disk logged success.
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 
 
 async def _columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -605,6 +613,21 @@ async def _migration_7_sync_state(db: aiosqlite.Connection) -> None:
     await db.execute(_CREATE_SYNC_STATE)
 
 
+async def _migration_16_discount_scope(db: aiosqlite.Connection) -> None:
+    """Per-product discount asks, and whether anyone answered them.
+
+    Before this the throttle was one row per customer: asking about a cream
+    silenced the button for every other product for a week, and the message
+    shown in the meantime claimed the request was in hand whether or not a
+    manager had ever looked at it.
+    """
+    await _add_late_columns(db)
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS ix_discount_thread "
+        "ON discount_requests(thread_message_id)"
+    )
+
+
 # (version, name, coroutine). Append only; never edit one that has shipped.
 _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (1, "late columns", _migration_1_late_columns),
@@ -622,6 +645,7 @@ _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (13, "offer images", _migration_13_offer_images),
     (14, "birthdays", _migration_14_birthdays),
     (15, "referrals", _migration_15_referrals),
+    (16, "discount asks per product", _migration_16_discount_scope),
 )
 
 

@@ -164,7 +164,8 @@ EN: dict[str, str] = {
         "We have your discount request. We'll get back to you "
         "here in the bot."
     ),
-    "MSG_DISCOUNT_ALREADY": "Your request is already in hand. We will reply shortly.",
+    "MSG_DISCOUNT_ALREADY": "We have already asked about this one. We will write here as soon as a manager replies.",
+    "MSG_DISCOUNT_MANY": "We already have a few requests from you. We will answer them together.",
     "MSG_DISCOUNT_FAILED": "The request did not get through. Please try again in a few minutes.",
     "MSG_SUPPORT_NOT_DELIVERED": (
         "Your message did not get through 😔\n"

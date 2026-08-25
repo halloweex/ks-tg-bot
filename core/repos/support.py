@@ -78,25 +78,67 @@ async def support_thread_owner(admin_message_id: int) -> int | None:
         return row[0] if row else None
 
 
-async def recent_discount_request(chat_id: int, days: int = 7) -> bool:
-    """True if this customer already asked within the window.
+# How many unanswered asks one customer may have at once. Per-product asks
+# removed the old "one a week, about anything" rule, and something has to keep
+# a bored thumb from walking down a fifty-row list.
+PENDING_LIMIT = 5
 
-    Stops a second tap, or a bored customer, from filling the support chat with
-    the same request.
+
+async def pending_discount_request(chat_id: int, sku: str = "",
+                                   days: int = 7) -> bool:
+    """True while this exact ask is still with a manager.
+
+    Scoped to the product, because asking about a cream says nothing about a
+    shampoo. `sku` empty means the whole favourites list, which is its own
+    scope for the same reason.
+
+    An answered request stops blocking immediately: the point of the window was
+    never to ration questions, only to keep the same one from arriving twice.
     """
     async with connect() as db:
         cursor = await db.execute(
-            "SELECT 1 FROM discount_requests WHERE chat_id = ? "
-            "AND created_at >= datetime('now', ?) LIMIT 1",
-            (chat_id, f"-{days} days"),
+            "SELECT 1 FROM discount_requests "
+            " WHERE chat_id = ? AND sku = ? AND answered_at IS NULL "
+            "   AND created_at >= datetime('now', ?) LIMIT 1",
+            (chat_id, sku, f"-{days} days"),
         )
         return await cursor.fetchone() is not None
 
 
-async def add_discount_request(chat_id: int, products_json: str) -> None:
+async def pending_discount_count(chat_id: int, days: int = 7) -> int:
+    """How many of this customer's asks are still waiting for an answer."""
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM discount_requests "
+            " WHERE chat_id = ? AND answered_at IS NULL "
+            "   AND created_at >= datetime('now', ?)",
+            (chat_id, f"-{days} days"),
+        )
+        return (await cursor.fetchone())[0]
+
+
+async def add_discount_request(chat_id: int, products_json: str, *,
+                               sku: str = "", thread_message_id: int = 0) -> None:
     async with connect() as db:
         await db.execute(
-            "INSERT INTO discount_requests (chat_id, products_json) VALUES (?, ?)",
-            (chat_id, products_json),
+            "INSERT INTO discount_requests "
+            "(chat_id, products_json, sku, thread_message_id) VALUES (?, ?, ?, ?)",
+            (chat_id, products_json, sku, thread_message_id),
+        )
+        await db.commit()
+
+
+async def mark_discount_answered(message_id: int) -> None:
+    """Close the ask a manager just replied to.
+
+    The reply routes by the same message id the support relay routes by, so
+    this needs no new plumbing in the support chat: whatever the manager
+    replied to, if it was a discount ask, it stops being pending.
+    """
+    async with connect() as db:
+        await db.execute(
+            "UPDATE discount_requests SET answered_at = datetime('now') "
+            " WHERE thread_message_id = ? AND answered_at IS NULL",
+            (message_id,),
         )
         await db.commit()

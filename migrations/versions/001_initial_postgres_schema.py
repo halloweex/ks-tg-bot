@@ -217,15 +217,25 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True),
                   nullable=False, server_default=sa.text("now()")),
     )
+    # `sku` is the scope of the ask: one product, or empty for the whole
+    # favourites list. `answered_at` is what makes "already asked" true or
+    # false a week later, and it is set by a manager replying to the message
+    # `thread_message_id` names.
     op.create_table(
         "discount_requests",
         sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("user_id", sa.BigInteger,
                   sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("products_json", sa.Text, nullable=False, server_default="[]"),
+        sa.Column("sku", sa.Text, nullable=False, server_default=""),
+        sa.Column("thread_message_id", sa.BigInteger, nullable=False,
+                  server_default="0"),
+        sa.Column("answered_at", sa.DateTime(timezone=True)),
         sa.Column("created_at", sa.DateTime(timezone=True),
                   nullable=False, server_default=sa.text("now()")),
     )
+    op.create_index("ix_discount_thread", "discount_requests",
+                    ["thread_message_id"])
 
     # ---- conversation state ----------------------------------------------
     # Keyed by the string aiogram builds, not by user_id: the key exists before
