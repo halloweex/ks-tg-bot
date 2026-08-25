@@ -612,6 +612,10 @@ MSG_INVITE_CARD = (
     "Бот, який показує твої замовлення, нагадує про улюблені засоби й пише, "
     "щойно вони знову зʼявляються."
 )
+# The offer, said in the text as well as drawn on the card: a preview can fail
+# to load, and an invitation that then says nothing about the discount is an
+# invitation that lost its point.
+MSG_INVITE_REWARD = "\n\n🎁 {reward}"
 BTN_INVITE_OPEN = "Відкрити бота"
 # Приходить, коли подруга зробила перше замовлення.
 MSG_REFERRAL_EARNED = (

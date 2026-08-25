@@ -65,10 +65,12 @@ class _Query:
 CARD = "https://halloweex.github.io/ks-tg-bot/invite.jpg"
 
 
-def _config(invite_card_url: str = CARD):
+def _config(invite_card_url: str = CARD,
+            first_order_reward: str = "Знижка 10% на перше замовлення"):
     return SimpleNamespace(website_url=SHOP, brand_name="Korean Story",
                            bot_username="koreanstory_bot", support_chat_id=-1,
-                           invite_card_url=invite_card_url)
+                           invite_card_url=invite_card_url,
+                           first_order_reward=first_order_reward)
 
 
 def _offer(sku="1", *, available=True, title="Крем для обличчя"):
@@ -340,3 +342,18 @@ def test_the_screen_counts_both_states(db):
     _friend_who(f"{REFERRAL_PREFIX}{CHAT}", ordered=False, chat_id=7072)
     _sweep()
     assert asyncio.run(referral_counts(CHAT, REFERRAL_PREFIX)) == (2, 1)
+
+
+def test_the_invitation_says_the_offer_in_words_too(db):
+    """A preview can fail to load, and an invitation that then says nothing
+    about the discount is an invitation that lost its point."""
+    query = _Query("поділитися")
+    asyncio.run(inline_list(query, T, _config()))
+    text = query.results[0].input_message_content.message_text
+    assert "10%" in text
+
+
+def test_no_reward_no_line(db):
+    query = _Query("поділитися")
+    asyncio.run(inline_list(query, T, _config(first_order_reward="")))
+    assert "10%" not in query.results[0].input_message_content.message_text

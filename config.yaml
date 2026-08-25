@@ -36,6 +36,9 @@ referral_reward: "Знижка 10% на наступне замовлення"
 # отсутствие кнопки.
 first_order_code: ""
 first_order_reward: "Знижка 10% на перше замовлення"
+# Telegram кеширует превью по URL надолго. Поменяли картинку в webapp/ —
+# поднимите число, иначе у всех останется старая.
+assets_version: "2"
 
 # Info pages — text shown in Phase 3 menus
 # Placeholder content — owner will fill in real text

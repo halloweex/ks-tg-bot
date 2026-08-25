@@ -225,6 +225,7 @@ EN: dict[str, str] = {
         "The bot that shows your orders, remembers your favourites and "
         "writes the moment they are back in stock."
     ),
+    "MSG_INVITE_REWARD": "\n\n🎁 {reward}",
     "BTN_INVITE_OPEN": "Open the bot",
     "MSG_REFERRAL_EARNED": (
         "🎁 Your friend has placed her first order!\n"

@@ -109,6 +109,8 @@ class AppConfig:
     # that does not exist is worse than no button.
     first_order_code: str
     first_order_reward: str
+    # Bumped whenever a published card changes — see _assets_version.
+    assets_version: str
     about_text: str
     contacts_text: str
     payment_text: str
@@ -120,6 +122,16 @@ class AppConfig:
 
 
     @property
+    def _assets_version(self) -> str:
+        """What makes a republished card a different url.
+
+        Telegram caches a link preview by url and keeps it for a long time, so
+        a card replaced under the same name goes on being the old card on
+        everybody's phone. Bump this when an image changes.
+        """
+        return self.assets_version or "1"
+
+    @property
     def invite_card_url(self) -> str:
         """The card an invitation carries, or "" if none is published.
 
@@ -127,7 +139,8 @@ class AppConfig:
         to be one, per the Bot API. Same switch — an empty `assets_url` and the
         invitation goes out as a card of text.
         """
-        return f"{self.assets_url}/invite.jpg" if self.assets_url else ""
+        return (f"{self.assets_url}/invite.jpg?v={self._assets_version}"
+                if self.assets_url else "")
 
     @property
     def birthday_card_url(self) -> str:
@@ -137,7 +150,8 @@ class AppConfig:
         is part of the repository — webapp/birthday.png — and a url in two
         places is a url that gets edited in one.
         """
-        return f"{self.assets_url}/birthday.png" if self.assets_url else ""
+        return (f"{self.assets_url}/birthday.png?v={self._assets_version}"
+                if self.assets_url else "")
 
 
 def load_config(config_path: str | Path = "config.yaml") -> AppConfig:
@@ -163,6 +177,7 @@ def load_config(config_path: str | Path = "config.yaml") -> AppConfig:
         referral_reward=yaml_data.get("referral_reward", "").strip(),
         first_order_code=yaml_data.get("first_order_code", "").strip(),
         first_order_reward=yaml_data.get("first_order_reward", "").strip(),
+        assets_version=str(yaml_data.get("assets_version", "1")).strip(),
         about_text=yaml_data.get("about_text", ""),
         contacts_text=yaml_data.get("contacts_text", ""),
         payment_text=yaml_data.get("payment_text", ""),

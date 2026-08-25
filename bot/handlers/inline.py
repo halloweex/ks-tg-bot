@@ -295,6 +295,9 @@ async def _answer_invite(query: InlineQuery, t: Texts, config: AppConfig) -> Non
     link = (f"https://t.me/{config.bot_username}?start={REFERRAL_PREFIX}"
             f"{query.from_user.id}")
     caption = t.MSG_INVITE_CARD.format(brand=escape(config.brand_name))
+    if config.first_order_reward:
+        caption += t.MSG_INVITE_REWARD.format(
+            reward=escape(config.first_order_reward))
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text=t.BTN_INVITE_OPEN, url=link)]])
     track(query.from_user.id, "invite_offered")
