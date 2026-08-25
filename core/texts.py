@@ -601,10 +601,13 @@ BTN_FIRST_ORDER_SHOP = "🛒 Обрати перше замовлення"
 # When no code is configured, the offer still stands — the shop promised it in
 # the invitation — and a person hands it over. Saying so is what keeps the
 # promise honest without withdrawing it.
-MSG_FIRST_ORDER_BY_HAND = "\n\nНапиши менеджеру — і він надішле промокод."
+# Two endings for one offer, because only one of them can be true at a time:
+# the code is in the link, or a person has yet to send it.
+MSG_FIRST_ORDER_BY_HAND = "\n\nНапиши менеджеру — він надішле промокод, і знижка твоя."
+MSG_FIRST_ORDER_IN_LINK = " Вона вже в посиланні — просто обери, що подобається."
 MSG_FIRST_ORDER = (
     "<b>🎁 Це буде твоє перше замовлення з нами</b>\n\n"
-    "{reward}. Вона вже в посиланні — просто обери, що подобається."
+    "{reward}."
 )
 MSG_INVITE_SCREEN = (
     "<b>🎁 Запроси подругу</b>\n\n"

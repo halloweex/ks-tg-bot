@@ -471,7 +471,11 @@ def first_order_offer(t: Texts, config: AppConfig) -> str:
     if not config.first_order_reward:
         return ""
     offer = t.MSG_FIRST_ORDER.format(reward=escape(config.first_order_reward))
-    return offer if config.first_order_code else offer + t.MSG_FIRST_ORDER_BY_HAND
+    # The ending has to match the button underneath. With a code the link
+    # carries it; without one the link is the plain shop, and telling someone
+    # the discount is already in it sends them to a checkout that disagrees.
+    return offer + (t.MSG_FIRST_ORDER_IN_LINK if config.first_order_code
+                    else t.MSG_FIRST_ORDER_BY_HAND)
 
 
 def favourite_products(orders: list[dict], limit: int = 5) -> list[dict]:

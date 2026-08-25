@@ -99,6 +99,9 @@ def test_no_code_means_the_manager_hands_it_over():
     empty = _config(code="")
     offer = first_order_offer(T, empty)
     assert "10%" in offer and "менеджеру" in offer
+    assert "посиланні" not in offer, (
+        "the button under this text is the plain shop — promising the code is "
+        "already in the link sends the customer to a checkout that disagrees")
     assert T.BTN_FIRST_ORDER not in _labels(_no_orders_kb(T, empty))
     assert T.BTN_SUPPORT in _labels(first_order_kb(T, empty))
 
@@ -142,6 +145,13 @@ def test_the_empty_screen_leads_with_the_invitation(lang):
 def test_no_wording_means_no_offer_either():
     """The size of the discount is the shop's promise, not the bot's."""
     assert first_order_offer(T, _config(reward="")) == ""
+
+
+def test_the_two_endings_are_exclusive():
+    """One offer, two possible endings, and never both: either the link carries
+    the code or a person still has to send it."""
+    with_code = first_order_offer(T, _config())
+    assert "посиланні" in with_code and "менеджеру" not in with_code
 
 
 def test_the_offer_names_what_the_shop_promised():

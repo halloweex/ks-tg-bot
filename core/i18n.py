@@ -213,9 +213,10 @@ EN: dict[str, str] = {
     "BTN_FIRST_ORDER_SHOP": "🛒 Pick your first order",
     "MSG_FIRST_ORDER": (
         "<b>🎁 This will be your first order with us</b>\n\n"
-        "{reward}. It is already in the link — just pick what you like."
+        "{reward}."
     ),
-    "MSG_FIRST_ORDER_BY_HAND": "\n\nMessage a manager and they will send you a code.",
+    "MSG_FIRST_ORDER_IN_LINK": " It is already in the link — just pick what you like.",
+    "MSG_FIRST_ORDER_BY_HAND": "\n\nMessage a manager for a code and the discount is yours.",
     "MSG_INVITE_SCREEN": (
         "<b>🎁 Invite a friend</b>\n\n"
         "Send her the bot — and when she places her first order, we send "
