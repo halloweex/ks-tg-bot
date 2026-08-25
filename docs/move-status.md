@@ -91,6 +91,7 @@ Nova Poshta 83% → 85%; по трём клиентам вместе 61% → 73%
 | `a9afef4` | **`referrals`** → `ReferralLedger`, `LanguageChoice`, `MessageQueue` |
 | `cfd6ef7` | `BroadcastJournal` + адаптер + `Job` в домене |
 | `4f3d8e9` | **`broadcast`** → `BroadcastJournal`, `MailingList`, `LanguageChoice`, `MessageQueue` |
+| `f756e96` | `CustomerDirectory` + адаптер — пять методов, один цикл |
 
 Плюс три коммита не из плана: `598212b` (сверка сигнатур портов), `f366fc2`
 (три `NameError` на клиентских путях) и `2f1e028` (pyflakes на неопределённые
@@ -135,7 +136,7 @@ grep -lE '^[[:space:]]*(from|import) core\.repos' core/usecases/*.py
 | ~~14~~ | ~~**`referrals`**~~ — сделано, `a9afef4` | `referrals-sees-ports-only` + семейное |
 | ~~15~~ | ~~`BroadcastJournal` + адаптер~~ — сделано, `cfd6ef7` | — |
 | ~~16~~ | ~~**`broadcast`**~~ — сделано, `4f3d8e9` | `broadcast-sees-ports-only` + два семейных |
-| 17 | `CustomerDirectory` + адаптер | — |
+| ~~17~~ | ~~`CustomerDirectory` + адаптер~~ — сделано, `f756e96` | — |
 | 18 | **`sync_orders`** — первый потребитель `UnitOfWorkFactory` | да |
 | 19 | **`register`** (+ `source=` на `bind_phone`) | да |
 | 20 | `core/domain/sync.py` + `SyncJournal` + адаптер | — |
@@ -166,6 +167,21 @@ grep -lE '^[[:space:]]*(from|import) core\.repos\.<модуль>' core/usecases/
 Остались `orders`, `users` и `sync_state` — освобождаются все разом на 21-м,
 после чего семейный контракт целиком заменяется на `core.usecases` внутри
 `core-siblings-are-independent` (22).
+
+**Найдено при проектировании 17 и ждёт 18-го: `save_user` и `update_profile` —
+не одна и та же операция.** Сценарий `sync_orders` сегодня зовёт
+`save_user(chat_id, phone, full_name=…, email=…)`, то есть передаёт телефон
+там, где хочет всего лишь дописать имя и почту. На порту такого нет намеренно:
+`UserProfiles.update_profile` телефона не принимает, и в его докстринге сказано,
+почему — «обогащение никогда не должно уметь менять номер». Плюс `save_user`
+делает `INSERT OR REPLACE`, то есть переписывает строку целиком и вручную
+переносит семь колонок; `update_profile` — обычный `UPDATE`.
+
+Значит 18-й обязан ответить: сохраняет ли `uow.users.update_profile(...)`
+поведение, если телефон в него не передавать. Для уже зарегистрированного чата
+(а `sync_orders` зовут только для такого) номер и так тот же самый, так что
+запись его не меняет — но проверить это надо тестом, а не рассуждением, потому
+что цена ошибки здесь ровно та, от которой защищает `VerifiedPhone`.
 
 **Где риск, по убыванию.** Коммит 18 — первый, кто вообще возьмёт `UnitOfWork` в
 руки: сегодня его не создаёт никто, ни в `bot/`, ни в `core/`. Коммит 19 трогает
