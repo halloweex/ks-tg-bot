@@ -75,3 +75,19 @@ async def count_offers() -> int:
     async with connect() as db:
         cursor = await db.execute("SELECT COUNT(*) FROM offers")
         return (await cursor.fetchone())[0]
+
+
+class SqliteOfferCache:
+    """Implements core.ports.repositories.OfferCache against today's database.
+
+    One method over `save_offers`, which keeps its own callers and its own
+    tests. The seam moves; the query does not.
+
+    `get_offers` deliberately stays a plain function: its callers are screens,
+    and screens still import repositories. It gets a read port of its own on the
+    day the handlers-see-ports-only contract is uncommented, driven by the
+    screen that asks rather than by the column that exists.
+    """
+
+    async def record(self, offers: dict[str, Offer]) -> None:
+        await save_offers(offers)

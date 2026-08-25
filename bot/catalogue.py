@@ -11,6 +11,7 @@ import asyncio
 from loguru import logger
 
 from core.ports.catalog import Storefront
+from core.ports.repositories import OfferCache
 from core.usecases.sync_catalogue import refresh_once
 
 # Three requests an hour against a public feed. Prices and publication state
@@ -19,12 +20,12 @@ from core.usecases.sync_catalogue import refresh_once
 POLL_INTERVAL_SECONDS = 60 * 60
 
 
-async def watch(storefront: Storefront) -> None:
+async def watch(storefront: Storefront, catalogue: OfferCache) -> None:
     """Poll forever. Never lets one bad round kill the loop."""
     logger.info("Catalogue watcher started ({}s interval)", POLL_INTERVAL_SECONDS)
     while True:
         try:
-            await refresh_once(storefront)
+            await refresh_once(storefront, catalogue)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001

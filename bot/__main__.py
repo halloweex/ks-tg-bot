@@ -10,6 +10,7 @@ from loguru import logger
 
 from core.config import load_config
 from core.repos.base import configure as configure_db
+from core.repos.catalogue import SqliteOfferCache
 from core.repos.schema import init_db
 from bot.fsm_storage import SQLiteStorage
 from bot.alerts import check_support_chat
@@ -114,7 +115,12 @@ async def main() -> None:
         loops.append(spawn(watch_stock(dp["keycrm"]), name="stock_watcher"))
         # Keep the storefront's offers fresh, so the favourites screen can
         # offer to buy one and address the cart link to the right variant.
-        loops.append(spawn(watch_catalogue(dp["storefront"]), name="catalogue_watcher"))
+        # The cache is chosen here, next to the storefront it mirrors — this is
+        # as close to a composition root as the entry point currently gets.
+        loops.append(
+            spawn(watch_catalogue(dp["storefront"], SqliteOfferCache()),
+                  name="catalogue_watcher")
+        )
         # Ask Telegram who has a birthday, and greet whoever is celebrating.
         # The profile reader is an adapter like any other, which is what keeps
         # the sweep itself testable without a bot.

@@ -244,6 +244,7 @@ source_modules =
     core.usecases
 forbidden_modules =
     core.repos.events
+    core.repos.catalogue
 
 [importlinter:contract:ports-are-only-signatures]
 name = core.ports не знает ничего, кроме домена

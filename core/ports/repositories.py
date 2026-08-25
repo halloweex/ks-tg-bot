@@ -25,6 +25,7 @@ from __future__ import annotations
 from types import TracebackType
 from typing import Protocol, runtime_checkable
 
+from core.domain.offer import Offer
 from core.domain.phone import VerifiedPhone
 
 
@@ -131,3 +132,53 @@ class UnitOfWorkFactory(Protocol):
     """
 
     def __call__(self, *, user_id: int | None = None) -> UnitOfWork: ...
+
+
+@runtime_checkable
+class OfferCache(Protocol):
+    """What the shop sells, as we last managed to read it.
+
+    A cache and nothing more: the storefront is the authority, this is what a
+    screen can answer from without waiting on it. Written whole by the hourly
+    sweep, read a handful of skus at a time by the screens that offer to buy
+    something.
+
+    **Deliberately not on the UnitOfWork above.** The unit exists for two writes
+    that must land together and for `SET LOCAL app.user_id`, and the sweep has
+    neither. It is one write, and it belongs to nobody: `offers` has no user
+    column and no policy to read an identity from, so the only honest `user_id`
+    for it is None. Hanging it off the unit would hand every scenario that opens
+    a unit *for a person* a repository that person must never be near, and would
+    make the one table that is deliberately shared look like part of somebody's
+    transaction.
+
+    It is therefore passed to the scenario the way `Storefront` already is — an
+    argument, not something reached through a factory. There is no second write
+    to be atomic with, so there is nothing for a factory to hold.
+    """
+
+    async def record(self, offers: dict[str, Offer]) -> None:
+        """Write these offers down, keyed by sku, leaving the rest standing.
+
+        **Per sku, never the whole table.** Skus absent from `offers` keep the
+        values they had. The feed is paginated, and a short read is
+        indistinguishable from a shrunken catalogue — a method that deleted what
+        it had not seen would give one truncated page the power to unpublish
+        products. It is the same reason `Storefront.get_offers` is documented to
+        answer {} for a failure rather than a partial picture.
+
+        **An empty mapping writes nothing.** The scenario already refuses to
+        call this with {}; this line says the implementation must refuse too.
+        The rule protects the whole catalogue from a single 500, and one guard
+        for it is one more than can be deleted by a refactor that looks correct.
+
+        Takes the mapping `Storefront.get_offers` returns, key and all, rather
+        than an iterable whose skus it could re-derive. The moment the two ports
+        disagree about the shape, the scenario grows a loop whose only purpose
+        is to re-key data that arrived keyed.
+
+        Returns nothing, deliberately. What the sweep logs is what it read, not
+        what the table now holds; reading a count back would answer a question
+        nobody asked, at the price of a full scan every hour.
+        """
+        ...
