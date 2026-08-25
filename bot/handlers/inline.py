@@ -298,8 +298,13 @@ async def _answer_invite(query: InlineQuery, t: Texts, config: AppConfig) -> Non
     if config.first_order_reward:
         caption += t.MSG_INVITE_REWARD.format(
             reward=escape(config.first_order_reward))
+    # «Забрати знижку» while there is a discount to claim, «Відкрити бота»
+    # while there is not. The button leads into the bot either way — that is
+    # how the referral is attributed — and the label is the promise, so it
+    # follows whether the offer is actually live.
+    label = t.BTN_FIRST_ORDER if config.first_order_code else t.BTN_INVITE_OPEN
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=t.BTN_INVITE_OPEN, url=link)]])
+        InlineKeyboardButton(text=label, url=link, style=STYLE_CART)]])
     track(query.from_user.id, "invite_offered")
 
     # An article rather than a photo result, and the card arrives as the link

@@ -66,11 +66,13 @@ CARD = "https://halloweex.github.io/ks-tg-bot/invite.jpg"
 
 
 def _config(invite_card_url: str = CARD,
-            first_order_reward: str = "Знижка 10% на перше замовлення"):
+            first_order_reward: str = "Знижка 10% на перше замовлення",
+            first_order_code: str = "FIRST10"):
     return SimpleNamespace(website_url=SHOP, brand_name="Korean Story",
                            bot_username="koreanstory_bot", support_chat_id=-1,
                            invite_card_url=invite_card_url,
-                           first_order_reward=first_order_reward)
+                           first_order_reward=first_order_reward,
+                           first_order_code=first_order_code)
 
 
 def _offer(sku="1", *, available=True, title="Крем для обличчя"):
@@ -406,3 +408,15 @@ def test_the_code_that_paid_is_recorded(db):
             return (await cursor.fetchone())["code"]
 
     assert asyncio.run(read()) == "REF10"
+
+
+def test_the_invitation_button_says_what_is_waiting(db):
+    """The button leads into the bot either way — that is how the referral is
+    attributed — so the label follows whether the discount is live."""
+    query = _Query("поділитися")
+    asyncio.run(inline_list(query, T, _config()))
+    assert query.results[0].reply_markup.inline_keyboard[0][0].text == T.BTN_FIRST_ORDER
+
+    query = _Query("поділитися")
+    asyncio.run(inline_list(query, T, _config(first_order_code="")))
+    assert query.results[0].reply_markup.inline_keyboard[0][0].text == T.BTN_INVITE_OPEN
