@@ -313,6 +313,20 @@ class SyncStateRepo(Protocol):
 
 ---
 
+### `core/ports/profiles.py` — что Telegram знает о клиенте
+
+```python
+class BirthdaySource(Protocol):
+    async def get_birthday(self, chat_id: int) -> str | None: ...
+```
+
+Три разных ответа, и это важно: `"MM-DD"` — дата есть, `""` — Telegram говорит,
+что видимой даты нет (и это **тоже ответ**, его надо запомнить, иначе сценарий
+спросит про того же человека через час), `None` — спросить не удалось, пробовать
+снова. Реализация — `core/adapters/telegram/profile.py`.
+
+---
+
 ## 6. `core.adapters`
 
 **Зона ответственности.** Реализации портов внешних API. Единственное место в
@@ -329,6 +343,11 @@ core/adapters/
 ```
 
 ```python
+# core/adapters/telegram/profile.py — единственный адаптер с aiogram.
+# Контракт api-clients-know-no-telegram запрещает aiogram поимённо в keycrm,
+# shopify и novaposhta, а не во всём пакете, именно ради него: клиент к
+# Telegram API — такой же адаптер, как клиент к CRM.
+
 # core/adapters/keycrm/client.py
 class KeyCRMClient:                      # реализует core.ports.OrderSource
     def __init__(self, http: httpx.AsyncClient, api_key: SecretStr) -> None: ...

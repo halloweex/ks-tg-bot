@@ -156,8 +156,10 @@ korean-story/
 │   │   └── quiet.py         тихие часы
 │   ├── ports/               Protocol, только сигнатуры
 │   │   ├── crm.py  catalog.py  delivery.py  notifier.py
+│   │   ├── profiles.py      BirthdaySource — что Telegram знает о клиенте
 │   ├── adapters/            весь httpx живёт здесь
-│   │   ├── keycrm.py  shopify.py  novaposhta.py  telegram.py
+│   │   ├── keycrm/  shopify/  novaposhta/   (client.py + parse.py в каждом)
+│   │   ├── telegram/        единственный, кому можно aiogram (.importlinter)
 │   ├── repos/               весь SQL живёт здесь
 │   │   ├── base.py          соединение, транзакции, SET LOCAL app.user_id
 │   │   ├── users.py  orders.py  raw.py  shipments.py  stock.py
@@ -165,9 +167,16 @@ korean-story/
 │   └── usecases/            логика, вынутая из хендлеров
 │       ├── auth.py  orders.py  delivery.py  stock.py  support.py
 │       ├── broadcast.py  analytics.py  personalization.py
+│       ├── birthdays.py     кого поздравлять и у кого спросить дату
 ├── bot/                     тонкий, только Telegram
 │   ├── __main__.py  handlers/  keyboards.py  callbacks.py  states.py
+│   ├── screen.py            render/ephemeral/seen — один живой экран
+│   ├── middlewares.py       язык на входе, снятие custom emoji на выходе
+│   ├── customer.py          «кто пишет» одной строкой для менеджера
 │   └── demo.py              только синтетический пользователь
+├── webapp/                  что публикуется на GitHub Pages
+│   ├── index.html           Mini App, выключен (webapp_url в config.yaml)
+│   └── birthday.png         карточка в фирменных цветах, шлётся по url
 ├── worker/
 │   ├── __main__.py          диспетчер не поднимает, не поллит
 │   └── jobs/
