@@ -99,9 +99,9 @@ EN: dict[str, str] = {
     "MSG_ORDER_TRACKING": "🚚 Tracking: {code}",
     "MSG_ORDER_LOCATION": "📍 {location}",
     "MSG_NO_ORDERS": (
-        "We couldn't find any orders for the number you shared.\n\n"
-        "If you have ordered from us, it may be under a different number — the "
-        "one you gave at checkout rather than the one your Telegram uses. "
+        "No orders yet — a good moment to make the first one.\n\n"
+        "And if you have ordered from us, it may be under a different number — "
+        "the one you gave at checkout rather than the one your Telegram uses. "
         "Message us and we'll find it manually."
     ),
     "MSG_SUPPORT_FORWARDED": "Your message has been sent to a manager. Please wait for a reply.",
@@ -210,6 +210,7 @@ EN: dict[str, str] = {
     "BTN_SHARE_ABOUT": "About this shop",
     "BTN_INVITE": "🎁 Invite a friend",
     "BTN_FIRST_ORDER": "🛒 Claim the discount",
+    "BTN_FIRST_ORDER_SHOP": "🛒 Pick your first order",
     "MSG_FIRST_ORDER": (
         "<b>🎁 This will be your first order with us</b>\n\n"
         "{reward}. It is already in the link — just pick what you like."

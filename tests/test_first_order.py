@@ -18,7 +18,7 @@ import pytest
 from bot.handlers.orders import (_favourites_view, _no_orders_kb, first_order_kb,
                                  first_order_offer)
 from bot.keyboards import discount_url
-from core.i18n import Texts
+from core.i18n import SUPPORTED, Texts
 from core.repos import base as repos_base
 from core.repos.orders import upsert_orders
 from core.repos.schema import init_db
@@ -101,6 +101,42 @@ def test_no_code_means_the_manager_hands_it_over():
     assert "10%" in offer and "менеджеру" in offer
     assert T.BTN_FIRST_ORDER not in _labels(_no_orders_kb(T, empty))
     assert T.BTN_SUPPORT in _labels(first_order_kb(T, empty))
+
+
+# --- and the way in, code or no code -----------------------------------------
+
+@pytest.mark.parametrize("code", ["FIRST10", ""], ids=["with-code", "without-code"])
+def test_the_empty_screen_always_offers_a_way_into_the_shop(code):
+    """Telling someone it is time for a first order and giving them nowhere to
+    make it is the one thing this screen must never do. With a code that way is
+    the discount link; without one it is the catalogue."""
+    urls = [b.url for row in _no_orders_kb(T, _config(code=code)).inline_keyboard
+            for b in row if b.url]
+    assert len(urls) == 1, "exactly one way in, never two"
+    assert urls[0].startswith(SHOP)
+    assert "utm_campaign=first_order" in unquote(urls[0])
+
+
+def test_without_a_code_the_button_does_not_promise_a_discount():
+    """A button saying «забрати знижку» must never lead to a code nobody
+    created — the label changes with what is behind it."""
+    labels = _labels(_no_orders_kb(T, _config(code="")))
+    assert T.BTN_FIRST_ORDER_SHOP in labels
+    assert T.BTN_FIRST_ORDER not in labels
+    url = next(b.url for row in _no_orders_kb(T, _config(code="")).inline_keyboard
+               for b in row if b.url)
+    assert "/discount/" not in url
+
+
+@pytest.mark.parametrize("lang", sorted(SUPPORTED))
+def test_the_empty_screen_leads_with_the_invitation(lang):
+    """The order-under-another-number explanation is a real cause and stays —
+    below. What opens the screen should be what is true for nearly everyone who
+    sees it: there is nothing here yet, and here is the first one."""
+    lead, _, rest = Texts(lang).MSG_NO_ORDERS.partition("\n\n")
+    assert rest, "the explanation is still there"
+    assert "номер" not in lead.lower() and "number" not in lead.lower()
+    assert "номер" in rest.lower() or "number" in rest.lower()
 
 
 def test_no_wording_means_no_offer_either():

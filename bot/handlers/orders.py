@@ -29,7 +29,7 @@ from core.repos.orders import (CANCELLED_STATUS_GROUP, get_cached_orders,
                                get_last_sync_time)
 from core.repos.users import get_user_phone
 from bot.keyboards import (STYLE_CART, STYLE_LIST, STYLE_UNDO, cart_url,
-                           discount_url)
+                           discount_url, shop_url)
 from bot.screen import render, typing
 from bot.handlers.delivery import parcel_lines
 from bot.sync import stale_notice
@@ -412,10 +412,16 @@ def _no_orders_kb(t: Texts, config: AppConfig | None = None) -> InlineKeyboardMa
     The second most likely cause of an empty screen — the order sits under a
     different phone than their Telegram — is something only a manager can fix.
 
-    The discount button carries the code where one is configured, and points
-    at a manager where none is. There is no default code in the code, and there
-    never should be: the bot hands out a link that applies one, it does not
-    invent discounts.
+    The discount button carries the code where one is configured. There is no
+    default code in the code, and there never should be: the bot hands out a
+    link that applies one, it does not invent discounts.
+
+    Where none is configured the shop itself takes that seat. Saying "time to
+    make your first order" and then offering only a manager left the screen
+    inviting a purchase it gave no way to make — and the code has been pending
+    on the shop's owner for weeks, which is too long for a customer to wait for
+    a way in. The promo still comes from a person; the catalogue does not have
+    to.
     """
     builder = InlineKeyboardBuilder()
     if config is not None and config.first_order_code:
@@ -424,7 +430,12 @@ def _no_orders_kb(t: Texts, config: AppConfig | None = None) -> InlineKeyboardMa
             url=discount_url(config.website_url, config.first_order_code, t.lang),
             style=STYLE_CART,
         )
-    # No code: the offer above still stands and the manager below hands it over.
+    elif config is not None and config.website_url:
+        builder.button(
+            text=t.BTN_FIRST_ORDER_SHOP,
+            url=shop_url(config.website_url, t.lang),
+            style=STYLE_CART,
+        )
     builder.button(text=t.BTN_SUPPORT, callback_data=MenuAction(action="support"))
     builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="menu"))
     builder.adjust(1)

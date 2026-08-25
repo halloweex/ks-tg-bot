@@ -347,10 +347,10 @@ MSG_ORDER_LOCATION = "📍 {location}"
 
 # Status messages
 MSG_NO_ORDERS = (
-    "За номером, яким ти поділилася, замовлень поки немає.\n\n"
-    "Якщо замовлення було, можливо, воно оформлене на інший номер — той, що ти "
-    "вказала під час покупки, а не той, до якого прив'язаний Telegram. "
-    "Напиши нам — знайдемо його вручну."
+    "Замовлень поки немає — саме час зробити перше.\n\n"
+    "А якщо ти вже щось у нас замовляла, воно могло бути оформлене на інший "
+    "номер — той, що ти вказала під час покупки, а не той, до якого прив'язаний "
+    "Telegram. Напиши нам, і ми знайдемо його вручну."
 )
 MSG_SUPPORT_FORWARDED = "Передали менеджеру — відповімо тут."
 
@@ -596,6 +596,8 @@ BTN_INVITE = "🎁 Запроси подругу"
 # Перше замовлення. Розмір знижки й код — у config.yaml: код заводиться в
 # адмінці магазину, і бот роздає посилання, а не вигадує знижку.
 BTN_FIRST_ORDER = "🛒 Забрати знижку"
+# When there is no code to claim yet, the shop is still one tap away.
+BTN_FIRST_ORDER_SHOP = "🛒 Обрати перше замовлення"
 # When no code is configured, the offer still stands — the shop promised it in
 # the invitation — and a person hands it over. Saying so is what keeps the
 # promise honest without withdrawing it.

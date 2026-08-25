@@ -94,6 +94,18 @@ def cart_url(website_url: str, variant_ids: Sequence[int], lang: str = "uk",
     return f"{website_url.rstrip('/')}/cart/{items}?{_tags(campaign, lang)}"
 
 
+def shop_url(website_url: str, lang: str = "uk",
+             campaign: str = "first_order") -> str:
+    """The shop's front page, tagged.
+
+    For the customer who has nothing to reorder and no code to apply: the
+    discount link cannot be built without a code, and «there is no code yet»
+    is a reason to send someone to a manager, not a reason to leave them with
+    no way into the shop at all.
+    """
+    return f"{website_url.rstrip('/')}/?{_tags(campaign, lang)}"
+
+
 def product_url(website_url: str, handle: str, lang: str = "uk",
                 campaign: str = "favourites") -> str:
     """The product's own page on the shop.
