@@ -70,7 +70,7 @@ async def open_orders(
 ) -> None:
     """📦 — the order history, newest first."""
     await state.clear()
-    text, markup = await orders_screen(message.chat.id, t, keycrm, message)
+    text, markup = await orders_screen(message.chat.id, t, keycrm, message, config)
     sent = await message.answer(text, reply_markup=markup)
     # And a moment later, where the parcel is — from the carrier, in the
     # background, so this screen still opens from the cache instantly.
@@ -101,7 +101,7 @@ async def open_favourites(
     """⭐ — what this customer buys most, and what of it is out of stock."""
     await state.clear()
     text, markup = await favourites_screen(
-        message.chat.id, t, keycrm, message, config.website_url
+        message.chat.id, t, keycrm, message, config.website_url, config
     )
     await message.answer(text, reply_markup=markup)
 
@@ -187,7 +187,7 @@ async def orders_from_menu(
     await callback.answer()
     await state.clear()
     text, markup = await orders_screen(
-        callback.from_user.id, t, keycrm, callback.message
+        callback.from_user.id, t, keycrm, callback.message, config
     )
     follow_up_parcel(await render(callback, text, markup),
                      callback.from_user.id, t, novaposhta)

@@ -29,6 +29,13 @@ instagram_url: "https://instagram.com/korean_story_official"
 # пришлём промокод». Здесь стоит написать размер: «Знижка 10% на наступне
 # замовлення» — это обязательство бизнеса, и бот его не выдумывает.
 referral_reward: "Знижка 10% на наступне замовлення"
+# Скидка новому клиенту на первый заказ. `first_order_code` — код, заведённый
+# в админке Shopify (бот его не создаёт, у него нет на это доступа): ссылка
+# вида /discount/КОД?redirect=/ применяет его и ведёт в магазин. Пусто — и
+# предложение нигде не показывается: кнопка на несуществующий код хуже, чем
+# отсутствие кнопки.
+first_order_code: ""
+first_order_reward: "Знижка 10% на перше замовлення"
 
 # Info pages — text shown in Phase 3 menus
 # Placeholder content — owner will fill in real text

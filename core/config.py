@@ -103,6 +103,12 @@ class AppConfig:
     # size of a discount is a commitment, so the bot does not invent one: empty
     # means the screen promises only what it can keep — that a code will come.
     referral_reward: str
+    # The discount code a first order gets, as it is written in the Shopify
+    # admin — the bot hands out a link that applies it and never creates one.
+    # Empty means the offer is not shown at all: a button leading to a code
+    # that does not exist is worse than no button.
+    first_order_code: str
+    first_order_reward: str
     about_text: str
     contacts_text: str
     payment_text: str
@@ -155,6 +161,8 @@ def load_config(config_path: str | Path = "config.yaml") -> AppConfig:
         support_chat_id=yaml_data["support_chat_id"],
         instagram_url=yaml_data.get("instagram_url", ""),
         referral_reward=yaml_data.get("referral_reward", "").strip(),
+        first_order_code=yaml_data.get("first_order_code", "").strip(),
+        first_order_reward=yaml_data.get("first_order_reward", "").strip(),
         about_text=yaml_data.get("about_text", ""),
         contacts_text=yaml_data.get("contacts_text", ""),
         payment_text=yaml_data.get("payment_text", ""),

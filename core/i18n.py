@@ -207,6 +207,11 @@ EN: dict[str, str] = {
     "BTN_SHARE_BUY": "🛒 Buy",
     "BTN_SHARE_ABOUT": "About this shop",
     "BTN_INVITE": "🎁 Invite a friend",
+    "BTN_FIRST_ORDER": "🛒 Claim the discount",
+    "MSG_FIRST_ORDER": (
+        "<b>🎁 This will be your first order with us</b>\n\n"
+        "{reward}. It is already in the link — just pick what you like."
+    ),
     "MSG_INVITE_SCREEN": (
         "<b>🎁 Invite a friend</b>\n\n"
         "Send her the bot — and when she places her first order, we send "

@@ -96,12 +96,13 @@ async def cmd_start(
         payload = command.args or ""
         if payload == FAVOURITES_DEEP_LINK:
             text, markup = await favourites_screen(
-                message.chat.id, t, keycrm, message, config.website_url
+                message.chat.id, t, keycrm, message, config.website_url, config
             )
             await message.answer(text, reply_markup=markup)
             return
         if payload == ORDERS_DEEP_LINK:
-            text, markup = await orders_screen(message.chat.id, t, keycrm, message)
+            text, markup = await orders_screen(message.chat.id, t, keycrm, message,
+                                               config)
             sent = await message.answer(text, reply_markup=markup)
             follow_up_parcel(sent, message.chat.id, t, novaposhta)
             return

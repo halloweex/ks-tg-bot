@@ -1,7 +1,7 @@
 """Inline keyboard builders for menu navigation."""
 from __future__ import annotations
 
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 from aiogram.types import (InlineKeyboardMarkup, KeyboardButton,
                            ReplyKeyboardMarkup, WebAppInfo)
@@ -54,6 +54,25 @@ def tagged_website_url(url: str) -> str:
         return url
     tags = _tags("main_menu")
     return f"{url}{'&' if urlparse(url).query else '?'}{tags}"
+
+
+def discount_url(website_url: str, code: str, lang: str = "uk") -> str:
+    """A link that applies a discount code and lands in the shop.
+
+    `/discount/{code}?redirect=…` is Shopify's own mechanism, and the reason
+    this works without an Admin token: the code is created once by a person in
+    the shop's admin, and the bot only hands out the link that puts it in
+    somebody's session. Verified against the live storefront — a 302 to the
+    redirect target with the tags intact.
+    """
+    landing = "/?" + urlencode({
+        "utm_source": "telegram",
+        "utm_medium": "bot",
+        "utm_campaign": "first_order",
+        "locale": lang,
+    })
+    return (f"{website_url.rstrip('/')}/discount/{quote(code, safe='')}"
+            f"?{urlencode({'redirect': landing})}")
 
 
 def cart_url(website_url: str, variant_ids: Sequence[int], lang: str = "uk",

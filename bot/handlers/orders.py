@@ -28,7 +28,8 @@ from core.repos.catalogue import get_offers
 from core.repos.orders import (CANCELLED_STATUS_GROUP, get_cached_orders,
                                get_last_sync_time)
 from core.repos.users import get_user_phone
-from bot.keyboards import STYLE_CART, STYLE_LIST, STYLE_UNDO, cart_url
+from bot.keyboards import (STYLE_CART, STYLE_LIST, STYLE_UNDO, cart_url,
+                           discount_url)
 from bot.screen import render, typing
 from bot.handlers.delivery import parcel_lines
 from bot.sync import stale_notice
@@ -402,18 +403,53 @@ def _orders_kb(
     return builder.as_markup()
 
 
-def _no_orders_kb(t: Texts) -> InlineKeyboardMarkup:
-    """Offer support when the lookup found nothing.
+def _no_orders_kb(t: Texts, config: AppConfig | None = None) -> InlineKeyboardMarkup:
+    """The first-order discount, support, and the way back.
 
     A customer who just shared their contact and got "no orders" has nowhere to
-    go otherwise, and the most likely cause — the order sits under a different
-    phone than their Telegram — is something only a manager can resolve.
+    go otherwise, and the two things worth offering them are opposite: a reason
+    to buy something, and a person to ask if they believe they already have.
+    The second most likely cause of an empty screen — the order sits under a
+    different phone than their Telegram — is something only a manager can fix.
+
+    The discount button appears only where a code is configured. There is no
+    default code in the code, and there never should be: the bot hands out a
+    link that applies one, it does not invent discounts.
     """
     builder = InlineKeyboardBuilder()
+    if config is not None and config.first_order_code:
+        builder.button(
+            text=t.BTN_FIRST_ORDER,
+            url=discount_url(config.website_url, config.first_order_code, t.lang),
+            style=STYLE_CART,
+        )
     builder.button(text=t.BTN_SUPPORT, callback_data=MenuAction(action="support"))
     builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="menu"))
     builder.adjust(1)
     return builder.as_markup()
+
+
+def first_order_kb(t: Texts, config: AppConfig) -> InlineKeyboardMarkup:
+    """Just the discount, for the message that follows registration."""
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=t.BTN_FIRST_ORDER,
+        url=discount_url(config.website_url, config.first_order_code, t.lang),
+        style=STYLE_CART,
+    )
+    return builder.as_markup()
+
+
+def first_order_offer(t: Texts, config: AppConfig) -> str:
+    """The offer as a paragraph, or "" when no code is configured.
+
+    Its own function because two screens and the end of registration all show
+    the same thing, and a customer who has seen it once should not read three
+    different versions of it.
+    """
+    if not config.first_order_code or not config.first_order_reward:
+        return ""
+    return t.MSG_FIRST_ORDER.format(reward=escape(config.first_order_reward))
 
 
 def favourite_products(orders: list[dict], limit: int = 5) -> list[dict]:
@@ -508,6 +544,7 @@ async def orders_screen(
     t: Texts,
     keycrm: KeyCRMClient,
     anchor: Message,
+    config: AppConfig | None = None,
 ) -> tuple[str, InlineKeyboardMarkup | None]:
     """The orders screen, ready to be sent or edited into place.
 
@@ -539,9 +576,15 @@ async def orders_screen(
     # below it so a long history cannot bury it.
     notice = await stale_notice(chat_id, t)
     text = _format_orders_from_cache(cached, t)
+    if not cached and config is not None:
+        # Nothing to show is the one moment a first-order discount is exactly
+        # the right thing to say.
+        offer = first_order_offer(t, config)
+        if offer:
+            text = f"{text}\n\n{offer}"
     return (
         f"{notice}\n\n{text}" if notice else text,
-        _orders_kb(cached, t) if cached else _no_orders_kb(t),
+        _orders_kb(cached, t) if cached else _no_orders_kb(t, config),
     )
 
 
@@ -625,6 +668,7 @@ async def favourites_screen(
     keycrm: KeyCRMClient,
     anchor: Message,
     website_url: str,
+    config: AppConfig | None = None,
 ) -> tuple[str, InlineKeyboardMarkup | None]:
     """The favourites screen.
 
@@ -642,13 +686,15 @@ async def favourites_screen(
         await _refresh_orders(chat_id, keycrm)
         cached = await get_cached_orders(chat_id)
 
-    text, markup, found = await _favourites_view(chat_id, t, cached, website_url)
+    text, markup, found = await _favourites_view(chat_id, t, cached, website_url,
+                                                 config)
     track(chat_id, "favourites_viewed", found=found)
     return text, markup
 
 
 async def _favourites_view(
-    chat_id: int, t: Texts, cached: list[dict], website_url: str
+    chat_id: int, t: Texts, cached: list[dict], website_url: str,
+    config: AppConfig | None = None,
 ) -> tuple[str, InlineKeyboardMarkup, int]:
     """The favourites screen — its text, its buttons, and how many it lists.
 
@@ -671,7 +717,10 @@ async def _favourites_view(
     """
     favourites = favourite_products(cached, limit=_ON_SCREEN)
     if not favourites:
-        return (t.MSG_NO_FAVOURITES if cached else t.MSG_NO_ORDERS), _no_orders_kb(t), 0
+        empty = t.MSG_NO_FAVOURITES if cached else t.MSG_NO_ORDERS
+        offer = first_order_offer(t, config) if config is not None and not cached else ""
+        return (f"{empty}\n\n{offer}" if offer else empty,
+                _no_orders_kb(t, config), 0)
 
     offers = await get_offers(str(item.get("sku") or "") for item in favourites)
     levels = await get_stock_levels()

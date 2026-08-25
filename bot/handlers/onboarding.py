@@ -11,6 +11,7 @@ from bot.analytics import track
 from core.config import AppConfig
 from core.effects import CONFETTI
 from bot.keyboards import share_phone_kb
+from bot.handlers.orders import first_order_kb, first_order_offer
 from bot.screen import send_main_menu, typing
 from core.adapters.keycrm.client import KeyCRMClient
 from core.domain.phone import VerifiedPhone, verified_phone
@@ -65,6 +66,14 @@ async def _register_user(
     # this moment deserves more: it happens once per customer, and what it says
     # is "we found you". Refused ids fall back to a plain message (bot/screen).
     await send_main_menu(message, t, config, t.MSG_PHONE_VERIFIED, effect=CONFETTI)
+
+    # A customer the CRM has never heard of is a new one, and this is the
+    # moment the offer means something. Said once, here — the empty orders and
+    # favourites screens say it too, and whoever has bought before sees none
+    # of it (bot/handlers/orders.py).
+    offer = first_order_offer(t, config)
+    if offer and not await get_cached_orders(message.chat.id):
+        await message.answer(offer, reply_markup=first_order_kb(t, config))
 
 
 @router.message(OnboardingStates.waiting_phone, F.contact)
