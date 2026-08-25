@@ -384,7 +384,7 @@ MSG_SETTINGS_MENU = (
 
 # Menu content
 MSG_SUPPORT_PROMPT = "Напиши свій запит — ми підключимо менеджера 💬"
-MSG_NEW_PHONE_PROMPT = "Щоб оновити номер, поділіться ним через кнопку нижче 👇"
+MSG_NEW_PHONE_PROMPT = "Щоб оновити номер, поділись ним через кнопку нижче 👇"
 MSG_PHONE_CHANGED = "Номер телефону змінено! \u2705"
 
 # Onboarding responses
