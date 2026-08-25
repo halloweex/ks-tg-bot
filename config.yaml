@@ -28,7 +28,7 @@ instagram_url: "https://instagram.com/korean_story_official"
 # Пусто — экран обещает ровно то, что бот выполнит сам: «подруга закажет —
 # пришлём промокод». Здесь стоит написать размер: «Знижка 10% на наступне
 # замовлення» — это обязательство бизнеса, и бот его не выдумывает.
-referral_reward: ""
+referral_reward: "Знижка 10% на наступне замовлення"
 
 # Info pages — text shown in Phase 3 menus
 # Placeholder content — owner will fill in real text

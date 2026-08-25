@@ -62,9 +62,13 @@ class _Query:
         self.kwargs = kwargs
 
 
-def _config():
+CARD = "https://halloweex.github.io/ks-tg-bot/invite.jpg"
+
+
+def _config(invite_card_url: str = CARD):
     return SimpleNamespace(website_url=SHOP, brand_name="Korean Story",
-                           bot_username="koreanstory_bot", support_chat_id=-1)
+                           bot_username="koreanstory_bot", support_chat_id=-1,
+                           invite_card_url=invite_card_url)
 
 
 def _offer(sku="1", *, available=True, title="Крем для обличчя"):
@@ -225,12 +229,23 @@ def test_the_same_button_without_a_sku_invites_the_bot(db):
     assert query.kwargs["is_personal"] is True
 
 
-def test_the_invitation_says_what_the_bot_does(db):
+def test_the_invitation_arrives_as_the_shops_own_card(db):
+    """An invitation in the brand's colours is a different thing from a link."""
     query = _Query("поділитися")
     asyncio.run(inline_list(query, T, _config()))
-    card = query.results[0].input_message_content.message_text
-    assert "Korean Story" in card
-    assert str(CHAT) not in card
+    row = query.results[0]
+    assert row.photo_url == CARD
+    assert "Korean Story" in row.caption
+    assert str(CHAT) not in row.caption
+
+
+def test_without_a_published_card_the_invitation_is_still_sent(db):
+    """The image is published on its own schedule, beside the Mini App page."""
+    query = _Query("поділитися")
+    asyncio.run(inline_list(query, T, _config(invite_card_url="")))
+    row = query.results[0]
+    assert "Korean Story" in row.input_message_content.message_text
+    assert row.reply_markup.inline_keyboard[0][0].url.endswith(str(CHAT))
 
 
 # --- when a referral is earned ----------------------------------------------

@@ -114,6 +114,16 @@ class AppConfig:
 
 
     @property
+    def invite_card_url(self) -> str:
+        """The card an invitation carries, or "" if none is published.
+
+        JPEG, unlike the birthday one: an inline result that *is* a photo has
+        to be one, per the Bot API. Same switch — an empty `assets_url` and the
+        invitation goes out as a card of text.
+        """
+        return f"{self.assets_url}/invite.jpg" if self.assets_url else ""
+
+    @property
     def birthday_card_url(self) -> str:
         """The card the birthday greeting carries, or "" if none is published.
 

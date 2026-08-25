@@ -36,7 +36,8 @@ from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (CallbackQuery, InlineKeyboardButton,
                            InlineKeyboardMarkup, InlineQuery,
-                           InlineQueryResultArticle, InlineQueryResultsButton,
+                           InlineQueryResultArticle, InlineQueryResultPhoto,
+                           InlineQueryResultsButton,
                            InputTextMessageContent, SwitchInlineQueryChosenChat)
 from loguru import logger
 
@@ -293,19 +294,38 @@ async def _answer_invite(query: InlineQuery, t: Texts, config: AppConfig) -> Non
     """
     link = (f"https://t.me/{config.bot_username}?start={REFERRAL_PREFIX}"
             f"{query.from_user.id}")
+    caption = t.MSG_INVITE_CARD.format(brand=escape(config.brand_name))
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=t.BTN_INVITE_OPEN, url=link)]])
     track(query.from_user.id, "invite_offered")
-    await query.answer(
-        [InlineQueryResultArticle(
+
+    # The card itself, when there is one published: an invitation that arrives
+    # as the shop's own colours is a different thing from an invitation that
+    # arrives as a link. JPEG because the Bot API says a photo result must be
+    # one, and a url because Telegram fetches it itself.
+    result = (
+        InlineQueryResultPhoto(
+            id=f"i{query.from_user.id}",
+            photo_url=config.invite_card_url,
+            thumbnail_url=config.invite_card_url,
+            title=config.brand_name,
+            description=t.MSG_INVITE_ROW,
+            caption=caption,
+            parse_mode="HTML",
+            reply_markup=keyboard,
+        )
+        if config.invite_card_url else
+        InlineQueryResultArticle(
             id=f"i{query.from_user.id}",
             title=config.brand_name,
             description=t.MSG_INVITE_ROW,
             input_message_content=InputTextMessageContent(
-                message_text=t.MSG_INVITE_CARD.format(
-                    brand=escape(config.brand_name)),
-                parse_mode="HTML"),
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text=t.BTN_INVITE_OPEN, url=link)]]),
-        )],
+                message_text=caption, parse_mode="HTML"),
+            reply_markup=keyboard,
+        )
+    )
+    await query.answer(
+        [result],
         # Per person: the link in it is theirs, and a shared cache would hand
         # the next sharer somebody else's referral.
         cache_time=300,
