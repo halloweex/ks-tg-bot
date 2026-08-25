@@ -11,6 +11,8 @@ from loguru import logger
 from core.config import load_config
 from core.repos.base import configure as configure_db
 from core.repos.catalogue import SqliteOfferCache
+from core.repos.outbox import SqliteMessageQueue
+from core.repos.users import SqliteKnownBirthdays, SqliteLanguageChoice
 from core.repos.schema import init_db
 from bot.fsm_storage import SQLiteStorage
 from bot.alerts import check_support_chat
@@ -125,7 +127,9 @@ async def main() -> None:
         # The profile reader is an adapter like any other, which is what keeps
         # the sweep itself testable without a bot.
         loops.append(spawn(
-            watch_birthdays(TelegramProfiles(bot), config.birthday_card_url),
+            watch_birthdays(TelegramProfiles(bot), SqliteKnownBirthdays(),
+                            SqliteLanguageChoice(), SqliteMessageQueue(),
+                            config.birthday_card_url),
             name="birthday_watcher"))
         # Pay for a recommendation once the friend it brought has ordered.
         loops.append(spawn(

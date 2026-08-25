@@ -17,9 +17,10 @@ from datetime import date
 import pytest
 
 from core.repos import base as repos_base
-from core.repos.outbox import claim
+from core.repos.outbox import SqliteMessageQueue, claim
 from core.repos.schema import init_db
-from core.repos.users import (chats_without_birthday, opt_out_user, save_birthday,
+from core.repos.users import (SqliteKnownBirthdays, SqliteLanguageChoice,
+                              chats_without_birthday, opt_out_user, save_birthday,
                               save_user)
 from core.usecases.birthdays import ASK_PER_RUN, KIND, check_once
 
@@ -59,8 +60,17 @@ CARD = "https://halloweex.github.io/ks-tg-bot/birthday.png"
 
 
 def _run(profiles=None, *, today: date = TODAY, card_url: str = CARD):
-    return asyncio.run(check_once(profiles or _Profiles({}), today=today,
-                                  card_url=card_url))
+    """One sweep against the real SQLite side of all three storage ports.
+
+    The sweep takes four ports now. Only the first — the Telegram profile
+    reader — is faked here, because it is the only one these tests are about;
+    the other three answer from the temporary database the fixture built.
+    """
+    return asyncio.run(check_once(
+        profiles or _Profiles({}),
+        SqliteKnownBirthdays(), SqliteLanguageChoice(), SqliteMessageQueue(),
+        today=today, card_url=card_url,
+    ))
 
 
 # --- the greeting -----------------------------------------------------------

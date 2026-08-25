@@ -27,10 +27,9 @@ from loguru import logger
 
 from core.domain.campaign import daily
 from core.i18n import customer_texts
+from core.ports.outbox import MessageQueue
 from core.ports.profiles import BirthdaySource
-from core.repos.outbox import enqueue
-from core.repos.users import (chats_with_birthday_on, chats_without_birthday,
-                              get_user_language, save_birthday)
+from core.ports.users import KnownBirthdays, LanguageChoice
 
 KIND = "bday"
 
@@ -38,6 +37,11 @@ KIND = "bday"
 # a couple of thousand people a day — far more than this shop signs up — and it
 # keeps the API cost invisible next to the order sync.
 ASK_PER_RUN = 50
+
+# How long an answer stays good. A birthday is something people fill in long
+# after they sign up, so it is re-asked rather than asked once. Here rather than
+# in storage: how often this sweep costs an API call is the sweep's decision.
+STALE_DAYS = 90
 
 
 @dataclass(frozen=True)
@@ -49,17 +53,34 @@ class Swept:
     greeted: int = 0
 
 
-async def check_once(profiles: BirthdaySource, *, today: date | None = None,
-                     card_url: str = "") -> Swept:
-    """One run: ask about a few people, then greet whoever is celebrating."""
-    asked, learned = await _ask_a_few(profiles)
-    greeted = await _greet_todays(today or date.today(), card_url)
+async def check_once(
+    profiles: BirthdaySource,
+    known: KnownBirthdays,
+    languages: LanguageChoice,
+    queue: MessageQueue,
+    *,
+    today: date | None = None,
+    card_url: str = "",
+) -> Swept:
+    """One run: ask about a few people, then greet whoever is celebrating.
+
+    Four ports, which is more than any other scenario here takes, and the count
+    is the honest shape rather than a smell: this sweep asks Telegram, writes
+    what it learned, reads a language per person and queues a message. Each is a
+    different outside thing, and the alternative — one object about birthdays —
+    would be an object that has to be built out of all four to test any one.
+    """
+    asked, learned = await _ask_a_few(profiles, known)
+    greeted = await _greet_todays(known, languages, queue,
+                                  today or date.today(), card_url)
     return Swept(asked=asked, learned=learned, greeted=greeted)
 
 
-async def _ask_a_few(profiles: BirthdaySource) -> tuple[int, int]:
+async def _ask_a_few(
+    profiles: BirthdaySource, known: KnownBirthdays
+) -> tuple[int, int]:
     """Fill in the column for the customers nobody has asked about lately."""
-    chats = await chats_without_birthday(ASK_PER_RUN)
+    chats = await known.to_ask(ASK_PER_RUN, stale_days=STALE_DAYS)
     asked = learned = 0
     for chat_id in chats:
         birthdate = await profiles.get_birthday(chat_id)
@@ -67,7 +88,7 @@ async def _ask_a_few(profiles: BirthdaySource) -> tuple[int, int]:
             # The ask itself failed. Left unstamped so it is retried, rather
             # than recorded as "this person has no birthday".
             continue
-        await save_birthday(chat_id, birthdate)
+        await known.remember(chat_id, birthdate)
         asked += 1
         learned += 1 if birthdate else 0
     if asked:
@@ -75,23 +96,29 @@ async def _ask_a_few(profiles: BirthdaySource) -> tuple[int, int]:
     return asked, learned
 
 
-async def _greet_todays(today: date, card_url: str = "") -> int:
+async def _greet_todays(
+    known: KnownBirthdays,
+    languages: LanguageChoice,
+    queue: MessageQueue,
+    today: date,
+    card_url: str = "",
+) -> int:
     """Queue one greeting per person celebrating today."""
-    chats = await chats_with_birthday_on(today.strftime("%m-%d"))
+    chats = await known.celebrating_on(today.strftime("%m-%d"))
     if not chats:
         return 0
 
     campaign = daily(KIND, today)
     greeted = 0
     for chat_id in chats:
-        t = customer_texts(await get_user_language(chat_id))
+        t = customer_texts(await languages.chosen_by(chat_id))
         payload = {"text": t.MSG_BIRTHDAY}
         if card_url:
             # The brand's own card: a burgundy field, the mark, the wordmark.
             # The only place in a chat where the palette is visible at all —
             # Telegram draws every word in the reader's own theme and font.
             payload["photo"] = card_url
-        queued = await enqueue(
+        queued = await queue.queue(
             chat_id, KIND, campaign,
             {
                 **payload,
