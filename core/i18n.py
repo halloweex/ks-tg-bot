@@ -105,6 +105,10 @@ EN: dict[str, str] = {
         "Message us and we'll find it manually."
     ),
     "MSG_SUPPORT_FORWARDED": "Your message has been sent to a manager. Please wait for a reply.",
+    "MSG_SUPPORT_FORWARDED_OFF_HOURS": (
+        "We have got your message. The manager is away right now and will reply "
+        "here from {time}."
+    ),
     "MSG_MAIN_MENU": "How can I help?",
     "MSG_MENU_PLACEHOLDER": "Choose an action",
     "MSG_MENU_PICK": "Pick from the menu 👇",

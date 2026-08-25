@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import time
 from pathlib import Path
 
 import yaml
+from loguru import logger
 from pydantic_settings import BaseSettings
 
 
@@ -118,11 +120,35 @@ class AppConfig:
     contacts_text: str
     payment_text: str
     delivery_text: str
+    # When a manager is actually there, "HH:MM" in the shop's own clock. Outside
+    # them the bot still takes the message and says when it will be answered,
+    # rather than implying someone is reading it at 3am. Empty means the bot
+    # promises nothing about timing — what it did before these existed.
+    support_hours_from: str = ""
+    support_hours_to: str = ""
     # Filled at startup from getMe, not from the file: it is the bot's own name
     # and asking Telegram is the only way to be sure of it. Deep links in the
     # cards a customer shares are built from it (bot/handlers/inline.py).
     bot_username: str = ""
 
+
+    @property
+    def support_window(self) -> tuple[time, time] | None:
+        """The hours a manager answers in, or None when they are not configured.
+
+        Both ends or nothing: half a window is a promise the bot cannot keep,
+        and silently guessing the other end would put a made-up hour in front
+        of a customer.
+        """
+        if not (self.support_hours_from and self.support_hours_to):
+            return None
+        try:
+            return (time.fromisoformat(self.support_hours_from),
+                    time.fromisoformat(self.support_hours_to))
+        except ValueError:
+            logger.warning("support hours are not HH:MM ({!r}-{!r}), ignoring them",
+                           self.support_hours_from, self.support_hours_to)
+            return None
 
     @property
     def _assets_version(self) -> str:
@@ -186,4 +212,6 @@ def load_config(config_path: str | Path = "config.yaml") -> AppConfig:
         contacts_text=yaml_data.get("contacts_text", ""),
         payment_text=yaml_data.get("payment_text", ""),
         delivery_text=yaml_data.get("delivery_text", ""),
+        support_hours_from=str(yaml_data.get("support_hours_from", "")).strip(),
+        support_hours_to=str(yaml_data.get("support_hours_to", "")).strip(),
     )

@@ -27,6 +27,7 @@ from typing import Protocol, runtime_checkable
 
 from core.domain.offer import Offer
 from core.domain.phone import VerifiedPhone
+from core.domain.stock import Waiting
 
 
 @runtime_checkable
@@ -180,5 +181,87 @@ class OfferCache(Protocol):
         Returns nothing, deliberately. What the sweep logs is what it read, not
         what the table now holds; reading a count back would answer a question
         nobody asked, at the price of a full scan every hour.
+        """
+        ...
+
+
+@runtime_checkable
+class StockSnapshot(Protocol):
+    """What availability looked like the last time we looked.
+
+    Not `core.ports.catalog.StockLevels`, and the resemblance is worth spelling
+    out because the two are one word apart. That port is the shop's own answer,
+    read over the network on every poll; this one is our memory of the previous
+    answer. A restock exists only in the difference between them, which is why
+    comparing them is domain code (`core.domain.stock.restocked`) and all this
+    port does is remember and recall.
+
+    Not on the UnitOfWork for the usual reason: the snapshot belongs to nobody
+    and has no second write to land with.
+    """
+
+    async def last_seen(self) -> dict[str, int]:
+        """sku -> units free to sell, as recorded by the previous sweep.
+
+        Empty means nothing has ever been recorded — first run, fresh database —
+        and the scenario reads it as "write the baseline, tell nobody", because
+        otherwise the whole catalogue looks like it just came back. Telling that
+        apart from a failed read is deliberately not this port's problem: a
+        failed read is caught upstream, where the catalogue port answers {} and
+        the sweep stops before reaching storage at all.
+        """
+        ...
+
+    async def remember(self, levels: dict[str, int]) -> None:
+        """Replace the memory with what was just read.
+
+        A whole snapshot, not a delta, because a delta has no way to say that a
+        sku left the catalogue. An empty snapshot writes nothing: a sweep that
+        came back with no numbers must not erase the baseline the next one is
+        compared against, or the poll after that announces a restock of the
+        entire shop.
+        """
+        ...
+
+
+@runtime_checkable
+class RestockWatchlist(Protocol):
+    """The people holding a promise: tell me when this one is back.
+
+    Separate from StockSnapshot even though one sweep uses both, because they
+    are not the same kind of fact. The snapshot is the poller's own memory,
+    replaceable on every poll and worth nothing if lost. This is something a
+    customer asked the bot for, and the asymmetry decides who may write what:
+    the sweep replaces the snapshot wholesale and may only ever *release*
+    entries here, never create them. Subscribing is a screen's business and is
+    not in this port for that reason.
+
+    Keyed by `chat_id`, not by the surrogate `users.id` the unit speaks — see
+    the identity rule in core/ports/users.py. It is named `chat_id` on `Waiting`
+    precisely so the difference cannot be misread as agreement.
+    """
+
+    async def waiting_for(self, skus: list[str]) -> list[Waiting]:
+        """Everyone waiting on any of these skus — one row per person per sku.
+
+        Flat, not grouped by chat, and that is not laziness. One sku can have
+        many people behind it and one person can be waiting on several skus that
+        return in the same sweep; deciding that this becomes one message per
+        person rather than a burst is the scenario's call, and a port returning
+        a mapping would have made it already.
+
+        An empty list of skus returns nothing rather than everybody.
+        """
+        ...
+
+    async def release(self, fulfilled: list[tuple[int, str]]) -> None:
+        """Drop the (chat, sku) promises that have now been kept.
+
+        Called before the message has actually been sent, and that is
+        deliberate: the promise is "tell me when it is back", once. Keeping the
+        rows until delivery would have the next sweep queue them again for
+        anybody whose message is still in the queue, and the dedup key that
+        stops that is cheaper than the state machine that would otherwise be
+        needed.
         """
         ...

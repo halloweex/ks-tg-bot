@@ -1,6 +1,8 @@
 """Support relay — user-to-admin forwarding and admin-to-user reply."""
 from __future__ import annotations
 
+from datetime import datetime
+
 from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import StateFilter
@@ -8,6 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from loguru import logger
 
+from core.domain.quiet import within_hours
 from core.i18n import Texts, operator_texts
 from bot.alerts import tell_admins_once
 from bot.analytics import track
@@ -21,6 +24,22 @@ from bot.screen import ephemeral, seen
 from bot.states import SupportStates
 
 router = Router()
+
+
+def forwarded_confirmation(t: Texts, config: AppConfig,
+                           now: datetime | None = None) -> str:
+    """What the customer is told once their message is on its way.
+
+    Inside working hours the old line stands — «відповімо тут» is true and
+    soon. Outside them it is a promise nobody is awake to keep, so the message
+    names the hour instead. Configuring no hours keeps the old behaviour: the
+    bot would rather say nothing about timing than invent a time.
+    """
+    window = config.support_window
+    if window is None or within_hours(*window, now=now):
+        return t.MSG_SUPPORT_FORWARDED
+    return t.MSG_SUPPORT_FORWARDED_OFF_HOURS.format(
+        time=window[0].strftime("%H:%M"))
 
 
 @router.message(SupportStates.waiting_message)
@@ -122,7 +141,7 @@ async def forward_to_support(
     # and is noise a day later, so it takes itself back.
     await seen(message)
     # No keyboard to attach: the menu is already under the input field.
-    await ephemeral(message, t.MSG_SUPPORT_FORWARDED)
+    await ephemeral(message, forwarded_confirmation(t, config))
 
 
 @router.message(StateFilter(None), F.media_group_id)

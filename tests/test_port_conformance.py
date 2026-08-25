@@ -27,9 +27,11 @@ import pytest
 
 from core.ports.analytics import UsageStats
 from core.ports.outbox import MessageQueue, PendingMessages
-from core.ports.repositories import OfferCache, OrderCache, UnitOfWork, UserProfiles
+from core.ports.repositories import (OfferCache, OrderCache, RestockWatchlist,
+                                     StockSnapshot, UnitOfWork, UserProfiles)
 from core.repos.catalogue import SqliteOfferCache
 from core.repos.events import SqliteUsageStats
+from core.repos.stock import SqliteRestockWatchlist, SqliteStockSnapshot
 from core.ports.users import KnownBirthdays, LanguageChoice, MailingList
 from core.repos.outbox import SqliteMessageQueue, SqlitePendingMessages
 from core.repos.users import (SqliteKnownBirthdays, SqliteLanguageChoice,
@@ -55,6 +57,8 @@ PAIRS = [
     (LanguageChoice, SqliteLanguageChoice),
     (MailingList, SqliteMailingList),
     (KnownBirthdays, SqliteKnownBirthdays),
+    (StockSnapshot, SqliteStockSnapshot),
+    (RestockWatchlist, SqliteRestockWatchlist),
 ]
 
 
@@ -107,4 +111,4 @@ def test_every_port_in_the_migration_is_covered_here():
     covered = {port for port, _ in PAIRS}
     assert covered == {OrderCache, UserProfiles, UnitOfWork, OfferCache, UsageStats,
                        MessageQueue, PendingMessages, LanguageChoice, MailingList,
-                       KnownBirthdays}
+                       KnownBirthdays, StockSnapshot, RestockWatchlist}

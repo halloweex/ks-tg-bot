@@ -39,3 +39,16 @@ def is_quiet_now(now: datetime | None = None) -> bool:
     """True when it is night in Ukraine and notifications should be silent."""
     local = (now or datetime.now(timezone.utc)).astimezone(SHOP_TZ).time()
     return local >= QUIET_FROM or local < QUIET_UNTIL
+
+
+def within_hours(start: time, end: time, now: datetime | None = None) -> bool:
+    """True when the shop's own clock is inside [start, end).
+
+    Same clock as quiet hours and for the same reason: the server runs on UTC
+    and the people this answers for are in Ukraine. A window that ends before
+    it starts wraps around midnight, so 21:00–09:00 means the night.
+    """
+    local = (now or datetime.now(timezone.utc)).astimezone(SHOP_TZ).time()
+    if start <= end:
+        return start <= local < end
+    return local >= start or local < end

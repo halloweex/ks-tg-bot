@@ -7,6 +7,7 @@ is back", not "watch this forever".
 """
 from __future__ import annotations
 
+from core.domain.stock import Waiting
 from core.repos.base import connect
 
 
@@ -84,3 +85,30 @@ async def clear_subscriptions(pairs: list[tuple[int, str]]) -> None:
             "DELETE FROM stock_subscriptions WHERE chat_id = ? AND sku = ?", pairs
         )
         await db.commit()
+
+
+class SqliteStockSnapshot:
+    """Implements core.ports.repositories.StockSnapshot against today's table."""
+
+    async def last_seen(self) -> dict[str, int]:
+        return await get_stock_levels()
+
+    async def remember(self, levels: dict[str, int]) -> None:
+        await save_stock_levels(levels)
+
+
+class SqliteRestockWatchlist:
+    """Implements core.ports.repositories.RestockWatchlist against today's table.
+
+    Only the two halves the sweep is allowed to use. Subscribing and
+    unsubscribing stay plain functions here: they belong to a screen, and a
+    sweep holding a handle that can create promises is a sweep that can one day
+    create one.
+    """
+
+    async def waiting_for(self, skus: list[str]) -> list[Waiting]:
+        return [Waiting(chat_id=chat_id, sku=sku, name=name)
+                for chat_id, sku, name in await subscribers_for(skus)]
+
+    async def release(self, fulfilled: list[tuple[int, str]]) -> None:
+        await clear_subscriptions(fulfilled)

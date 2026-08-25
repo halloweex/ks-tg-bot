@@ -353,6 +353,12 @@ MSG_NO_ORDERS = (
     "Telegram. Напиши нам, і ми знайдемо його вручну."
 )
 MSG_SUPPORT_FORWARDED = "Передали менеджеру — відповімо тут."
+# Same message, sent when nobody is there to read it yet. It promises the
+# hour instead of promising nothing, so the wait is expected rather than
+# wondered about.
+MSG_SUPPORT_FORWARDED_OFF_HOURS = (
+    "Отримали твоє повідомлення. Менеджер зараз не на місці — відповість тут із {time}."
+)
 
 # Menu headers
 MSG_MAIN_MENU = "Чим допомогти?"

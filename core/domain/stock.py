@@ -7,6 +7,25 @@ poll would fire for the whole catalogue at once.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Waiting:
+    """One standing promise: tell this chat when this sku is back.
+
+    The product name travels with the row rather than being looked up when the
+    message is written. It is the name as it read when the person subscribed,
+    and carrying it is what lets a restock be announced without a catalogue
+    call — the sweep already refuses to act on an empty catalogue read, and a
+    notification needing a second network answer could fail the same way after
+    the subscription has already been released.
+    """
+
+    chat_id: int
+    sku: str
+    name: str
+
 
 def restocked(previous: dict[str, int], current: dict[str, int]) -> list[str]:
     """Skus that went from nothing available to something.
