@@ -20,7 +20,7 @@ import pytest
 
 from bot.handlers.common import FAVOURITES_DEEP_LINK, cmd_start
 from bot.handlers.inline import inline_list
-from bot.handlers.orders import request_discount
+from bot.handlers.orders import perform_discount_ask
 from core.config import AppConfig
 from core.domain.offer import Offer
 from core.i18n import Texts
@@ -28,6 +28,7 @@ from core.repos import base as repos_base
 from bot.callbacks import DiscountAction, StockAction
 from core.repos.catalogue import save_offers
 from core.repos.orders import upsert_orders
+from core.repos import support as support_repo
 from core.repos.schema import init_db
 from core.repos.stock import add_stock_subscription, save_stock_levels
 from core.repos.users import save_user
@@ -343,6 +344,28 @@ def test_the_deep_link_opens_the_favourites_screen(db):
     assert any(b.text == Texts("uk").BTN_WANT_DISCOUNT_PLAIN for b in buttons)
 
 
+def test_a_card_opens_wearing_the_tick_once_it_has_been_asked_about(db):
+    """A card is a message that stays in the chat. Reopening the panel after
+    asking must not offer to ask again, or the same question goes twice."""
+    _registered_customer(_order("1"), offers={"1": _offer("1")})
+    asyncio.run(support_repo.add_discount_request(
+        CHAT, "[]", sku="1", thread_message_id=99))
+
+    card = next(row for row in _ask(_Query()).results if row.id == "1")
+    assert Texts("uk").BTN_DISCOUNT_ASKED in _labels(card)
+    assert Texts("uk").BTN_WANT_DISCOUNT_PLAIN not in _labels(card)
+
+
+def test_another_product_is_still_askable(db):
+    """The tick belongs to one product, not to the panel."""
+    _registered_customer(_order("1", "2"), offers={"1": _offer("1")})
+    asyncio.run(support_repo.add_discount_request(
+        CHAT, "[]", sku="1", thread_message_id=99))
+
+    other = next(row for row in _ask(_Query()).results if row.id == "2")
+    assert Texts("uk").BTN_WANT_DISCOUNT_PLAIN in _labels(other)
+
+
 # --- asking for a discount from a card --------------------------------------
 
 def _ask_for_discount(sku: str) -> dict:
@@ -362,9 +385,11 @@ def _ask_for_discount(sku: str) -> dict:
         answer=answer,
         bot=SimpleNamespace(send_message=send_message),
     )
-    asyncio.run(request_discount(
-        callback, DiscountAction(action="ask", sku=sku), _config(), Texts("uk")
-    ))
+    # The ask itself, without either surface's redraw: the screen edits a
+    # message and the card edits an inline_message_id, and neither is what
+    # these tests are about.
+    told["recorded"] = asyncio.run(
+        perform_discount_ask(callback, sku, _config(), Texts("uk")))
     return told
 
 

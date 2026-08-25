@@ -117,6 +117,21 @@ async def pending_discount_count(chat_id: int, days: int = 7) -> int:
         return (await cursor.fetchone())[0]
 
 
+async def pending_discount_skus(chat_id: int, days: int = 7) -> set[str]:
+    """Every product this customer has an unanswered ask about.
+
+    One query for a panel of fifty rows: asking per row would be fifty.
+    """
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT sku FROM discount_requests "
+            " WHERE chat_id = ? AND answered_at IS NULL "
+            "   AND created_at >= datetime('now', ?)",
+            (chat_id, f"-{days} days"),
+        )
+        return {row[0] for row in await cursor.fetchall()}
+
+
 async def add_discount_request(chat_id: int, products_json: str, *,
                                sku: str = "", thread_message_id: int = 0) -> None:
     async with connect() as db:

@@ -18,6 +18,7 @@ from core.domain.offer import Offer
 from core.i18n import Texts
 from core.repos import base as repos_base
 from core.repos.catalogue import save_offers
+from core.repos import support as support_repo
 from core.repos.schema import init_db
 from core.repos.stock import add_stock_subscription, save_stock_levels
 
@@ -145,6 +146,27 @@ def test_the_ask_claims_a_habit_only_where_there_is_one(db):
     _text, twice = _view([_order("1"), _order("1")])
     assert T.BTN_WANT_DISCOUNT in _labels(twice)
     assert T.BTN_WANT_DISCOUNT_PLAIN not in _labels(twice)
+
+
+def test_the_ask_leaves_a_tick_where_the_offer_was(db):
+    """The pop-up is gone a second later. The button is what still says, next
+    week, that this question was already asked — the same way the notify button
+    remembers a subscription."""
+    asyncio.run(save_offers({"1": _offer("1")}))
+
+    _text, before = _view([_order("1")])
+    assert T.BTN_WANT_DISCOUNT_PLAIN in _labels(before)
+
+    asyncio.run(support_repo.add_discount_request(
+        CHAT, "[]", sku="", thread_message_id=55))
+    _text, after = _view([_order("1")])
+    assert T.BTN_DISCOUNT_ASKED in _labels(after)
+    assert T.BTN_WANT_DISCOUNT_PLAIN not in _labels(after)
+
+    # And an answer gives the question back.
+    asyncio.run(support_repo.mark_discount_answered(55))
+    _text, answered = _view([_order("1")])
+    assert T.BTN_WANT_DISCOUNT_PLAIN in _labels(answered)
 
 
 # --- who decides that something is gone ------------------------------------

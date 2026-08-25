@@ -768,7 +768,7 @@ async def _favourites_view(
     return (
         "\n".join(lines),
         _favourites_kb(favourites, offers, levels, subscribed, t, website_url,
-                       repeated),
+                       repeated, await pending_discount_request(chat_id)),
         len(favourites),
     )
 
@@ -810,7 +810,8 @@ def _is_missing(item: dict, offers: dict[str, Offer], levels: dict[str, int]) ->
 
 
 def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
-                   website_url: str, repeated: bool = True) -> InlineKeyboardMarkup:
+                   website_url: str, repeated: bool = True,
+                   asked: bool = False) -> InlineKeyboardMarkup:
     """The way into the inline list, one button per product, one for the lot,
     then the discount ask.
 
@@ -874,13 +875,23 @@ def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
                        url=cart_url(website_url, basket, t.lang), style=STYLE_CART)
         rows += 1
 
-    # The same fact the header is chosen by: with nothing bought twice, «на ці
-    # товари» would be asking for a discount on the strength of a habit the
-    # customer does not have yet.
-    builder.button(
-        text=t.BTN_WANT_DISCOUNT if repeated else t.BTN_WANT_DISCOUNT_PLAIN,
-        callback_data=DiscountAction(action="ask"),
-    )
+    # Asked already, and nobody has answered yet: the button says so and wears
+    # the colour every other "you have done this" button wears. It stays
+    # pressable — tapping it repeats the status instead of sending a second
+    # copy of the same question.
+    #
+    # Otherwise, the same fact the header is chosen by: with nothing bought
+    # twice, «на ці товари» would be asking for a discount on the strength of a
+    # habit the customer does not have yet.
+    if asked:
+        builder.button(text=t.BTN_DISCOUNT_ASKED,
+                       callback_data=DiscountAction(action="ask"),
+                       style=STYLE_UNDO)
+    else:
+        builder.button(
+            text=t.BTN_WANT_DISCOUNT if repeated else t.BTN_WANT_DISCOUNT_PLAIN,
+            callback_data=DiscountAction(action="ask"),
+        )
     rows += 1
     # The way back, for the same reason it is on every other screen.
     builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="menu"))
@@ -889,14 +900,15 @@ def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
     return builder.as_markup()
 
 
-@router.callback_query(DiscountAction.filter(F.action == "ask"))
-async def request_discount(
-    callback: CallbackQuery,
-    callback_data: DiscountAction,
-    config: AppConfig,
-    t: Texts,
-) -> None:
+async def perform_discount_ask(callback: CallbackQuery, sku: str,
+                               config: AppConfig, t: Texts) -> bool:
     """Pass a discount request, with the customer's favourites, to a manager.
+
+    Shared by the two surfaces that can ask — the favourites screen and a card
+    in the inline list — because only the redraw afterwards differs: a screen
+    is a message this bot can edit, a card is an inline_message_id. Returns
+    whether the ask was recorded, which is what tells the caller there is a
+    button to redraw.
 
     Deliberately not an automatically issued code: there is no discount policy
     yet, and the bot inventing one would commit the business to it. The manager
@@ -915,12 +927,12 @@ async def request_discount(
     # anyone had read it. Now only the same ask is refused, only while it is
     # actually unanswered, and the cap below is what keeps a long list from
     # becoming a long queue.
-    if await pending_discount_request(chat_id, callback_data.sku):
+    if await pending_discount_request(chat_id, sku):
         await callback.answer(t.MSG_DISCOUNT_ALREADY, show_alert=True)
-        return
+        return False
     if await pending_discount_count(chat_id) >= PENDING_LIMIT:
         await callback.answer(t.MSG_DISCOUNT_MANY, show_alert=True)
-        return
+        return False
 
     # One product when the ask came from its card in the inline list, the whole
     # list when it came from the screen. Either way the products are read from
@@ -929,14 +941,14 @@ async def request_discount(
     # a card can come from a row the screen never showed.
     favourites = favourite_products(await get_cached_orders(chat_id),
                                     limit=INLINE_LIMIT)
-    if callback_data.sku:
+    if sku:
         favourites = [f for f in favourites
-                      if str(f.get("sku") or "") == callback_data.sku]
+                      if str(f.get("sku") or "") == sku]
     else:
         favourites = favourites[:_ON_SCREEN]
     if not favourites:
         await callback.answer()
-        return
+        return False
 
     op = operator_texts()
     lines = [op.MSG_DISCOUNT_ADMIN.format(
@@ -973,7 +985,7 @@ async def request_discount(
             f"the id must name a group the bot is in.",
         )
         await callback.answer(t.MSG_DISCOUNT_FAILED, show_alert=True)
-        return
+        return False
 
     # Written down only now: what is in this table is what a manager was asked,
     # and it is also what the week-long throttle above reads.
@@ -984,15 +996,34 @@ async def request_discount(
              for f in favourites],
             ensure_ascii=False,
         ),
-        sku=callback_data.sku,
+        sku=sku,
         # What a manager replies to. Their answer closes this ask, and the
         # customer can raise it again the same minute if they need to.
         thread_message_id=sent.message_id,
     )
     track(chat_id, "discount_requested", products=len(favourites),
-          source="card" if callback_data.sku else "screen")
+          source="card" if sku else "screen")
 
     await callback.answer(t.MSG_DISCOUNT_SENT, show_alert=True)
+    return True
+
+
+# Not the ones from a card: those carry an inline_message_id and no message,
+# and the redraw below reaches for the screen this callback came from. The card
+# has its own handler in bot/handlers/inline.py, and this router is registered
+# first.
+@router.callback_query(DiscountAction.filter(F.action == "ask"),
+                       ~F.inline_message_id)
+async def request_discount(
+    callback: CallbackQuery,
+    callback_data: DiscountAction,
+    config: AppConfig,
+    t: Texts,
+) -> None:
+    """The ask from the favourites screen, and the tick it leaves behind."""
+    if await perform_discount_ask(callback, callback_data.sku, config, t):
+        await _redraw_favourites(callback, callback.from_user.id, t,
+                                 config.website_url)
 
 
 # Not the ones from a card in the inline list: those carry an inline_message_id

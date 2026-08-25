@@ -50,13 +50,15 @@ from core.repos.catalogue import get_offers
 from core.repos.orders import get_cached_orders
 from core.repos.stock import (add_stock_subscription, get_stock_levels,
                               get_subscribed_skus, remove_stock_subscription)
+from core.repos.support import pending_discount_skus
 from core.repos.users import get_user_phone
 from bot.analytics import track
 from bot.callbacks import DiscountAction, StockAction
 from bot.handlers.common import (FAVOURITES_DEEP_LINK, ORDERS_DEEP_LINK,
                                  REFERRAL_PREFIX)
 from bot.handlers.orders import (INLINE_LIMIT, favourite_products,
-                                 format_cached_order, order_products)
+                                 format_cached_order, order_products,
+                                 perform_discount_ask)
 from bot.keyboards import STYLE_CART, STYLE_UNDO, cart_url, product_url
 
 router = Router()
@@ -210,11 +212,15 @@ async def _favourite_results(chat_id: int, needle: str, t: Texts,
     # What they are already waiting for, so a card does not offer again what
     # the customer has already asked for.
     subscribed = await get_subscribed_skus(chat_id)
+    # One query for the whole panel: a card that has already been asked about
+    # opens wearing the tick, not the offer to ask again.
+    awaiting_discount = await pending_discount_skus(chat_id)
     results = [
         _result(item, offers.get(str(item.get("sku") or "")), t,
                 config.website_url,
                 waiting=str(item.get("sku") or "") in subscribed,
-                out_of_stock=_is_out_of_stock(item, levels))
+                out_of_stock=_is_out_of_stock(item, levels),
+                asked=str(item.get("sku") or "") in awaiting_discount)
         for item in favourites
     ]
     return results, _nothing_to_show(ranked, needle, t), t.MSG_INLINE_SCREEN
@@ -509,8 +515,8 @@ async def _button_only(query: InlineQuery, text: str, param: str) -> None:
 
 
 def _result(item: dict, offer: Offer | None, t: Texts, website_url: str,
-            waiting: bool = False,
-            out_of_stock: bool = False) -> InlineQueryResultArticle:
+            waiting: bool = False, out_of_stock: bool = False,
+            asked: bool = False) -> InlineQueryResultArticle:
     """One product as a row in the panel, and as the card picking it sends.
 
     Every favourite becomes a row, including the fifth or so of the catalogue
@@ -552,12 +558,14 @@ def _result(item: dict, offer: Offer | None, t: Texts, website_url: str,
                                                   detail=detail or history),
             parse_mode="HTML",
         ),
-        reply_markup=_card_kb(sku, offer, t, website_url, waiting, out_of_stock),
+        reply_markup=_card_kb(sku, offer, t, website_url, waiting, out_of_stock,
+                              asked),
     )
 
 
 def _card_kb(sku: str, offer: Offer | None, t: Texts, website_url: str,
-             waiting: bool, out_of_stock: bool) -> InlineKeyboardMarkup | None:
+             waiting: bool, out_of_stock: bool,
+             asked: bool = False) -> InlineKeyboardMarkup | None:
     """What sits under the card: buy it, or wait for it.
 
     A card is a message the customer sent through inline mode, so a callback
@@ -614,8 +622,9 @@ def _card_kb(sku: str, offer: Offer | None, t: Texts, website_url: str,
     # about their top five — which is what the same button means on the screen,
     # where it sits under the whole list.
     rows.append([InlineKeyboardButton(
-        text=t.BTN_WANT_DISCOUNT_PLAIN,
+        text=t.BTN_DISCOUNT_ASKED if asked else t.BTN_WANT_DISCOUNT_PLAIN,
         callback_data=DiscountAction(action="ask", sku=sku).pack(),
+        style=STYLE_UNDO if asked else None,
     )])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -671,6 +680,39 @@ async def toggle_stock_from_card(
     except TelegramBadRequest as exc:
         # A card older than Telegram's edit window, or already showing this.
         # The subscription is stored either way, which is what was asked for.
+        logger.debug("Could not redraw an inline card: {}", exc)
+
+
+@router.callback_query(DiscountAction.filter(F.action == "ask"),
+                       F.inline_message_id)
+async def request_discount_from_card(
+    callback: CallbackQuery,
+    callback_data: DiscountAction,
+    config: AppConfig,
+    t: Texts,
+) -> None:
+    """💰 on a card sent from the list, and the tick it leaves in its place.
+
+    Separate from the screen's handler for the same reason the subscription is:
+    a card belongs to no chat this bot can address, only to an
+    inline_message_id. The ask itself is the screen's, unchanged — including
+    the guard that a forged sku asks about nothing.
+    """
+    sku = callback_data.sku
+    if not await perform_discount_ask(callback, sku, config, t):
+        return
+
+    offer = (await get_offers([sku])).get(sku)
+    waiting = sku in await get_subscribed_skus(callback.from_user.id)
+    try:
+        await callback.bot.edit_message_reply_markup(
+            inline_message_id=callback.inline_message_id,
+            reply_markup=_card_kb(sku, offer, t, config.website_url, waiting,
+                                  out_of_stock=True, asked=True),
+        )
+    except TelegramBadRequest as exc:
+        # A card older than Telegram's edit window. The ask is with a manager
+        # either way, which is what was asked for.
         logger.debug("Could not redraw an inline card: {}", exc)
 
 

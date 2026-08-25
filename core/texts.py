@@ -485,6 +485,10 @@ BTN_WANT_DISCOUNT = "💰 Хочу знижку на ці товари"
 # No claim at all: one product on a card, whose name is the line above the
 # button, or a screen with nothing repeated on it.
 BTN_WANT_DISCOUNT_PLAIN = "💰 Хочу знижку"
+# What the same button becomes while the ask is unanswered. The tick is
+# the whole point: the pop-up is gone a second later, and this stays on
+# the card as the record that the question was asked.
+BTN_DISCOUNT_ASKED = "✅ Знижку запитано"
 MSG_DISCOUNT_SENT = (
     "Твій запит на знижку вже у нас. Відповімо тут, у боті."
 )
