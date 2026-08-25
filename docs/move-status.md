@@ -89,6 +89,7 @@ Nova Poshta 83% → 85%; по трём клиентам вместе 61% → 73%
 | `f55ed31` | `core.repos.stock` и `core.repos.support` в семейное правило — долг 12-го |
 | `e63e1e3` | `ReferralLedger` + адаптер + `Earned` в домене |
 | `a9afef4` | **`referrals`** → `ReferralLedger`, `LanguageChoice`, `MessageQueue` |
+| `cfd6ef7` | `BroadcastJournal` + адаптер + `Job` в домене |
 
 Плюс три коммита не из плана: `598212b` (сверка сигнатур портов), `f366fc2`
 (три `NameError` на клиентских путях) и `2f1e028` (pyflakes на неопределённые
@@ -122,7 +123,7 @@ Nova Poshta 83% → 85%; по трём клиентам вместе 61% → 73%
 | ~~12~~ | ~~**`stock`**~~ — сделано, `00c39e8` | `stock-sees-ports-only` |
 | ~~13~~ | ~~`ReferralLedger` + адаптер~~ — сделано, `e63e1e3` | — |
 | ~~14~~ | ~~**`referrals`**~~ — сделано, `a9afef4` | `referrals-sees-ports-only` + семейное |
-| 15 | `BroadcastJournal` + адаптер | — |
+| ~~15~~ | ~~`BroadcastJournal` + адаптер~~ — сделано, `cfd6ef7` | — |
 | 16 | **`broadcast`** — последний потребитель очереди | да + семейное на `core.repos.outbox` и `core.repos.broadcast` |
 | 17 | `CustomerDirectory` + адаптер | — |
 | 18 | **`sync_orders`** — первый потребитель `UnitOfWorkFactory` | да |
