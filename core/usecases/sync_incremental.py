@@ -150,7 +150,7 @@ def plan_window(state: SyncState | None,
 
 def route(
     orders,
-    directory: list[tuple[int, str]],
+    phones: list[tuple[int, str]],
     buyers: list[tuple[int, str]] | None = None,
 ) -> dict[int, list[dict]]:
     """Orders grouped into the chats they belong to.
@@ -172,9 +172,13 @@ def route(
     get it — a household or a second Telegram account, which the schema supports
     on purpose and which already see the same orders through the on-demand
     refresh.
+
+    The first list was called `directory` until commit 22, when the module also
+    gained a `directory: CustomerDirectory` port and one word started meaning
+    two things a screen apart. It is a list of numbers, so it is `phones`.
     """
     chats_by_number: dict[str, list[int]] = {}
-    for chat_id, phone in directory:
+    for chat_id, phone in phones:
         number = normalize_phone(phone)
         if number:
             chats_by_number.setdefault(number, []).append(chat_id)
