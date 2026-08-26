@@ -198,3 +198,81 @@ def test_an_existing_database_ends_up_at_the_current_version(tmp_path, monkeypat
     assert asyncio.run(version()) == SCHEMA_VERSION
     asyncio.run(sync_state.finish_success(SOURCE, WINDOW_END))
     assert asyncio.run(sync_state.get_state(SOURCE))["cursor"] == WINDOW_END
+
+
+# --- the migration this file learned about the hard way ----------------------
+
+def test_a_new_late_column_forces_a_version_bump():
+    """A tripwire, and it exists because the thing it guards took production down.
+
+    `_LATE_COLUMNS` is applied on a fresh database and from inside a numbered
+    migration. It is never applied to a database already stamped at
+    SCHEMA_VERSION, because `_migrate` returns before the loop — which is every
+    real installation. So adding a row there and nothing else gives the column
+    to new deployments and to nobody else, and on 2026-08-26 the order sync died
+    on "no such column: crm_shared_number" every two minutes for seventy-five
+    minutes until the watchdog's alert was read.
+
+    The obvious test does not catch it: stamping a database one version back
+    makes the previous migration run, and that migration calls
+    `_add_late_columns` too, so the column comes back whether or not the new one
+    exists. What has to be caught is the *edit* — a column added without a
+    version to carry it — and nothing about a database can see that.
+
+    Hence a pin on the pair rather than a proof. Change `_LATE_COLUMNS` and this
+    fails; the only way to make it pass again is to look at SCHEMA_VERSION,
+    which is exactly the look that was missed.
+    """
+    from core.repos import schema
+
+    assert (len(schema._LATE_COLUMNS), schema.SCHEMA_VERSION) == (15, 17), (
+        "adding a column to _LATE_COLUMNS is half the change: it also needs "
+        "SCHEMA_VERSION bumped and a migration that calls _add_late_columns, or "
+        "it only ever reaches databases that do not exist yet"
+    )
+
+
+def test_the_newest_migration_is_the_current_version():
+    """Cheap, and it makes the tripwire above actionable: whoever bumps
+    SCHEMA_VERSION is told immediately if they forgot the migration itself."""
+    from core.repos import schema
+
+    assert schema._MIGRATIONS[-1][0] == schema.SCHEMA_VERSION
+
+
+def test_a_database_from_before_the_column_gains_it(tmp_path, monkeypatch):
+    """The other half: the migration, once written, really does carry it.
+
+    A database stamped one version back must come out with every column
+    `_LATE_COLUMNS` declares — which is the path any installation that upgrades
+    takes.
+    """
+    import aiosqlite
+
+    from core.repos import base as repos_base
+    from core.repos import schema
+
+    monkeypatch.setattr(repos_base, "DB_PATH", str(tmp_path / "bot_data.db"))
+
+    async def scenario() -> list[str]:
+        await schema.init_db()
+        removed = []
+        async with aiosqlite.connect(repos_base.DB_PATH) as db:
+            await db.execute(f"PRAGMA user_version = {schema.SCHEMA_VERSION - 1}")
+            for table, column, _decl in schema._LATE_COLUMNS:
+                if column not in await schema._columns(db, table):
+                    continue
+                try:
+                    await db.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+                except Exception:
+                    # SQLite refuses to drop a column an index refers to.
+                    continue
+                removed.append((table, column))
+            await db.commit()
+
+        await schema.init_db()
+        async with aiosqlite.connect(repos_base.DB_PATH) as db:
+            return [f"{t}.{c}" for t, c in removed
+                    if c not in await schema._columns(db, t)]
+
+    assert asyncio.run(scenario()) == []

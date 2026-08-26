@@ -382,7 +382,7 @@ CREATE INDEX IF NOT EXISTS ix_referrals_referrer ON referrals(referrer_chat_id);
 # It could not express this change (SQLite cannot alter a UNIQUE constraint),
 # and it silently swallowed real failures — a full disk logged success.
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 
 
 async def _columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -634,6 +634,24 @@ async def _migration_16_discount_scope(db: aiosqlite.Connection) -> None:
     )
 
 
+async def _migration_17_shared_numbers(db: aiosqlite.Connection) -> None:
+    """users.crm_shared_number, and the reason a numbered migration is needed.
+
+    Adding a row to _LATE_COLUMNS is not enough on its own, and this migration
+    exists because that mistake reached production. `_add_late_columns` runs on
+    a fresh database and from inside a numbered migration — never on an existing
+    one that is already at SCHEMA_VERSION, because `_migrate` returns before the
+    loop. So the column appeared for every new deployment and for nobody else,
+    and the order sync died on "no such column" two minutes after the deploy,
+    every two minutes, for as long as it took somebody to read the alert.
+
+    The rule the file already carries at the top of _LATE_COLUMNS is therefore
+    literal: a new column ships as a row there **and** as a migration that calls
+    _add_late_columns. One without the other only works on databases nobody has.
+    """
+    await _add_late_columns(db)
+
+
 # (version, name, coroutine). Append only; never edit one that has shipped.
 _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (1, "late columns", _migration_1_late_columns),
@@ -652,6 +670,7 @@ _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (14, "birthdays", _migration_14_birthdays),
     (15, "referrals", _migration_15_referrals),
     (16, "discount asks per product", _migration_16_discount_scope),
+    (17, "shared numbers are never linked (§4.8)", _migration_17_shared_numbers),
 )
 
 
