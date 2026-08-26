@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import aiosqlite
 
+from core.domain.birthday import is_month_day
 from core.repos.base import connect
 
 
@@ -310,6 +311,13 @@ async def chats_with_birthday_on(month_day: str) -> list[int]:
     question about users, and a greeting is still something the bot decided to
     send.
     """
+    if not is_month_day(month_day):
+        # "" is a stored value with a meaning — "asked, and Telegram shows no
+        # date" — and it is what most customers have. An empty argument would
+        # therefore match nearly everybody and wish them all a happy birthday.
+        # The caller always passes strftime("%m-%d"), so this has never fired;
+        # it is here because the column makes the wrong argument look ordinary.
+        raise ValueError(f"not a month-day: {month_day!r}")
     async with connect() as db:
         cursor = await db.execute(
             "SELECT u.chat_id FROM users u "

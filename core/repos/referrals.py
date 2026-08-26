@@ -35,7 +35,13 @@ async def earned_referrals(prefix: str, limit: int = 50) -> list[tuple[int, int]
             "SELECT u.chat_id AS friend, "
             "       CAST(substr(u.source, ?) AS INTEGER) AS referrer "
             "  FROM users u "
-            " WHERE u.source LIKE ? || '%' "
+            # substr, not LIKE. The prefix is a deep-link prefix and the one in
+            # production is `ref_`, where `_` is LIKE's single-character
+            # wildcard — so `LIKE 'ref_%'` also matched `refX123`, `refs99` and
+            # anything else four characters in. Nobody had such a link, which is
+            # why it never showed; the fix is not to escape the underscore but
+            # to stop asking a pattern-matching operator for an exact prefix.
+            " WHERE substr(u.source, 1, ?) = ? "
             "   AND CAST(substr(u.source, ?) AS INTEGER) != 0 "
             "   AND CAST(substr(u.source, ?) AS INTEGER) != u.chat_id "
             "   AND NOT EXISTS (SELECT 1 FROM referrals r "
@@ -44,8 +50,8 @@ async def earned_referrals(prefix: str, limit: int = 50) -> list[tuple[int, int]
             "                WHERE o.chat_id = u.chat_id "
             "                  AND o.status_group_id != ?) "
             " LIMIT ?",
-            (len(prefix) + 1, prefix, len(prefix) + 1, len(prefix) + 1,
-             CANCELLED_STATUS_GROUP, limit),
+            (len(prefix) + 1, len(prefix), prefix, len(prefix) + 1,
+             len(prefix) + 1, CANCELLED_STATUS_GROUP, limit),
         )
         return [(row["friend"], row["referrer"]) for row in await cursor.fetchall()]
 
