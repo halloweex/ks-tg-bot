@@ -54,6 +54,9 @@ against an engine that actually behaves that way.
 """
 from __future__ import annotations
 
+from loguru import logger
+
+from core.domain.linking import buyer_cards, shared_by_several_people
 from core.domain.order import order_row
 from core.ports.crm import OrderSource
 from core.ports.repositories import CustomerDirectory, UnitOfWorkFactory
@@ -74,6 +77,23 @@ async def sync_orders(
     """
     orders = await keycrm.get_orders_by_phone(phone)
     if not orders:
+        return
+
+    if shared_by_several_people(orders):
+        # §4.8, and the earliest possible moment to stop. Nothing is written:
+        # not the orders, and above all not the buyer cards — recording those
+        # would attach every one of these people's cards to this chat
+        # permanently, and the window sweep routes by card, so the leak would
+        # continue on its own after this request is long over.
+        #
+        # Measured on this CRM: 203 numbers, 180 of them with orders on both
+        # sides. Loud rather than silent, because a customer who sees nothing
+        # will ask, and the answer is ownership confirmation by a person.
+        logger.warning(
+            "Refusing to link chat {} by number: the CRM returned {} buyer "
+            "cards for it (§4.8), {} order(s) left unattached",
+            chat_id, len(buyer_cards(orders)), len(orders),
+        )
         return
 
     # This request is the only place that knows which CRM buyer cards this

@@ -38,6 +38,7 @@ from __future__ import annotations
 
 from loguru import logger
 
+from core.domain.linking import buyer_cards, shared_by_several_people
 from core.domain.order import order_row
 from core.domain.phone import VerifiedPhone
 from core.ports.crm import BuyerLookup, OrderSource
@@ -70,6 +71,19 @@ async def _sync_orders(
 
     orders = await keycrm.get_orders_by_phone(phone)
     if not orders:
+        return
+
+    if shared_by_several_people(orders):
+        # §4.8. The same refusal as core/usecases/sync_orders.py, and this is
+        # the door it was written about: "at registration, pull in the orphaned
+        # orders for this number" is the mechanism the section calls the most
+        # dangerous in the document. A verified number proves the number is
+        # theirs; it does not prove the history behind it is.
+        logger.warning(
+            "Refusing to link chat {} at registration: the CRM returned {} "
+            "buyer cards for this number (§4.8), {} order(s) left unattached",
+            chat_id, len(buyer_cards(orders)), len(orders),
+        )
         return
 
     # Which CRM buyer cards this number is. Only a by-number request can answer
