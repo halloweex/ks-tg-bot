@@ -94,6 +94,9 @@ async def sync_orders(
             "cards for it (§4.8), {} order(s) left unattached",
             chat_id, len(buyer_cards(orders)), len(orders),
         )
+        # Durable, because the window sweep matches by number every two minutes
+        # and would otherwise resume the leak on its own.
+        await directory.mark_shared(chat_id)
         return
 
     # This request is the only place that knows which CRM buyer cards this

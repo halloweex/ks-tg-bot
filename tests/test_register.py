@@ -60,6 +60,7 @@ class FakeDirectory:
 
     def __init__(self) -> None:
         self.remembered: list[tuple[int, list[str]]] = []
+        self.shared: list[int] = []
 
     async def remember(self, chat_id: int, buyer_ids: set[str]) -> None:
         self.remembered.append((chat_id, sorted(buyer_ids)))
@@ -72,6 +73,9 @@ class FakeDirectory:
 
     async def unidentified(self, *, retry_after_hours: int) -> list[tuple[int, str]]:
         return []
+
+    async def mark_shared(self, chat_id: int) -> None:
+        self.shared.append(chat_id)
 
     async def mark_asked(self, chat_id: int) -> None:
         return None

@@ -86,7 +86,8 @@ async def registered_phones() -> list[tuple[int, str]]:
     """
     async with connect() as db:
         cursor = await db.execute(
-            "SELECT chat_id, phone FROM users WHERE phone != ''"
+            "SELECT chat_id, phone FROM users "
+            " WHERE phone != '' AND crm_shared_number = 0"
         )
         return [(row[0], row[1]) for row in await cursor.fetchall()]
 
@@ -141,6 +142,26 @@ async def chats_without_crm_buyer(*, retry_after_hours: int = 24) -> list[tuple[
             f"        OR u.crm_checked_at < datetime('now', '-{int(retry_after_hours)} hours'))"
         )
         return [(row[0], row[1]) for row in await cursor.fetchall()]
+
+
+async def mark_shared_number(chat_id: int) -> None:
+    """Record that this chat's number belongs to several CRM buyers (§4.8).
+
+    Written by the two by-number paths at the moment the CRM answers with more
+    than one card. It is what makes the refusal outlive the request: without it
+    the window sweep would go on matching these orders by number, every two
+    minutes, and the guard in the scenarios would be a fix that undoes itself.
+
+    Additive and never cleared here. A number that turned out to be shared does
+    not stop being shared because a later request happened to see one card; the
+    thing that clears it is a person confirming ownership, which is §4.8's other
+    half and does not exist yet.
+    """
+    async with connect() as db:
+        await db.execute(
+            "UPDATE users SET crm_shared_number = 1 WHERE chat_id = ?", (chat_id,)
+        )
+        await db.commit()
 
 
 async def mark_crm_checked(chat_id: int) -> None:
@@ -402,3 +423,6 @@ class SqliteCustomerDirectory:
 
     async def mark_asked(self, chat_id: int) -> None:
         await mark_crm_checked(chat_id)
+
+    async def mark_shared(self, chat_id: int) -> None:
+        await mark_shared_number(chat_id)

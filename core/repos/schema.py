@@ -53,6 +53,12 @@ _LATE_COLUMNS: tuple[tuple[str, str, str], ...] = (
     # whether or not the answer was a card, so a customer the CRM has never
     # heard of is asked about once a day instead of every two minutes.
     ("users", "crm_checked_at", "TEXT"),
+    # §4.8: the CRM returned this chat's number under more than one buyer card,
+    # so it is never linked automatically — not by card (nothing is recorded in
+    # user_crm_buyers for it) and not by number either (registered_phones stops
+    # answering with it). Reachable only through ownership confirmation, which
+    # is a person asking a question and does not exist yet.
+    ("users", "crm_shared_number", "INTEGER NOT NULL DEFAULT 0"),
     # Whether quiet hours apply to this message. They do for anything the bot
     # decided to send — a restock, a broadcast — and they must not for a
     # manager's answer: a person is replying to a person who is waiting, and

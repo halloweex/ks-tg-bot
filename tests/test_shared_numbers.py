@@ -94,6 +94,7 @@ class Recorder:
         self.written: list = []
         self.profiles: list = []
         self.bound: list = []
+        self.shared: list = []
 
     # CustomerDirectory
     async def remember(self, chat_id: int, buyer_ids: set[str]) -> None:
@@ -110,6 +111,9 @@ class Recorder:
 
     async def mark_asked(self, chat_id: int) -> None:
         return None
+
+    async def mark_shared(self, chat_id: int) -> None:
+        self.shared.append(chat_id)
 
     # OrderCache
     async def upsert(self, user_id: int, rows: list) -> None:
@@ -195,6 +199,9 @@ def test_the_buyer_cards_are_not_recorded_either(writes, run):
     """
     run(writes)
     assert writes.remembered == []
+    assert writes.shared == [CHAT], (
+        "and the refusal is recorded, or the window sweep resumes it by number"
+    )
 
 
 def test_a_number_only_one_person_holds_still_links(writes):
@@ -211,3 +218,62 @@ def test_a_number_only_one_person_holds_still_links(writes):
         "44730", "44731"
     ]
     assert writes.remembered == [(CHAT, [MINE])]
+    assert writes.shared == [], "an ordinary customer is not marked"
+
+
+# --- the third door: the window sweep ---------------------------------------
+
+def test_the_window_sweep_can_no_longer_reach_a_shared_number(tmp_path, monkeypatch):
+    """Against a real database, because this is the half that outlives the
+    request and no fake can show it.
+
+    `route()` matches window orders by buyer card first and **by number**
+    second, for the case a card cannot cover. For a shared number that second
+    rule was the leak the two scenario guards did not close: they refuse once,
+    and the sweep runs every two minutes forever. What closes it is the mark —
+    after it, `phones()` stops offering the chat and the number rule has nothing
+    to match against.
+    """
+    from core.repos import base as repos_base
+    from core.repos.schema import init_db
+    from core.repos.users import SqliteCustomerDirectory, save_user
+    from core.usecases.sync_incremental import route
+
+    monkeypatch.setattr(repos_base, "DB_PATH", str(tmp_path / "bot_data.db"))
+    strangers = [_order(44730, MINE), _order(44731, SOMEBODY_ELSE)]
+
+    async def scenario():
+        await init_db()
+        d = SqliteCustomerDirectory()
+        await save_user(CHAT, NUMBER)
+        before = route(strangers, await d.phones(), await d.buyers())
+        await d.mark_shared(CHAT)
+        after = route(strangers, await d.phones(), await d.buyers())
+        # A later lookup that stamps the chat must not undo the refusal.
+        await d.mark_asked(CHAT)
+        still = route(strangers, await d.phones(), await d.buyers())
+        return before, after, still
+
+    before, after, still = asyncio.run(scenario())
+    assert list(before) == [CHAT], "this is what the number rule used to do"
+    assert after == {}, "and what §4.8 says it must never do"
+    assert still == {}, "the mark is not cleared by asking again"
+
+
+def test_an_ordinary_customer_is_still_matched_by_number(tmp_path, monkeypatch):
+    """The number rule exists for a real case — a new buyer card made for a
+    number we know — and closing the third door must not close that."""
+    from core.repos import base as repos_base
+    from core.repos.schema import init_db
+    from core.repos.users import SqliteCustomerDirectory, save_user
+    from core.usecases.sync_incremental import route
+
+    monkeypatch.setattr(repos_base, "DB_PATH", str(tmp_path / "bot_data.db"))
+
+    async def scenario():
+        await init_db()
+        d = SqliteCustomerDirectory()
+        await save_user(CHAT, NUMBER)
+        return route([_order(44730, MINE)], await d.phones(), await d.buyers())
+
+    assert list(asyncio.run(scenario())) == [CHAT]

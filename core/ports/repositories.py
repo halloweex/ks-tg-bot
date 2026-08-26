@@ -485,11 +485,19 @@ class CustomerDirectory(Protocol):
         ...
 
     async def phones(self) -> list[tuple[int, str]]:
-        """(chat_id, phone) for every registered chat, as stored.
+        """(chat_id, phone) for every registered chat whose number is its own.
 
         The second matching rule, for what a card cannot cover: a new buyer
         card made for a number we already know, which no by-number request has
         been made against yet.
+
+        **Chats whose number turned out to be shared are absent (§4.8)**, and
+        the exclusion is here rather than in the caller for the reason
+        `KnownBirthdays.celebrating_on` owns its own: "may this be matched" is
+        one question, and a caller that filters afterwards is a caller that can
+        forget to. Here the way you find out is a customer opening the bot and
+        reading somebody else's purchase history, so it is not left to a caller
+        at all.
 
         Deliberately raw. Both sides only agree after `normalize_phone`, and
         that is domain logic — expressing it a second time as SQL string
@@ -516,6 +524,23 @@ class CustomerDirectory(Protocol):
         left as it is on purpose — a `LIMIT` in the query would return a
         different, unordered subset, and a sweep quietly asking about different
         people is not a change worth making inside a move.
+        """
+        ...
+
+    async def mark_shared(self, chat_id: int) -> None:
+        """Record that this number came back under more than one buyer card.
+
+        The §4.8 refusal, made durable. The scenarios can decline to write a
+        stranger's orders on the spot, but the window sweep runs every two
+        minutes and matches by number as its second rule — so without this the
+        refusal would last exactly one request and the leak would resume on its
+        own. After it, `phones()` stops offering the chat and the number rule
+        can no longer reach it.
+
+        Not cleared by a later lookup that happens to see one card: a number
+        that is shared does not stop being shared, and what clears it is a
+        person confirming ownership — §4.8's other half, which does not exist
+        yet.
         """
         ...
 
