@@ -218,7 +218,8 @@ class _NovaPoshta:
 def _status(**kw):
     from types import SimpleNamespace
     base = {"status": "in_transit", "warehouse_recipient": "Відділення №12",
-            "actual_delivery": "", "scheduled_delivery": "29-08-2026 12:00:00"}
+            "actual_delivery": "", "recipient_date": "",
+            "scheduled_delivery": "29-08-2026 12:00:00"}
     return SimpleNamespace(**{**base, **kw})
 
 

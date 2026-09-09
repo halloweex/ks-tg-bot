@@ -47,10 +47,14 @@ def test_in_transit_maps_every_field_the_screen_shows():
 
 
 def test_the_fixture_keeps_the_fields_the_client_ignores():
-    """123 fields come back; seven are read. A trimmed fixture would prove nothing."""
+    """123 fields come back; eight are read. A trimmed fixture would prove nothing.
+
+    RecipientDateTime used to be listed here as ignored and is not any more —
+    it is what "✅ Отримано" is built from since the date fix.
+    """
     raw = _body("tracking_in_transit.json")["data"][0]
     assert len(raw) > 100
-    for ignored in ("RecipientDateTime", "CargoDescriptionString", "DocumentWeight",
+    for ignored in ("CargoDescriptionString", "DocumentWeight",
                     "AnnouncedPrice", "PaymentMethod"):
         assert ignored in raw
 
@@ -113,3 +117,37 @@ def test_only_the_two_absence_codes_count_as_absent(code, absent):
     codes we have never seen: an unknown code keeps the old behaviour rather
     than silently hiding somebody's real delivery."""
     assert is_not_found({"StatusCode": code}) is absent
+
+
+# --- the two moments a delivered parcel has ---------------------------------
+#
+# The bug this pins: the screen printed ActualDeliveryDate under "✅ Отримано".
+# That is the van reaching the branch. The customer collecting is
+# RecipientDateTime, and on the parcel that prompted the fix the two were a day
+# and three hours apart. Nothing covered this line, and a review proved it by
+# mutation: renaming the key left all 751 tests green.
+
+
+def test_a_delivered_parcel_maps_both_moments_separately():
+    status = _track("tracking_delivered.json")
+    raw = _body("tracking_delivered.json")["data"][0]
+    assert status is not None
+    assert status.recipient_date == raw["RecipientDateTime"]
+    assert status.actual_delivery == raw["ActualDeliveryDate"]
+    assert status.recipient_date != status.actual_delivery, (
+        "the fixture must keep the two apart, or it pins nothing"
+    )
+
+
+def test_the_collected_moment_is_read_from_the_key_the_api_actually_sends():
+    """Spelled out, because a typo in the key name is invisible otherwise: the
+    field would simply stay empty and the screen would never say Отримано."""
+    raw = _body("tracking_delivered.json")["data"][0]
+    assert raw["RecipientDateTime"] == "30.07.2026 11:42:06"
+    assert _track("tracking_delivered.json").recipient_date == "30.07.2026 11:42:06"
+
+
+def test_a_parcel_in_transit_has_collected_empty():
+    """The other half: nothing has been handed over, so the field is blank and
+    the screen must fall through to "прибуло" or the estimate."""
+    assert _track("tracking_in_transit.json").recipient_date == ""

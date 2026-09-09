@@ -64,8 +64,12 @@ def parcel_lines(row: dict, tracking_info, t: Texts) -> list[str]:
             lines.append(f"{t.MSG_DELIVERY_STATUS.format(status=escape(t.status(ts.status)))}")
         if ts.warehouse_recipient:
             lines.append(f"{t.MSG_DELIVERY_WAREHOUSE.format(warehouse=escape(ts.warehouse_recipient))}")
-        if ts.actual_delivery:
-            lines.append(f"{t.MSG_DELIVERY_ACTUAL.format(date=_format_date(ts.actual_delivery))}")
+        # Handed over beats arrived beats promised: the first of these that is
+        # known is the most recent thing that actually happened to the parcel.
+        if ts.recipient_date:
+            lines.append(f"{t.MSG_DELIVERY_ACTUAL.format(date=_format_date(ts.recipient_date))}")
+        elif ts.actual_delivery:
+            lines.append(f"{t.MSG_DELIVERY_ARRIVED.format(date=_format_date(ts.actual_delivery))}")
         elif ts.scheduled_delivery:
             lines.append(f"{t.MSG_DELIVERY_SCHEDULED.format(date=_format_date(ts.scheduled_delivery))}")
         return lines

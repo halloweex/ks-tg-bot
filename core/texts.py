@@ -695,7 +695,12 @@ MSG_DELIVERY_HEADER = f"<b>{custom_emoji(NOVA_POSHTA, '🚚')} Твої відп
 MSG_NO_DELIVERIES = "Поки що немає відправлень, які можна відстежити."
 MSG_DELIVERY_STATUS = "Статус: {status}"
 MSG_DELIVERY_SCHEDULED = "📅 Очікувана дата: {date}"
+# Two moments, not one. "Отримано" is only true once the parcel has been handed
+# over — RecipientDateTime. What arrives at the branch a day earlier is
+# ActualDeliveryDate, and calling that "отримано" told a customer she already
+# had a parcel that was still lying at the counter.
 MSG_DELIVERY_ACTUAL = "✅ Отримано: {date}"
+MSG_DELIVERY_ARRIVED = "📦 Прибуло: {date}"
 MSG_DELIVERY_WAREHOUSE = "🏤 {warehouse}"
 MSG_DELIVERY_NO_TRACKING = "⏳ ТТН ще немає"
 MSG_DELIVERIES_TRUNCATED = "...та інші відправлення"

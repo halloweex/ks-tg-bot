@@ -37,6 +37,12 @@ class TrackingStatus:
     warehouse_recipient: str
     scheduled_delivery: str
     actual_delivery: str
+    # When the parcel reached the branch, and when the person actually took it.
+    # Nova Poshta reports these as two different moments and they differ by a
+    # day more often than not: ActualDeliveryDate is the van arriving,
+    # RecipientDateTime is the customer at the counter. Only the second one is
+    # "you have it".
+    recipient_date: str
     date_created: str
 
 
@@ -70,7 +76,7 @@ def is_not_found(doc: dict) -> bool:
 
 
 def parse_tracking(ttn: str, doc: dict) -> TrackingStatus:
-    """Seven fields out of the 123 the API sends.
+    """Eight fields out of the 123 the API sends.
 
     The TTN comes from the caller, not from the document: it is what was asked
     for, and the screen keys its parcels by it.
@@ -83,5 +89,6 @@ def parse_tracking(ttn: str, doc: dict) -> TrackingStatus:
         warehouse_recipient=doc.get("WarehouseRecipient", ""),
         scheduled_delivery=doc.get("ScheduledDeliveryDate", ""),
         actual_delivery=doc.get("ActualDeliveryDate", ""),
+        recipient_date=doc.get("RecipientDateTime", ""),
         date_created=doc.get("DateCreated", ""),
     )

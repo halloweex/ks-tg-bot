@@ -44,6 +44,18 @@ def _order(**kw) -> dict:
     return row
 
 
+def _status(**kw) -> TrackingStatus:
+    """A carrier answer, with every date empty unless the test sets one."""
+    fields = {
+        "ttn": TTN, "status": "Прибув у відділення", "status_code": 7,
+        "city_recipient": "Львів", "warehouse_recipient": "Відділення №5",
+        "scheduled_delivery": "", "actual_delivery": "", "recipient_date": "",
+        "date_created": "",
+    }
+    fields.update(kw)
+    return TrackingStatus(**fields)
+
+
 class FakeNovaPoshta:
     """Answers with whatever it was given, and remembers what it was asked."""
 
@@ -121,11 +133,7 @@ def test_a_real_status_wins_over_the_crm(wired):
     """The other side of the same branch: when the carrier does answer, its
     answer is fresher than the CRM's and replaces it."""
     wired["tracked"] = [_order()]
-    status = TrackingStatus(
-        ttn=TTN, status="Прибув у відділення", status_code=7,
-        city_recipient="Львів", warehouse_recipient="Відділення №5",
-        scheduled_delivery="", actual_delivery="", date_created="",
-    )
+    status = _status()
     text = _render(FakeNovaPoshta(statuses={TTN: status}))
     assert "Прибув у відділення" in text
     assert "Відділення №5" in text
@@ -161,3 +169,66 @@ def test_a_long_list_is_truncated_rather_than_rejected_by_telegram(wired):
     text = _render(FakeNovaPoshta())
     assert len(text) < 4096
     assert T.MSG_DELIVERIES_TRUNCATED in text
+
+
+# --- which date is "you have it" -------------------------------------------
+#
+# Nova Poshta reports the van arriving and the customer collecting as two
+# different moments, and on the parcel that prompted this they were a day and
+# three hours apart. The screen used to print the first one under "Отримано".
+
+
+def test_received_shows_when_she_collected_it_not_when_it_arrived(wired):
+    """RecipientDateTime is the handover; ActualDeliveryDate is the van."""
+    wired["tracked"] = [_order()]
+    text = _render(FakeNovaPoshta(statuses={TTN: _status(
+        status="Відправлення отримано", status_code=9,
+        actual_delivery="2026-07-29 08:46:10",
+        recipient_date="30.07.2026 11:42:06",
+    )}))
+    assert "Отримано: 30.07.2026" in text
+    assert "29.07.2026" not in text, "the arrival date must not be called отримано"
+
+
+def test_a_parcel_at_the_branch_is_arrived_not_received(wired):
+    """Nothing collected yet: say it arrived, do not claim she has it."""
+    wired["tracked"] = [_order()]
+    text = _render(FakeNovaPoshta(statuses={TTN: _status(
+        actual_delivery="2026-07-29 08:46:10")}))
+    assert "Прибуло: 29.07.2026" in text
+    assert "Отримано" not in text
+
+
+def test_a_parcel_still_travelling_shows_the_promised_date(wired):
+    """Neither moment has happened, so the estimate is all there is."""
+    wired["tracked"] = [_order()]
+    text = _render(FakeNovaPoshta(statuses={TTN: _status(
+        status="В дорозі", status_code=5,
+        scheduled_delivery="29-07-2026 18:00:00")}))
+    assert "29.07.2026" in text
+    assert "Отримано" not in text
+    assert "Прибуло" not in text
+
+
+def test_a_recorded_delivered_parcel_reaches_the_screen_saying_the_right_day():
+    """The whole path on one real recording: response → parse_tracking → lines.
+
+    Every other test here builds TrackingStatus by hand and so proves nothing
+    about the mapping. A review caught that by mutation — renaming the key the
+    parser reads left the entire suite green — and this is the case that fails
+    when it happens, because it starts where the carrier's answer starts.
+    """
+    import json
+    import pathlib
+
+    from core.adapters.novaposhta.parse import parse_tracking, tracking_document
+
+    body = json.loads((pathlib.Path(__file__).parent / "fixtures" / "novaposhta"
+                       / "tracking_delivered.json").read_text())
+    status = parse_tracking(TTN, tracking_document(body))
+
+    lines = screen.parcel_lines(_order(), status, T)
+    text = "\n".join(lines)
+
+    assert "Отримано: 30.07.2026" in text, "the day she collected it"
+    assert "29.07" not in text, "the day the van arrived is not отримано"

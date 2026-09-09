@@ -273,6 +273,7 @@ EN: dict[str, str] = {
     "MSG_DELIVERY_STATUS": "Status: {status}",
     "MSG_DELIVERY_SCHEDULED": "📅 Estimated date: {date}",
     "MSG_DELIVERY_ACTUAL": "✅ Received: {date}",
+    "MSG_DELIVERY_ARRIVED": "📦 Arrived: {date}",
     "MSG_DELIVERY_WAREHOUSE": "🏤 {warehouse}",
     "MSG_DELIVERY_NO_TRACKING": "⏳ No tracking number assigned yet",
     "MSG_DELIVERIES_TRUNCATED": "...and more shipments",
