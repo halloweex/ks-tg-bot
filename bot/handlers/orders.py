@@ -8,7 +8,8 @@ from html import escape
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import (CallbackQuery, InlineKeyboardMarkup, Message,
+                           RichTextBold, RichTextUrl)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from loguru import logger
 
@@ -33,6 +34,7 @@ from core.repos.uow import SqliteUnitOfWork
 from core.repos.users import SqliteCustomerDirectory, get_user_phone
 from bot.keyboards import (STYLE_CART, STYLE_LIST, STYLE_UNDO, cart_url,
                            discount_url, shop_url)
+from bot import rich
 from bot.screen import render, typing
 from bot.handlers.delivery import parcel_lines
 from bot.sync import stale_notice
@@ -1196,3 +1198,111 @@ async def track_parcel(
                    cancelled="c" in callback_data.state,
                    expanded="x" in callback_data.state, parcel=True),
     )
+
+
+# ---------------------------------------------------------------------------
+# The same screen as blocks.
+#
+# Everything above this line is shaped by two limits that Bot API 10.1 removed:
+# 4096 characters, and buttons that can only sit in a slab under the whole
+# message. That is where the digest came from — one order as a card, its
+# neighbours as one line each — and where `shown_id` came from, which exists so
+# that exactly one order can be unfolded at a time.
+#
+# With blocks every order is its own collapsible section carrying its own
+# buttons, so none of that state is needed: the client folds and unfolds, and
+# the bot is not asked. The plain builders stay untouched beside this one and
+# are what actually goes out whenever Telegram refuses the rich form
+# (bot/rich.py::send).
+# ---------------------------------------------------------------------------
+
+def _order_summary(row: dict, t: Texts) -> list:
+    """The one line that stays visible when the section is folded.
+
+    The three facts a history is scanned by, which is the same judgement the
+    digest line was built on — it is only the mechanism underneath that changed.
+    """
+    return [
+        f"{_status_glyph(row)} {t.order_source_label(row)} · ",
+        RichTextBold(text=f"{texts.price_label(row.get('grand_total', 0))} "
+                          f"{t.currency(str(row.get('currency') or 'грн'))}"),
+        f" · {texts.short_date(str(row.get('ordered_at') or ''))}",
+    ]
+
+
+def _order_details(row: dict, t: Texts, *, parcel: list[str] | None = None) -> list:
+    """What unfolding one order shows."""
+    blocks: list = [rich.para([f"{t.LBL_STATUS}: ",
+                               RichTextBold(text=t.status(row.get("status_name", "")) or "-")])]
+
+    products = order_products(row)
+    if products:
+        # Longer than the plain screen allows: the 40-character cut exists
+        # because a line there competes with five other labelled lines inside
+        # 4096 characters. A list item competes with nothing.
+        blocks.append(rich.bullets([
+            f"{texts.product_label(str(p.get('name', '')), 90)} ×{_qty(p) or 1}"
+            for p in products
+        ]))
+
+    tracking = str(row.get("tracking_code") or "")
+    if tracking:
+        blocks.append(rich.para([
+            "🚚 ТТН: ",
+            RichTextUrl(text=tracking, url=texts.tracking_url(tracking)),
+        ]))
+    if parcel:
+        blocks += [rich.para(line) for line in parcel]
+
+    where = [p for p in (row.get("delivery_city", ""), row.get("receive_point", "")) if p]
+    if where:
+        blocks.append(rich.para(f"📍 {', '.join(where)}"))
+
+    # The button belongs to the order it asks about, which is the whole point:
+    # before this it sat in the slab below and had to carry an order id so the
+    # screen could tell which parcel was meant.
+    if tracking and not parcel:
+        blocks.append(rich.buttons(rich.button(
+            t.BTN_WHERE_PARCEL,
+            callback_data=OrderAction(action="track", order_id=row.get("id", 0),
+                                      page=0, state="").pack())))
+    return blocks
+
+
+def rich_orders_blocks(orders: list[dict], t: Texts, *,
+                       parcels: dict[int, list[str]] | None = None) -> list:
+    """The orders screen as blocks: every order, folded, newest open.
+
+    No paging and no card: the budget that forced both is gone. What survives
+    is a cap — `rich.TEXT_BUDGET` — and it says how many orders it left out
+    rather than trimming in silence.
+    """
+    if not orders:
+        return [rich.para(t.MSG_NO_ORDERS)]
+
+    active, cancelled_rows = _split_cancelled(orders)
+    blocks: list = [rich.heading(t.MSG_ORDERS_TITLE, size=2)]
+    parcels = parcels or {}
+
+    shown = 0
+    for row in active:
+        section = rich.details(
+            _order_summary(row, t),
+            _order_details(row, t, parcel=parcels.get(row.get("id", 0))),
+            is_open=(row is active[0]),
+        )
+        if rich.weigh(blocks + [section]) > rich.TEXT_BUDGET:
+            break
+        blocks.append(section)
+        shown += 1
+
+    if shown < len(active):
+        blocks.append(rich.para(t.MSG_ORDERS_PAGE.format(
+            first=1, last=shown, total=len(active))))
+
+    if cancelled_rows:
+        blocks.append(rich.divider())
+        blocks.append(rich.heading(t.MSG_CANCELLED_HEADER, size=3))
+        blocks += [rich.para(_digest_line(row, t)) for row in cancelled_rows]
+
+    return blocks

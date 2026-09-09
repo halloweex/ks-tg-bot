@@ -78,6 +78,9 @@ BTN_CHANGE_PHONE = "📱 Змінити номер"
 BTN_LANGUAGE = "🌍 Мова"
 
 # Order display
+# The same words twice on purpose: a plain message has to carry its own bold,
+# a rich heading is a heading and must not contain markup.
+MSG_ORDERS_TITLE = "📦 Твої замовлення"
 MSG_ORDERS_HEADER = "<b>📦 Твої замовлення</b>"
 MSG_ORDER_SOURCE_WEB = "🌐 Сайт"
 MSG_ORDER_SOURCE_INSTAGRAM = "📸 Instagram"

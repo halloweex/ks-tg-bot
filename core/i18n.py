@@ -75,6 +75,7 @@ EN: dict[str, str] = {
     "BTN_MENU": "📋 Menu",
     "BTN_CHANGE_PHONE": "📱 Change number",
     "BTN_LANGUAGE": "🌍 Language",
+    "MSG_ORDERS_TITLE": "📦 Your orders",
     "MSG_ORDERS_HEADER": "<b>📦 Your orders</b>",
     "MSG_ORDER_SOURCE_WEB": "🌐 Website",
     "MSG_ORDER_SOURCE_INSTAGRAM": "📸 Instagram",
