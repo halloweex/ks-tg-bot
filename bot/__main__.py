@@ -22,6 +22,7 @@ from core.repos.users import (SqliteChatsByEmail, SqliteCustomerDirectory,
 from core.repos.schema import init_db
 from bot.fsm_storage import SQLiteStorage
 from bot.alerts import check_support_chat
+from bot.errors import on_error
 from bot.logs import setup_logging
 from bot.handlers.broadcast import router as broadcast_router
 from bot.handlers.common import router as common_router
@@ -231,6 +232,11 @@ async def main() -> None:
     dp.include_router(support_router)
     dp.include_router(settings_router)
     dp.include_router(onboarding_router)  # FSM catch-all — ALWAYS last
+
+    # Registered on the dispatcher rather than on a router, because a router's
+    # error handler only sees its own handlers raise and the point of this one
+    # is that nothing falls through it.
+    dp.error.register(on_error)
 
     # Start long-polling
     logger.info("Starting polling...")
