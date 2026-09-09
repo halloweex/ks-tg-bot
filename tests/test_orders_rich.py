@@ -132,11 +132,21 @@ def test_the_tracking_number_is_a_link_not_a_string():
     assert "novaposhta.ua" in link.url
 
 
-def test_cancelled_orders_sit_below_a_divider_not_among_the_rest():
-    blocks = rich_orders_blocks(
-        [_order(1), _order(2, status_group_id=6, status_name="canceled")], T)
-    assert len(_sections(blocks)) == 1, "a cancelled order is not a section"
-    assert "divider" in _types(blocks)
+def test_cancelled_orders_are_hidden_until_asked_for():
+    """Same switch the plain screen has, and it has to mean the same thing:
+    its button sits in the slab under the rich screen too, and a button that
+    redraws without changing anything reads as broken — Telegram answers
+    "message is not modified" and nothing moves."""
+    rows = [_order(1), _order(2, status_group_id=6, status_name="canceled")]
+
+    folded = rich_orders_blocks(rows, T)
+    assert len(_sections(folded)) == 1, "a cancelled order is not a section"
+    assert "divider" not in _types(folded), "nothing to divide while they are hidden"
+
+    shown = rich_orders_blocks(rows, T, cancelled=True)
+    assert "divider" in _types(shown)
+    assert len(_sections(shown)) == 1, "still not a section — a line below the rule"
+    assert len(shown) > len(folded)
 
 
 # --- limits ------------------------------------------------------------------
@@ -269,3 +279,48 @@ def test_the_budget_counts_bytes_not_characters():
     """Ukrainian is two bytes a letter, so counting characters would let a
     screen through at twice the size Telegram actually measures."""
     assert rich.text_bytes([rich.para("абв")]) > 3
+
+
+# --- no entrance may write plain over a rich screen --------------------------
+#
+# The first attempt at the migration claimed six entrances and delivered five.
+# show_order was missed, and every button in the slab under a rich screen is
+# one of its callbacks — so the first tap on a neighbouring order destroyed the
+# blocks. Nothing failed: the suite was green and the defect shipped as far as
+# a local commit. This is the test that would have caught it.
+
+
+def _order_action_buttons(markup) -> list[str]:
+    return [b.callback_data for row in markup.inline_keyboard for b in row
+            if (b.callback_data or "").startswith("ord:")]
+
+
+def test_every_order_button_in_the_slab_has_a_rich_aware_handler():
+    """A structural check rather than a behavioural one, because the failure is
+    structural: a handler that forgets `blocks=` cannot be seen from outside."""
+    import inspect
+
+    from bot.handlers import orders as mod
+
+    rows = [_order(1), _order(2), _order(3)]
+    assert _order_action_buttons(mod._orders_kb(rows, T)), "the slab has ord: buttons"
+
+    # Every handler registered for OrderAction must pass blocks to render().
+    for name in ("show_order", "track_parcel"):
+        src = inspect.getsource(getattr(mod, name))
+        assert "blocks=" in src, (
+            f"{name} draws the orders screen without blocks — a tap through it "
+            f"would write plain text over a rich screen and destroy it"
+        )
+
+
+def test_the_background_parcel_fill_in_keeps_the_keyboard():
+    """editMessageText with no reply_markup takes the keyboard away, and the
+    rich branch had none: the slab vanished a second after the screen opened."""
+    import inspect
+
+    from bot.handlers import orders as mod
+
+    src = inspect.getsource(mod._fill_in_parcel)
+    rich_branch = src.split("rich.edit(")[1].split("else:")[0]
+    assert "reply_markup" in rich_branch

@@ -705,10 +705,18 @@ async def _fill_in_parcel(
             # back rich: plain text here would succeed and take the blocks with
             # it (docs/rich-messages.md). Unescaped, because a block's text is
             # structured rather than parsed.
-            await rich.edit(sent, rich_orders_blocks(
-                cached, t,
-                parcels={card.get("id", 0): parcel_lines(card, info, t,
-                                                         as_html=False)}))
+            await rich.edit(
+                sent,
+                rich_orders_blocks(
+                    cached, t, cancelled=cancelled, page=page,
+                    parcels={card.get("id", 0): parcel_lines(card, info, t,
+                                                             as_html=False)}),
+                # Without this the edit goes out with no reply_markup at all,
+                # and editMessageText reads that as "take the keyboard away":
+                # the slab vanished a second after the screen opened.
+                reply_markup=_orders_kb(cached, t, shown_id=card.get("id", 0),
+                                        page=page, cancelled=cancelled,
+                                        expanded=expanded, parcel=True))
         else:
             await sent.edit_text(
                 _format_orders_from_cache(cached, t, shown_id=card.get("id", 0),
@@ -1170,6 +1178,13 @@ async def show_order(
                    page=callback_data.page,
                    cancelled="c" in callback_data.state,
                    expanded="x" in callback_data.state),
+        # The entrance the first attempt missed. Every button in the slab under
+        # a rich screen is one of these, so without blocks here the first tap
+        # on any neighbouring order wrote plain text over the blocks and
+        # destroyed them — the exact failure the six-at-once move exists to
+        # prevent, left in by claiming six and delivering five.
+        blocks=rich_orders_blocks(cached, t, page=callback_data.page,
+                                  cancelled="c" in callback_data.state),
     )
     # Whichever order became the card, its parcel is looked up the same way.
     follow_up_parcel(sent, callback.from_user.id, t, novaposhta,
@@ -1225,8 +1240,11 @@ async def track_parcel(
                    cancelled="c" in callback_data.state,
                    expanded="x" in callback_data.state, parcel=True),
         # Unescaped for the blocks: their text is structured, not parsed.
-        blocks=rich_orders_blocks(cached, t, parcels={
-            callback_data.order_id: parcel_lines(row, info, t, as_html=False)}),
+        blocks=rich_orders_blocks(
+            cached, t, page=callback_data.page,
+            cancelled="c" in callback_data.state,
+            parcels={callback_data.order_id: parcel_lines(row, info, t,
+                                                          as_html=False)}),
     )
 
 
@@ -1300,7 +1318,8 @@ def _order_details(row: dict, t: Texts, *, parcel: list[str] | None = None) -> l
 
 
 def rich_orders_blocks(orders: list[dict], t: Texts, *,
-                       parcels: dict[int, list[str]] | None = None) -> list:
+                       parcels: dict[int, list[str]] | None = None,
+                       cancelled: bool = False, page: int = 0) -> list:
     # NOTE: `parcels` must come from parcel_lines(..., as_html=False). A block's
     # text is structured, not parsed, so an escaped apostrophe arrives as the
     # literal "&#x27;". Nothing here can tell the two apart, which is why it is
@@ -1320,6 +1339,14 @@ def rich_orders_blocks(orders: list[dict], t: Texts, *,
         return [rich.para(t.MSG_NO_ORDERS)]
 
     active, cancelled_rows = _split_cancelled(orders)
+    # The same two switches the plain screen has, and for the same reason: the
+    # slab below carries their buttons, and a button that redraws the screen
+    # without changing it is worse than no button — Telegram answers "message
+    # is not modified" and the tap reads as broken.
+    if not cancelled:
+        cancelled_rows = []
+    if page:
+        active, _ = _page_slice(active, page)
     blocks: list = [rich.heading(t.MSG_ORDERS_TITLE, size=2)]
     parcels = parcels or {}
 
