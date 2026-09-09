@@ -48,7 +48,8 @@ from aiogram.types import (InlineKeyboardMarkup, InputRichBlockButtons,
                            InputRichBlockDetails, InputRichBlockDivider,
                            InputRichBlockList, InputRichBlockListItem,
                            InputRichBlockParagraph, InputRichBlockSectionHeading,
-                           InputRichMessage, Message, RichMessageButton)
+                           InputRichBlockTable, InputRichMessage, Message,
+                           RichBlockTableCell, RichMessageButton)
 from loguru import logger
 
 # What a rich text field accepts: a string, one of the RichText* objects, or a
@@ -112,6 +113,32 @@ def details(summary: RichTextLike, blocks: Sequence[object], *,
     """
     return InputRichBlockDetails(summary=summary, blocks=list(blocks),
                                  is_open=is_open)
+
+
+def cell(text: RichTextLike = "", *, header: bool = False,
+         align: str = "left") -> RichBlockTableCell:
+    """One table cell. `align` and `valign` are required by the API — the
+    allowed values are 'left'/'center'/'right' and 'top'/'middle'/'bottom',
+    and a cell with no text at all is drawn invisible rather than empty."""
+    return RichBlockTableCell(align=align, valign="middle", text=text,
+                              is_header=header or None)
+
+
+def table(rows: Sequence[Sequence[RichBlockTableCell]], *,
+          compact: bool = True, striped: bool = False,
+          caption: RichTextLike | None = None) -> InputRichBlockTable:
+    """A real table.
+
+    Worth its own helper because the last time a table was proposed for the
+    orders screen it was refused, and correctly: what was on offer then was
+    spaces and a monospace font, which falls apart on a narrow phone. This is
+    a different object, drawn by the client, and the refusal was about the
+    other one.
+    """
+    return InputRichBlockTable(cells=[list(r) for r in rows],
+                               is_compact=compact or None,
+                               is_striped=striped or None,
+                               caption=caption)
 
 
 def buttons(*specs: RichMessageButton) -> InputRichBlockButtons:

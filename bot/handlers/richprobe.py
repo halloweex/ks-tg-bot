@@ -47,6 +47,16 @@ def _blocks(tag: str) -> list:
             rich.bullets(["first item", "second item"]),
         ], is_open=False),
         rich.divider(),
+        # The question the owner refused once, on a different object: an order
+        # history as a real table rather than as spaces in a monospace font.
+        rich.table([
+            [rich.cell("Дата", header=True), rich.cell("Сума", header=True, align="right"),
+             rich.cell("Товарів", header=True, align="right")],
+            [rich.cell("23.08.2026"), rich.cell("2 800 грн", align="right"), rich.cell("2", align="right")],
+            [rich.cell("04.08.2026"), rich.cell("5 920 грн", align="right"), rich.cell("8", align="right")],
+            [rich.cell("22.06.2026"), rich.cell("1 550 грн", align="right"), rich.cell("2", align="right")],
+        ], caption="Твої замовлення"),
+        rich.divider(),
         rich.buttons(rich.button("tap me", callback_data=PROBE_CALLBACK)),
     ]
 
