@@ -144,11 +144,14 @@ def test_cancelled_orders_sit_below_a_divider_not_among_the_rest():
 def test_a_long_history_is_capped_and_says_so():
     """Silence would read as "that is all of them"."""
     blocks = rich_orders_blocks([_order(i) for i in range(1, 400)], T)
-    assert rich.weigh(blocks) <= rich.TEXT_BUDGET
+    assert rich.fits(blocks), "the cap must hold for the finished screen, tail included"
     assert len(_sections(blocks)) < 399
-    tail = blocks[-1]
-    assert getattr(tail, "type", None) == "paragraph"
-    assert "з 399" in tail.text
+    said = [b for b in blocks if getattr(b, "type", None) == "paragraph"
+            and "з 399" in str(getattr(b, "text", ""))]
+    assert said, "it must say how many it left out"
+    assert getattr(blocks[-1], "type", None) == "buttons", (
+        "the way back goes last, after everything the screen says"
+    )
 
 
 def test_the_whole_screen_is_a_valid_rich_message():
@@ -169,10 +172,12 @@ class _Bot:
         self.plain: list = []
         self._fail = rich_fails
 
-    async def send_rich_message(self, chat_id, rich_message):
+    async def send_rich_message(self, chat_id, rich_message, reply_markup=None,
+                                disable_notification=None, message_effect_id=None):
         if self._fail:
             raise self._fail
-        self.rich.append((chat_id, rich_message))
+        self.rich.append((chat_id, rich_message, reply_markup,
+                          disable_notification, message_effect_id))
         return "rich"
 
     async def send_message(self, chat_id, text, reply_markup=None):
@@ -209,3 +214,58 @@ def test_an_aiogram_without_rich_messages_still_delivers():
     bot = _Old()
     assert asyncio.run(rich.send(bot, 5, [rich.para("hi")], plain="fallback")) == "plain"
     assert bot.plain == ["fallback"]
+
+
+# --- what phase 0 fixed ------------------------------------------------------
+#
+# Each of these pins a defect that was found by reading rather than by running:
+# the rich path had never been exercised against a real Telegram, so nothing
+# here failed until it was looked for.
+
+
+def test_the_keyboard_rides_along_with_the_blocks():
+    """The screen was a dead end: send_rich_message takes a reply_markup and
+    the first version dropped it, which looked like Telegram not supporting
+    one. Without this the customer has no way back at all."""
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="📋 Меню", callback_data="menu")]])
+    bot = _Bot()
+    asyncio.run(rich.send(bot, 1, [rich.para("x")], plain="x", reply_markup=kb))
+    _chat, _msg, markup, _silent, _effect = bot.rich[0]
+    assert markup is kb
+
+
+def test_quiet_hours_and_the_effect_survive_the_rich_path():
+    """Both are properties of the message, not of its shape. A screen that
+    loses them on the way to rich is a regression nobody asked for."""
+    bot = _Bot()
+    asyncio.run(rich.send(bot, 1, [rich.para("x")], plain="x",
+                          disable_notification=True, message_effect_id="5104"))
+    _chat, _msg, _markup, silent, effect = bot.rich[0]
+    assert silent is True
+    assert effect == "5104"
+
+
+def test_a_block_handed_to_bullets_is_refused_here():
+    """The dangerous case, because it is not an error anywhere else: a block in
+    a rich-text position serialises to debris instead of being rejected, and
+    the customer sees the wreckage. bullets() is the obvious way in."""
+    with pytest.raises(TypeError, match="not blocks"):
+        rich.bullets([rich.para("a block, not rich text")])
+
+
+def test_inline_markup_is_not_counted_as_blocks():
+    """count_blocks reads `type` against the enum. Counting every mapping calls
+    bold runs and links blocks and overstates a screen by about a third — which
+    is how the old budget managed to pass 530 real blocks."""
+    from aiogram.types import RichTextBold
+    plain = [rich.para("just text")]
+    marked = [rich.para(["before ", RichTextBold(text="bold"), " after"])]
+    assert rich.count_blocks(plain) == rich.count_blocks(marked) == 1
+
+
+def test_the_budget_counts_bytes_not_characters():
+    """Ukrainian is two bytes a letter, so counting characters would let a
+    screen through at twice the size Telegram actually measures."""
+    assert rich.text_bytes([rich.para("абв")]) > 3

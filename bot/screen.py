@@ -143,6 +143,13 @@ async def render(
     if message is None:
         # Telegram drops the message from very old callbacks.
         return None
+    if not isinstance(message, Message):
+        # An InaccessibleMessage: the anchor is older than Telegram keeps, or
+        # was deleted. It has an id and a chat and nothing else — calling
+        # edit_text on it raised AttributeError, which reached the customer as
+        # silence instead of as the new screen this exists to draw.
+        return await callback.bot.send_message(message.chat.id, text,
+                                               reply_markup=reply_markup)
     try:
         edited = await message.edit_text(text, reply_markup=reply_markup)
         return edited if isinstance(edited, Message) else message

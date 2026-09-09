@@ -48,8 +48,15 @@ def _format_date(raw: str) -> str:
     return raw
 
 
-def parcel_lines(row: dict, tracking_info, t: Texts) -> list[str]:
+def parcel_lines(row: dict, tracking_info, t: Texts, *,
+                 as_html: bool = True) -> list[str]:
     """Where the parcel is, in the carrier's words or the shop's.
+
+    `as_html=False` for a rich block, whose text is structured rather than
+    parsed: a branch on вул. В'ячеслава arrives there as `В&#x27;ячеслава`
+    and is shown with the entity spelled out, because nothing unescapes it.
+    Escaping belongs to the surface that parses HTML, and only one of the two
+    does.
 
     Public because the orders screen shows this under the order it belongs to:
     the two used to be separate menu entries answering what a customer thinks
@@ -57,13 +64,14 @@ def parcel_lines(row: dict, tracking_info, t: Texts) -> list[str]:
     now"; the CRM's own shipping status is the fallback for when it cannot be
     reached or has not been asked.
     """
+    esc = escape if as_html else (lambda v: v)
     lines: list[str] = []
     if tracking_info:
         ts = tracking_info
         if ts.status:
-            lines.append(f"{t.MSG_DELIVERY_STATUS.format(status=escape(t.status(ts.status)))}")
+            lines.append(f"{t.MSG_DELIVERY_STATUS.format(status=esc(t.status(ts.status)))}")
         if ts.warehouse_recipient:
-            lines.append(f"{t.MSG_DELIVERY_WAREHOUSE.format(warehouse=escape(ts.warehouse_recipient))}")
+            lines.append(f"{t.MSG_DELIVERY_WAREHOUSE.format(warehouse=esc(ts.warehouse_recipient))}")
         # Handed over beats arrived beats promised: the first of these that is
         # known is the most recent thing that actually happened to the parcel.
         if ts.recipient_date:
@@ -76,10 +84,10 @@ def parcel_lines(row: dict, tracking_info, t: Texts) -> list[str]:
 
     shipping_status = row.get("shipping_status", "")
     if shipping_status:
-        lines.append(f"{t.MSG_DELIVERY_STATUS.format(status=escape(t.status(shipping_status)))}")
+        lines.append(f"{t.MSG_DELIVERY_STATUS.format(status=esc(t.status(shipping_status)))}")
     location_parts = [p for p in (row.get("delivery_city", ""), row.get("receive_point", "")) if p]
     if location_parts:
-        lines.append(f"📍 {escape(', '.join(location_parts))}")
+        lines.append(f"📍 {esc(', '.join(location_parts))}")
     return lines
 
 

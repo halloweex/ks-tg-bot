@@ -231,3 +231,23 @@ def test_a_keyboard_without_icons_is_not_a_reason_to_retry():
             make_request, None,
             SendMessage(chat_id=1, text="картка", reply_markup=_keyboard(None))))
     assert len(calls) == 1
+
+
+def test_an_unreachable_anchor_gets_a_new_screen_instead_of_a_crash():
+    """Telegram hands back an InaccessibleMessage when the anchor is older than
+    it keeps, or was deleted. It carries an id and a chat and nothing else, so
+    edit_text raised AttributeError — which reached the customer as silence,
+    not as the new screen render() exists to draw."""
+    sent = []
+
+    class _Bot:
+        async def send_message(self, chat_id, text, reply_markup=None):
+            sent.append((chat_id, text))
+            return "new screen"
+
+    inaccessible = SimpleNamespace(chat=SimpleNamespace(id=77), message_id=1)
+    callback = SimpleNamespace(message=inaccessible, bot=_Bot())
+
+    result = asyncio.run(screen.render(callback, "нова версія екрана"))
+    assert sent == [(77, "нова версія екрана")]
+    assert result == "new screen"

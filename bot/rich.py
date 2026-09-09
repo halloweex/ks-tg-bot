@@ -1,4 +1,4 @@
-"""Rich messages, and the plain message that goes when one cannot.
+"""Rich messages, and the plain message that goes beside one.
 
 Bot API 10.1 gave bots structured messages — headings, collapsible sections,
 lists, tables, buttons that live *inside* a block instead of in a slab under
@@ -7,24 +7,42 @@ around not having them: the digest with one card and the rest as lines, the
 `shown_id` that says which single order is unfolded, the paging that is there
 because 4096 characters ran out rather than because anybody wanted pages.
 
-**Blocks, not HTML.** `InputRichMessage` takes either an `html` string or a
-list of `blocks`, and this module builds blocks. The reason is the failure mode
-of the other road: an unsupported tag is a 400, and a 400 means the message
-does not arrive at all — so an HTML builder needs a whitelist that has to be
-kept in step with Telegram by hand, and a bug in it costs the customer the
-whole screen. A block that does not exist cannot be constructed: pydantic
-refuses it here, in our process, at the call site.
+**Blocks, not HTML.** `InputRichMessage` takes an `html` string, a `markdown`
+string or a list of `blocks`, and this module builds blocks. The reason is the
+failure mode of the other road: an unsupported tag is a 400, and a 400 means
+the message does not arrive at all, so an HTML builder needs a whitelist kept
+in step with Telegram by hand. Constructing a block that does not exist fails
+here, in our process, at the call site.
 
-**The plain version is not a fallback, it is half the feature.** `send` below
-takes both and sends the second whenever the first is refused. Every screen
-that grows a rich form keeps its plain one, and the plain one stays a real
-screen rather than the wreckage of a richer one.
+That guarantee is narrower than it first looks, and the limits are worth
+naming because a plan was once built on the wide version:
+
+* pydantic checks the **shape of one block**. It does not check the message:
+  `InputRichMessage()` with nothing in it, or with `html` and `blocks` both
+  set, is accepted locally and refused by the server.
+* Whether the server likes a particular `style` on a button, our nesting, or a
+  list where one string was expected is not knowable here. Verified locally
+  means the request is well-formed, not that Telegram will take it.
+
+**The plain screen is not a fallback for old clients.** `send` falls back when
+Telegram *refuses* the rich message. A client too old to draw blocks is a
+different case entirely and this module cannot help with it: the server
+accepts the message, answers 200, and the degrading happens on the device. So
+every screen keeps a plain form that is a real screen, and what an old client
+shows instead of blocks is a product question, not an error path.
+
+**Custom emoji do not survive here yet.** `bot/middlewares.py::DropCustomEmoji`
+retries a refused message with the logos stripped, and it looks only at `text`,
+`caption` and `reply_markup` — never inside `rich_message.blocks`. Until it
+walks blocks too, nothing built here may carry a custom emoji, or the day the
+owner's Premium lapses is the day these screens stop arriving.
 """
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Sequence, Union
 
 from aiogram import Bot
+from aiogram.enums import InputRichBlockType
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (InlineKeyboardMarkup, InputRichBlockButtons,
                            InputRichBlockDetails, InputRichBlockDivider,
@@ -33,20 +51,35 @@ from aiogram.types import (InlineKeyboardMarkup, InputRichBlockButtons,
                            InputRichMessage, Message, RichMessageButton)
 from loguru import logger
 
-# Telegram counts a rich message against a far larger budget than the 4096 of
-# an ordinary one, but "far larger" is not "unbounded" and the exact number is
-# not something to discover in production. This is the point at which a screen
-# stops adding orders and says how many it left out — generous enough that
-# almost nobody meets it, small enough to be safe.
-TEXT_BUDGET = 20_000
+# What a rich text field accepts: a string, one of the RichText* objects, or a
+# list mixing them. Typed as an alias rather than `Any` because the failure it
+# prevents is silent — a *block* handed to a text field is not rejected, it is
+# serialised as `[["type","paragraph"],["text","x"]]` and the customer gets a
+# screen full of debris. `bullets` below is the obvious way to make that
+# mistake, so it checks.
+RichTextLike = Union[str, object, Sequence["RichTextLike"]]
+
+# The three ceilings, each from the API rather than from guesswork, and each
+# held well short of the real number. They replaced a single invented budget
+# measured against the serialised length of the JSON — the wrong axis: eight
+# orders of thirty items each is 530 blocks and only ~18k of JSON, so the cap
+# that was supposed to stop it never fired.
+#
+# Which one bites first depends on the screen. For the order list it is almost
+# always the block count.
+BLOCK_BUDGET = 400        # of 500
+TEXT_BUDGET = 24_000      # of 32768, counted in UTF-8 bytes
+DEPTH_BUDGET = 12         # of 16
+
+_BLOCK_TYPES = {member.value for member in InputRichBlockType}
 
 
-def heading(text: Any, size: int = 2) -> InputRichBlockSectionHeading:
+def heading(text: RichTextLike, size: int = 2) -> InputRichBlockSectionHeading:
     """A real heading, where the screens used to bold a line and hope."""
     return InputRichBlockSectionHeading(text=text, size=size)
 
 
-def para(text: Any) -> InputRichBlockParagraph:
+def para(text: RichTextLike) -> InputRichBlockParagraph:
     return InputRichBlockParagraph(text=text)
 
 
@@ -54,14 +87,22 @@ def divider() -> InputRichBlockDivider:
     return InputRichBlockDivider()
 
 
-def bullets(items: Sequence[Any]) -> InputRichBlockList:
-    """One list, one item per entry. Items are plain rich text, not blocks."""
+def bullets(items: Sequence[RichTextLike]) -> InputRichBlockList:
+    """One list, one item per entry. Items are rich text, not blocks."""
+    for item in items:
+        if isinstance(item, (InputRichBlockParagraph, InputRichBlockSectionHeading,
+                             InputRichBlockDetails, InputRichBlockList,
+                             InputRichBlockButtons, InputRichBlockDivider)):
+            raise TypeError(
+                "bullets() takes rich text, not blocks — a block here would be "
+                f"serialised as debris rather than refused (got {type(item).__name__})"
+            )
     return InputRichBlockList(
         items=[InputRichBlockListItem(blocks=[para(item)]) for item in items]
     )
 
 
-def details(summary: Any, blocks: Sequence[Any], *,
+def details(summary: RichTextLike, blocks: Sequence[object], *,
             is_open: bool = False) -> InputRichBlockDetails:
     """A section the reader unfolds — the thing `shown_id` was standing in for.
 
@@ -84,28 +125,90 @@ def button(text: str, *, callback_data: str | None = None,
                              style=style)
 
 
-def weigh(blocks: Sequence[Any]) -> int:
-    """Roughly how much of the budget a list of blocks spends.
+# ---------------------------------------------------------------------------
+# Measuring, against the three ceilings rather than one invented number
+# ---------------------------------------------------------------------------
 
-    Serialised length rather than a character count of the text: the structure
-    is what is sent, and a table of one-word cells is not cheap.
+def _walk(value, depth: int = 1):
+    """Every mapping in a serialised block tree, with how deep it sits."""
+    if isinstance(value, dict):
+        yield value, depth
+        for item in value.values():
+            yield from _walk(item, depth + 1)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _walk(item, depth)
+
+
+def _dumped(blocks: Sequence[object]) -> list:
+    return [b.model_dump(exclude_none=True, mode="json") for b in blocks]
+
+
+def count_blocks(blocks: Sequence[object]) -> int:
+    """How many actual blocks, nested ones included.
+
+    Counted by `type` against the enum, because inline rich text carries a
+    `type` of its own — counting every mapping calls bold runs and links blocks
+    and overstates a screen by about a third.
     """
-    return sum(len(str(b.model_dump(exclude_none=True, mode="json")))
-               for b in blocks)
+    return sum(1 for node, _d in _walk(_dumped(blocks))
+               if node.get("type") in _BLOCK_TYPES)
 
 
-async def send(bot: Bot, chat_id: int, blocks: Sequence[Any], *,
+def text_bytes(blocks: Sequence[object]) -> int:
+    """The text as Telegram counts it, near enough: UTF-8 bytes of every string.
+
+    Bytes rather than characters on purpose. The limit is quoted in characters
+    and Ukrainian is two bytes a letter, so counting bytes is the conservative
+    reading, and being conservative costs nothing at these sizes.
+    """
+    total = 0
+    for node, _d in _walk(_dumped(blocks)):
+        for value in node.values():
+            if isinstance(value, str):
+                total += len(value.encode("utf-8"))
+    return total
+
+
+def depth(blocks: Sequence[object]) -> int:
+    """Deepest nesting in the tree — details inside details inside a list."""
+    return max((d for _n, d in _walk(_dumped(blocks))), default=0)
+
+
+def fits(blocks: Sequence[object]) -> bool:
+    """Whether one more section can still go on this screen."""
+    return (count_blocks(blocks) <= BLOCK_BUDGET
+            and text_bytes(blocks) <= TEXT_BUDGET
+            and depth(blocks) <= DEPTH_BUDGET)
+
+
+# ---------------------------------------------------------------------------
+# Sending and editing
+# ---------------------------------------------------------------------------
+
+async def send(bot: Bot, chat_id: int, blocks: Sequence[object], *,
                plain: str, reply_markup: InlineKeyboardMarkup | None = None,
-               ) -> Message | None:
+               disable_notification: bool | None = None,
+               message_effect_id: str | None = None) -> Message | None:
     """Send the rich screen, or the plain one if Telegram will not have it.
 
-    Both are built by the caller. Falling back is not an error path to be
-    tidied away later — a client too old to draw blocks is a real reader of
-    this bot, and so is the day Telegram changes what it accepts.
+    `reply_markup` rides along with the blocks: `sendRichMessage` takes one,
+    and the first version of this function quietly dropped it — which made
+    every rich screen a screen with no way back, and looked from the outside
+    like something Telegram did not support.
+
+    `disable_notification` and `message_effect_id` are here for the same
+    reason: quiet hours and the 🎉 on a restock are properties of the message,
+    not of its shape, and a screen that loses them on the way to rich is a
+    regression nobody asked for.
     """
     try:
         return await bot.send_rich_message(
-            chat_id=chat_id, rich_message=InputRichMessage(blocks=list(blocks)))
+            chat_id=chat_id,
+            rich_message=InputRichMessage(blocks=list(blocks)),
+            reply_markup=reply_markup,
+            disable_notification=disable_notification,
+            message_effect_id=message_effect_id)
     except TelegramBadRequest as exc:
         logger.warning("Rich message refused ({}), sending the plain screen",
                        exc.message)
@@ -114,3 +217,23 @@ async def send(bot: Bot, chat_id: int, blocks: Sequence[Any], *,
         # rather than crashing a screen over a dependency version.
         logger.warning("This aiogram cannot send rich messages; sending plain")
     return await bot.send_message(chat_id, plain, reply_markup=reply_markup)
+
+
+async def edit(message: Message, blocks: Sequence[object], *,
+               reply_markup: InlineKeyboardMarkup | None = None) -> Message | bool:
+    """Redraw an existing message as these blocks.
+
+    The three explicit `None`s are not tidiness. `editMessageText` carries
+    `parse_mode`, `link_preview_options` and `disable_web_page_preview`, and
+    the bot sets the first two as defaults for every call
+    (`bot/__main__.py`) — so a rich edit goes out asking Telegram to parse HTML
+    in a request that has no text at all. `sendRichMessage` has no such fields
+    and cannot catch this, which is why only the edit path needs the guard.
+    What Telegram makes of that combination is untested; not sending it is free.
+    """
+    return await message.edit_text(
+        rich_message=InputRichMessage(blocks=list(blocks)),
+        reply_markup=reply_markup,
+        parse_mode=None,
+        link_preview_options=None,
+        disable_web_page_preview=None)

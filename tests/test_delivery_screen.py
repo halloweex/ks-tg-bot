@@ -232,3 +232,17 @@ def test_a_recorded_delivered_parcel_reaches_the_screen_saying_the_right_day():
 
     assert "Отримано: 30.07.2026" in text, "the day she collected it"
     assert "29.07" not in text, "the day the van arrived is not отримано"
+
+
+def test_a_rich_block_gets_the_text_unescaped():
+    """A block's text is structured, not parsed. Escaped, a branch on
+    вул. В'ячеслава arrives as "В&#x27;ячеслава" and is shown with the entity
+    spelled out, because nothing on that path unescapes it."""
+    status = _status(status="Відправлення отримано",
+                     warehouse_recipient="Відділення №20: вул. В'ячеслава Зайцева")
+    html_lines = screen.parcel_lines({"tracking_code": TTN}, status, T)
+    block_lines = screen.parcel_lines({"tracking_code": TTN}, status, T,
+                                      as_html=False)
+    assert any("&#x27;" in line for line in html_lines), "the HTML screen escapes"
+    assert not any("&#x27;" in line for line in block_lines)
+    assert any("В'ячеслава" in line for line in block_lines)

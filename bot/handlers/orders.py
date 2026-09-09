@@ -1271,11 +1271,20 @@ def _order_details(row: dict, t: Texts, *, parcel: list[str] | None = None) -> l
 
 def rich_orders_blocks(orders: list[dict], t: Texts, *,
                        parcels: dict[int, list[str]] | None = None) -> list:
+    # NOTE: `parcels` must come from parcel_lines(..., as_html=False). A block's
+    # text is structured, not parsed, so an escaped apostrophe arrives as the
+    # literal "&#x27;". Nothing here can tell the two apart, which is why it is
+    # the caller's contract and why it is written down.
     """The orders screen as blocks: every order, folded, newest open.
 
     No paging and no card: the budget that forced both is gone. What survives
-    is a cap — `rich.TEXT_BUDGET` — and it says how many orders it left out
-    rather than trimming in silence.
+    is a cap — three of them, `rich.fits` — and it says how many orders it left
+    out rather than trimming in silence.
+
+    The tail of the screen is reserved before the loop rather than measured
+    after it: the "showing N of M" line, the cancelled heading and its orders
+    all go on *after* the last section, and a check that ignores them can fill
+    the budget exactly and then overrun it.
     """
     if not orders:
         return [rich.para(t.MSG_NO_ORDERS)]
@@ -1284,6 +1293,18 @@ def rich_orders_blocks(orders: list[dict], t: Texts, *,
     blocks: list = [rich.heading(t.MSG_ORDERS_TITLE, size=2)]
     parcels = parcels or {}
 
+    # Everything that goes on after the loop, weighed with every candidate.
+    # Reserved rather than measured afterwards, because a check that ignores
+    # the tail can fill the budget exactly and then overrun it. The "showing N
+    # of M" line is reserved unconditionally — it appears only when the cap
+    # bites, which is the one case where the reservation matters.
+    tail: list = [rich.para(t.MSG_ORDERS_PAGE.format(first=1, last=1, total=1))]
+    if cancelled_rows:
+        tail += [rich.divider(), rich.heading(t.MSG_CANCELLED_HEADER, size=3)]
+        tail += [rich.para(_digest_line(row, t)) for row in cancelled_rows]
+    tail.append(rich.buttons(rich.button(
+        t.BTN_MENU, callback_data=MenuAction(action="menu").pack())))
+
     shown = 0
     for row in active:
         section = rich.details(
@@ -1291,18 +1312,15 @@ def rich_orders_blocks(orders: list[dict], t: Texts, *,
             _order_details(row, t, parcel=parcels.get(row.get("id", 0))),
             is_open=(row is active[0]),
         )
-        if rich.weigh(blocks + [section]) > rich.TEXT_BUDGET:
+        if not rich.fits(blocks + [section] + tail):
             break
         blocks.append(section)
         shown += 1
 
     if shown < len(active):
-        blocks.append(rich.para(t.MSG_ORDERS_PAGE.format(
-            first=1, last=shown, total=len(active))))
+        tail[0] = rich.para(t.MSG_ORDERS_PAGE.format(
+            first=1, last=shown, total=len(active)))
 
-    if cancelled_rows:
-        blocks.append(rich.divider())
-        blocks.append(rich.heading(t.MSG_CANCELLED_HEADER, size=3))
-        blocks += [rich.para(_digest_line(row, t)) for row in cancelled_rows]
-
+    # The tail, minus the reservation for a page line that was not needed.
+    blocks += tail[1:] if shown >= len(active) else tail
     return blocks
