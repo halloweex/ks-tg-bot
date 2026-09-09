@@ -251,3 +251,65 @@ def test_an_unreachable_anchor_gets_a_new_screen_instead_of_a_crash():
     result = asyncio.run(screen.render(callback, "нова версія екрана"))
     assert sent == [(77, "нова версія екрана")]
     assert result == "new screen"
+
+
+# --- render knows the shape of the screen it is drawing on --------------------
+#
+# Measured against the live API (docs/rich-messages.md): plain text written
+# over a rich message succeeds, keeps the message id, and silently drops the
+# blocks. Seventeen call sites reach render(), so a half-migrated screen would
+# decay on the first tap with nothing in the log to say why.
+
+
+def _anchor(monkeypatch, *, rich: bool):
+    """A real Message — render() checks isinstance before it edits — with
+    edit_text intercepted so nothing goes near Telegram."""
+    from aiogram.types import Message as _M
+    raw = {"message_id": 9, "date": 0, "chat": {"id": 5, "type": "private"},
+           "text": "before"}
+    if rich:
+        raw["rich_message"] = {"blocks": [{"type": "paragraph", "text": "x"}]}
+    msg = _M.model_validate(raw)
+    done: list = []
+
+    async def fake_edit(self, text=None, reply_markup=None, **kw):
+        done.append(("plain", text))
+        return self
+
+    monkeypatch.setattr(_M, "edit_text", fake_edit)
+    return msg, done
+
+
+def _said(fn):
+    """What loguru wrote while fn ran. caplog cannot see it: loguru does not
+    go through the standard logging module."""
+    from loguru import logger
+    said: list[str] = []
+    sink = logger.add(lambda m: said.append(str(m)), level="ERROR")
+    try:
+        fn()
+    finally:
+        logger.remove(sink)
+    return "\n".join(said)
+
+
+def test_plain_over_a_rich_screen_is_reported_before_it_is_done(monkeypatch):
+    """It is done anyway: refusing would leave the customer tapping a screen
+    that never changes, and silence is what this bot has been removing."""
+    msg, done = _anchor(monkeypatch, rich=True)
+    callback = SimpleNamespace(message=msg, bot=None)
+
+    said = _said(lambda: asyncio.run(screen.render(callback, "плоский текст")))
+
+    assert done == [("plain", "плоский текст")], "the edit still happens"
+    assert "rich screen" in said, (
+        "a migration that missed a caller must not fail silently"
+    )
+
+
+def test_a_plain_anchor_says_nothing(monkeypatch):
+    msg, done = _anchor(monkeypatch, rich=False)
+    callback = SimpleNamespace(message=msg, bot=None)
+    said = _said(lambda: asyncio.run(screen.render(callback, "плоский текст")))
+    assert done == [("plain", "плоский текст")]
+    assert "rich screen" not in said

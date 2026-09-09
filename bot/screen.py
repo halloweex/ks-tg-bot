@@ -19,12 +19,14 @@ looks slightly plainer is never worth a broken flow.
 from __future__ import annotations
 
 import asyncio
+from typing import Sequence
 
 from aiogram.types import (CallbackQuery, InlineKeyboardMarkup, Message,
                            ReactionTypeEmoji, ReplyKeyboardRemove)
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from loguru import logger
 
+from bot import rich
 from bot.tasks import spawn
 
 from core.config import AppConfig
@@ -137,8 +139,27 @@ async def render(
     callback: CallbackQuery,
     text: str,
     reply_markup: InlineKeyboardMarkup | None = None,
+    *,
+    blocks: Sequence[object] | None = None,
 ) -> Message | None:
-    """Show `text` on the screen the callback came from."""
+    """Show this screen on the message the callback came from.
+
+    `text` is always required, even when `blocks` are given: it is the screen
+    for a reader whose client cannot draw blocks, and there is no way to detect
+    one — Telegram answers 200 and the degrading happens on the device.
+
+    **Plain text written over a rich screen destroys it, silently.** Measured
+    against the live API (`docs/rich-messages.md`): the edit succeeds, the
+    message id is unchanged, and `rich_message` is simply gone. No exception,
+    nothing in the log. Since seventeen call sites reach this function, a
+    half-migrated screen would decay to plain the first time any of them was
+    tapped, and nobody would learn why — so the case is detected here and said
+    out loud rather than left to the discipline of callers.
+
+    It is reported and then done anyway. The alternative is refusing the edit,
+    which leaves the customer tapping a screen that never changes — and silence
+    is the thing this bot has spent two commits removing.
+    """
     message = callback.message
     if message is None:
         # Telegram drops the message from very old callbacks.
@@ -150,13 +171,29 @@ async def render(
         # silence instead of as the new screen this exists to draw.
         return await callback.bot.send_message(message.chat.id, text,
                                                reply_markup=reply_markup)
+    anchor_is_rich = getattr(message, "rich_message", None) is not None
+    if anchor_is_rich and blocks is None:
+        logger.error(
+            "Plain text written over a rich screen (chat {}, message {}): the "
+            "blocks are destroyed and will not come back until something "
+            "redraws it rich. A caller of render() was missed by the migration.",
+            message.chat.id, message.message_id)
+
     try:
-        edited = await message.edit_text(text, reply_markup=reply_markup)
+        if blocks is not None:
+            edited = await rich.edit(message, blocks, reply_markup=reply_markup)
+        else:
+            edited = await message.edit_text(text, reply_markup=reply_markup)
         return edited if isinstance(edited, Message) else message
     except TelegramBadRequest as exc:
         if _NOT_MODIFIED in exc.message:
+            # Verified against the live API: Telegram uses this same wording
+            # for a rich edit, so one guard covers both shapes.
             return message
-        logger.debug("edit_text failed ({}), sending a new screen", exc.message)
+        logger.debug("edit failed ({}), sending a new screen", exc.message)
+        if blocks is not None:
+            return await rich.send(message.bot, message.chat.id, blocks,
+                                   plain=text, reply_markup=reply_markup)
         return await message.answer(text, reply_markup=reply_markup)
 
 
