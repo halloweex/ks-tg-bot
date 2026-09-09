@@ -10,6 +10,7 @@ from core.i18n import LANGUAGE_NAMES, Texts
 from bot.analytics import track
 from core.config import AppConfig
 from core.repos.users import get_user, get_user_language, is_opted_out, opt_in_user
+from bot import rich
 from bot.keyboards import language_kb, share_phone_kb
 from bot.screen import ephemeral, send_main_menu
 from bot.handlers.orders import (favourites_screen, follow_up_parcel,
@@ -101,9 +102,11 @@ async def cmd_start(
             await message.answer(text, reply_markup=markup)
             return
         if payload == ORDERS_DEEP_LINK:
-            text, markup = await orders_screen(message.chat.id, t, keycrm, message,
-                                               config)
-            sent = await message.answer(text, reply_markup=markup)
+            screen = await orders_screen(message.chat.id, t, keycrm, message,
+                                         config)
+            sent = await rich.send(message.bot, message.chat.id,
+                                   screen.blocks or [], plain=screen.text,
+                                   reply_markup=screen.markup)
             follow_up_parcel(sent, message.chat.id, t, novaposhta)
             return
 

@@ -19,6 +19,8 @@ from core.repos.orders import upsert_orders
 from core.repos.schema import init_db
 from core.repos.users import save_user
 
+from bot import rich
+from bot.handlers import orders
 from bot.handlers.orders import _format_orders_from_cache, _orders_kb
 from core.i18n import Texts
 
@@ -324,3 +326,69 @@ def test_show_more_of_the_same_shares_a_row_too():
     history = _long_history()
     labels = [[b.text for b in row] for row in _orders_kb(history, T).inline_keyboard]
     assert [T.BTN_CANCELLED_SHOW.format(count=6), T.BTN_ORDERS_OLDER] in labels
+
+
+class _Keycrm:
+    """A CRM with nothing in it. Reached only when the cache is cold, which is
+    exactly the empty-history case below."""
+
+    async def get_orders_by_phone(self, *a, **kw):
+        return []
+
+    async def get_buyer_by_phone(self, *a, **kw):
+        return None
+
+
+def _anchor():
+    """orders_screen touches the anchor only to show "typing…"."""
+    from types import SimpleNamespace
+
+    async def _noop(*a, **kw):
+        return None
+
+    return SimpleNamespace(chat=SimpleNamespace(id=1),
+                           bot=SimpleNamespace(send_chat_action=_noop))
+
+
+# --- both shapes come out of one call ----------------------------------------
+#
+# The screen is sent rich where the client can draw it and plain where it
+# cannot, and there is no way to tell the two apart in advance — Telegram
+# answers 200 either way and the degrading happens on the device. So both
+# forms are built every time, and neither may be an afterthought.
+
+
+def test_the_screen_carries_both_shapes(db_with_orders):
+    screen = asyncio.run(orders.orders_screen(1, T, _Keycrm(), _anchor()))
+    assert screen.text, "the plain screen is a real screen, not a placeholder"
+    assert screen.blocks, "and the rich one is built in the same call"
+    assert screen.markup is not None
+
+
+def test_the_rich_shape_is_a_valid_rich_message(db_with_orders):
+    """It fails here, in our process, rather than as a 400 that costs the
+    customer the whole screen."""
+    from aiogram.types import InputRichMessage
+    screen = asyncio.run(orders.orders_screen(1, T, _Keycrm(), _anchor()))
+    payload = InputRichMessage(blocks=screen.blocks)
+    assert payload.model_dump(exclude_none=True, mode="json")["blocks"]
+    assert rich.fits(screen.blocks)
+
+
+def test_an_empty_history_has_no_rich_shape(tmp_path, monkeypatch):
+    """A paragraph and a button is a paragraph and a button in either shape,
+    and the plain one already carries the support button that matters."""
+    monkeypatch.setattr(repos_base, "DB_PATH", str(tmp_path / "empty.db"))
+    asyncio.run(init_db())
+    asyncio.run(save_user(2, "+380670000001"))
+    screen = asyncio.run(orders.orders_screen(2, T, _Keycrm(), _anchor()))
+    assert screen.blocks is None
+    assert screen.text
+
+
+def test_a_customer_with_no_number_gets_no_blocks_either(tmp_path, monkeypatch):
+    monkeypatch.setattr(repos_base, "DB_PATH", str(tmp_path / "nonum.db"))
+    asyncio.run(init_db())
+    screen = asyncio.run(orders.orders_screen(3, T, _Keycrm(), _anchor()))
+    assert screen.blocks is None
+    assert screen.markup is None

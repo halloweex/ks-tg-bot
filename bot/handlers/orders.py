@@ -5,6 +5,7 @@ import asyncio
 import json
 from datetime import datetime
 from html import escape
+from typing import NamedTuple
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError
@@ -575,13 +576,26 @@ async def _refresh_orders(chat_id: int, keycrm: KeyCRMClient) -> None:
 # and edited in place by the callbacks further down this file.
 # ---------------------------------------------------------------------------
 
+class Screen(NamedTuple):
+    """One screen in both shapes, because a reader may only get one of them.
+
+    `blocks` is None where the rich form would add nothing — the empty and
+    error screens are a paragraph and a button, and a paragraph is a paragraph
+    in either shape.
+    """
+
+    text: str
+    markup: InlineKeyboardMarkup | None
+    blocks: list | None = None
+
+
 async def orders_screen(
     chat_id: int,
     t: Texts,
     keycrm: KeyCRMClient,
     anchor: Message,
     config: AppConfig | None = None,
-) -> tuple[str, InlineKeyboardMarkup | None]:
+) -> Screen:
     """The orders screen, ready to be sent or edited into place.
 
     `anchor` is only used to show "typing…" while a cold cache is filled; the
@@ -589,7 +603,7 @@ async def orders_screen(
     """
     phone = await get_user_phone(chat_id)
     if not phone:
-        return t.ERR_PHONE_NOT_FOUND, None
+        return Screen(t.ERR_PHONE_NOT_FOUND, None)
 
     cached = await get_cached_orders(chat_id)
     if cached:
@@ -618,9 +632,10 @@ async def orders_screen(
         offer = first_order_offer(t, config)
         if offer:
             text = f"{text}\n\n{offer}"
-    return (
+    return Screen(
         f"{notice}\n\n{text}" if notice else text,
         _orders_kb(cached, t) if cached else _no_orders_kb(t, config),
+        rich_orders_blocks(cached, t) if cached else None,
     )
 
 
@@ -679,19 +694,30 @@ async def _fill_in_parcel(
         return
 
     found = await novaposhta.track_many([ttn], phone)
-    lines = parcel_lines(card, found.get(ttn), t)
+    info = found.get(ttn)
+    lines = parcel_lines(card, info, t)
     if not lines:
         return
 
     try:
-        await sent.edit_text(
-            _format_orders_from_cache(cached, t, shown_id=card.get("id", 0),
-                                      page=page, cancelled=cancelled,
-                                      expanded=expanded, parcel=lines),
-            reply_markup=_orders_kb(cached, t, shown_id=card.get("id", 0),
-                                    page=page, cancelled=cancelled,
-                                    expanded=expanded, parcel=True),
-        )
+        if getattr(sent, "rich_message", None) is not None:
+            # The screen this is filling in went out rich, so it has to come
+            # back rich: plain text here would succeed and take the blocks with
+            # it (docs/rich-messages.md). Unescaped, because a block's text is
+            # structured rather than parsed.
+            await rich.edit(sent, rich_orders_blocks(
+                cached, t,
+                parcels={card.get("id", 0): parcel_lines(card, info, t,
+                                                         as_html=False)}))
+        else:
+            await sent.edit_text(
+                _format_orders_from_cache(cached, t, shown_id=card.get("id", 0),
+                                          page=page, cancelled=cancelled,
+                                          expanded=expanded, parcel=lines),
+                reply_markup=_orders_kb(cached, t, shown_id=card.get("id", 0),
+                                        page=page, cancelled=cancelled,
+                                        expanded=expanded, parcel=True),
+            )
     except TelegramAPIError as exc:
         # The customer has moved on, or the screen already says this. Neither
         # is worth more than a line in the debug log.
@@ -1181,9 +1207,10 @@ async def track_parcel(
         # The number authorises the lookup: Nova Poshta answers a TTN in full
         # only to the phone that sent or receives it.
         found = await novaposhta.track_many([row["tracking_code"]], phone)
-        parcel = parcel_lines(row, found.get(row["tracking_code"]), t)
+        info = found.get(row["tracking_code"])
     else:
-        parcel = parcel_lines(row, None, t)
+        info = None
+    parcel = parcel_lines(row, info, t)
     track(chat_id, "parcel_tracked", found=bool(parcel))
 
     await render(
@@ -1197,6 +1224,9 @@ async def track_parcel(
                    page=callback_data.page,
                    cancelled="c" in callback_data.state,
                    expanded="x" in callback_data.state, parcel=True),
+        # Unescaped for the blocks: their text is structured, not parsed.
+        blocks=rich_orders_blocks(cached, t, parcels={
+            callback_data.order_id: parcel_lines(row, info, t, as_html=False)}),
     )
 
 

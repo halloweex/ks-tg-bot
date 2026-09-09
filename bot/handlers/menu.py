@@ -39,6 +39,7 @@ from bot.handlers.orders import (favourites_screen, follow_up_parcel,
                                  orders_screen)
 from bot.keyboards import (info_menu_kb, main_menu_inline_kb, menu_kb,
                            settings_menu_kb, website_kb)
+from bot import rich
 from bot.screen import render, send_main_menu
 from core.adapters.keycrm.client import KeyCRMClient
 from core.adapters.novaposhta.client import NovaPoshtaClient
@@ -71,8 +72,9 @@ async def open_orders(
 ) -> None:
     """📦 — the order history, newest first."""
     await state.clear()
-    text, markup = await orders_screen(message.chat.id, t, keycrm, message, config)
-    sent = await message.answer(text, reply_markup=markup)
+    screen = await orders_screen(message.chat.id, t, keycrm, message, config)
+    sent = await rich.send(message.bot, message.chat.id, screen.blocks or [],
+                           plain=screen.text, reply_markup=screen.markup)
     # And a moment later, where the parcel is — from the carrier, in the
     # background, so this screen still opens from the cache instantly.
     follow_up_parcel(sent, message.chat.id, t, novaposhta)
@@ -188,11 +190,12 @@ async def orders_from_menu(
     """📦 from the menu in the message. Same screen as the key below it."""
     await callback.answer()
     await state.clear()
-    text, markup = await orders_screen(
+    screen = await orders_screen(
         callback.from_user.id, t, keycrm, callback.message, config
     )
-    follow_up_parcel(await render(callback, text, markup),
-                     callback.from_user.id, t, novaposhta)
+    follow_up_parcel(
+        await render(callback, screen.text, screen.markup, blocks=screen.blocks),
+        callback.from_user.id, t, novaposhta)
 
 
 @router.callback_query(MenuAction.filter(F.action == "open_favourites"))

@@ -171,6 +171,11 @@ async def render(
         # silence instead of as the new screen this exists to draw.
         return await callback.bot.send_message(message.chat.id, text,
                                                reply_markup=reply_markup)
+    # Blocks win wherever they are offered, including over a plain anchor:
+    # editing a plain message into a rich one is allowed and was verified
+    # against the live API. Only the reverse is dangerous, and that is what the
+    # complaint below is for — so the two entrances to a screen cannot end up
+    # showing different things depending on which message they edit.
     anchor_is_rich = getattr(message, "rich_message", None) is not None
     if anchor_is_rich and blocks is None:
         logger.error(
