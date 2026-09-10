@@ -59,10 +59,6 @@ EN: dict[str, str] = {
         "Share it through «📱 Change number», or write to us and we will find "
         "your orders by hand."
     ),
-    "ERR_PHONE_NOT_FOUND": (
-        "We couldn't find any orders for this number.\n"
-        "Please check the number or contact support."
-    ),
     "ERR_INVALID_PHONE": (
         "We could not read the number from your Telegram profile.\n"
         "Tap «💬 Manager» and we will add it by hand."
@@ -97,11 +93,9 @@ EN: dict[str, str] = {
     "BTN_WHERE_PARCEL": "Where is it?",
     "BTN_ORDERS_NEWER": "◀️ Newer",
     "BTN_ORDERS_OLDER": "Older ▶️",
-    "MSG_ORDERS_TRUNCATED": "...and more orders",
     "MSG_ORDER_MORE_ITEMS": "…and {count} more",
     "BTN_SHOW_ITEMS": "🔎 All items ({count})",
     "BTN_HIDE_ITEMS": "🔼 Fold the items",
-    "MSG_ORDERS_EXPAND_HINT": "🔎 number: every item in that order",
     "MSG_ORDERS_STALE": "⏳ Last updated over {hours} h ago",
     "MSG_ORDER_TRACKING": "🚚 Tracking: {code}",
     "MSG_ORDER_LOCATION": "📍 {location}",
@@ -205,9 +199,6 @@ EN: dict[str, str] = {
     ),
     "BTN_BIRTHDAY_FAVOURITES": "⭐ My favourites",
     "MSG_BACK_IN_STOCK_HEADER": "🔔 Back in stock:",
-    "BTN_NOTIFY_ME": "🔔 {product}",
-    "BTN_NOTIFY_CANCEL": "🔕 {product}",
-    "MSG_STOCK_HINT": "🔔 number: we'll write when it is back",
     "MSG_SUBSCRIBED": "We'll message you as soon as it is back.",
     "MSG_UNSUBSCRIBED": "We will not notify you about this product.",
     "MSG_FAVOURITE_OUT_OF_STOCK": "out of stock",

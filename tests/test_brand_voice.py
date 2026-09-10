@@ -60,3 +60,48 @@ def test_ukrainian_never_slips_into_the_formal_you():
         if formal.search(value):
             guilty[key] = value
     assert not guilty, f"formal address in: {sorted(guilty)}"
+
+
+# --- strings that outlive the screens they were written for -------------------
+
+# Custom emoji ids kept as a palette rather than as copy: the payment page names
+# the methods it accepts, and the day it names one more it is one tag away.
+# core/texts.py explains the choice; they are ids, not sentences, so nothing
+# reads them and nothing should.
+_KEPT_ON_PURPOSE = {"VISA", "MASTERCARD", "MONOBANK", "PRIVAT24", "NOVA_POSHTA",
+                    "INSTAGRAM"}
+
+
+def test_no_string_outlives_its_screen():
+    """Six constants were found dead at once — buttons labelled with a number,
+    and the legends that existed to explain what the number meant, all replaced
+    when the digest started labelling buttons with dates. Nothing noticed for
+    weeks, because an unused constant is not an unused name: pyflakes sees a
+    module attribute and says nothing.
+
+    A dead string is not harmless. It is read as current when somebody comes
+    looking for the wording of a screen, and translated again in every language
+    added after it died."""
+    import pathlib
+    import re
+
+    from core import texts
+
+    repo = pathlib.Path(__file__).resolve().parent.parent
+    body = []
+    for path in (list((repo / "bot").rglob("*.py"))
+                 + list((repo / "core").rglob("*.py"))):
+        for line in path.read_text().splitlines():
+            # The declarations themselves, in either table, are not uses.
+            if re.match(r"^[A-Z_]+\s*=", line) or re.match(r'\s*"[A-Z_]+":', line):
+                continue
+            body.append(line)
+    source = "\n".join(body)
+
+    dead = sorted(
+        name for name in dir(texts)
+        if name.isupper() and name not in _KEPT_ON_PURPOSE
+        and isinstance(getattr(texts, name), str)
+        and not re.search(rf"\b{name}\b", source)
+    )
+    assert not dead, f"no screen says these any more: {dead}"

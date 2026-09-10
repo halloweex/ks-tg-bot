@@ -430,7 +430,7 @@ def test_a_customer_with_no_number_gets_no_blocks_either(tmp_path, monkeypatch):
 # Both order screens answered "no phone stored" with a bare string and no
 # keyboard. Nothing to tap, and the reply keyboard underneath cannot help: each
 # of its keys lands back on a screen that needs the number. The words were
-# borrowed too — ERR_PHONE_NOT_FOUND says "we found no orders for this number",
+# borrowed too: the old string said "we found no orders for this number",
 # about a number we do not have.
 
 
@@ -453,7 +453,8 @@ def test_it_says_we_have_no_number_not_that_hers_found_nothing(tmp_path, monkeyp
     _no_phone_db(tmp_path, monkeypatch)
     screen = asyncio.run(orders.orders_screen(1, T, _Keycrm(), _anchor()))
     assert screen.text == T.MSG_NO_PHONE_YET
-    assert screen.text != T.ERR_PHONE_NOT_FOUND
+    assert "не знайшли замовлень" not in screen.text, (
+        "that sentence is about a number we do not have")
 
 
 def test_favourites_has_the_same_way_out(tmp_path, monkeypatch):

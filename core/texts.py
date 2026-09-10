@@ -48,11 +48,11 @@ MSG_USE_SHARE_BUTTON = (
 # Error messages (neutral/factual tone)
 ERR_GENERIC = "Щось пішло не так на нашому боці. Спробуй, будь ласка, трохи згодом."
 ERR_API_UNAVAILABLE = "Зараз не вдається дістати дані. Спробуй, будь ласка, за кілька хвилин."
-# Not the same thing as ERR_PHONE_NOT_FOUND below, and it used to borrow it:
-# that one says "we found no orders for this number", which is a sentence about
-# a number we do not have. This is the case where nothing was ever shared —
-# after a failed onboarding, or a row that went missing — and the screen it
-# produced had no keyboard at all, so it was the one dead end in the bot.
+# The case where no number was ever shared: a failed onboarding, or a row that
+# went missing. It used to borrow the string meant for "we found no orders for
+# this number", which is a sentence about a number we do not have, and the
+# screen it produced had no keyboard at all, so it was the one dead end left in
+# the bot. That borrowed string had no other caller and went with the fix.
 MSG_NO_PHONE_YET = (
     "Щоб показати твої замовлення, нам потрібен номер телефону: той самий, "
     "що ти вказувала при покупці.\n\n"
@@ -60,10 +60,6 @@ MSG_NO_PHONE_YET = (
     "замовлення вручну."
 )
 
-ERR_PHONE_NOT_FOUND = (
-    "На жаль, замовлень за цим номером не знайшли.\n"
-    "Перевір номер або напиши нам, і розберемось разом."
-)
 ERR_INVALID_PHONE = (
     "Не вдалося розібрати номер із твого профілю Telegram.\n"
     "Натисни «💬 Менеджер», і ми підключимо його вручну."
@@ -338,7 +334,6 @@ MSG_CANCELLED_HEADER = "❌ Скасовані:"
 BTN_WHERE_PARCEL = "Де посилка?"
 BTN_ORDERS_NEWER = "◀️ Новіші"
 BTN_ORDERS_OLDER = "Старіші ▶️"
-MSG_ORDERS_TRUNCATED = "...та інші замовлення"
 MSG_ORDER_MORE_ITEMS = "…та інші ({count})"
 # The button carries the order's number in the list above it, not its name:
 # most orders come from Instagram and have no number of their own, so labels
@@ -349,7 +344,6 @@ MSG_ORDER_MORE_ITEMS = "…та інші ({count})"
 # more, and a button that says "🔎 3" needs a legend to explain what 3 is.
 BTN_SHOW_ITEMS = "🔎 Усі товари ({count})"
 BTN_HIDE_ITEMS = "🔼 Згорнути товари"
-MSG_ORDERS_EXPAND_HINT = "🔎 номер: усі товари цього замовлення"
 # Shown only when the sync has not confirmed the data for over an hour — see
 # bot/sync.py. "год" needs no plural form, which is the reason it is written
 # that way: 1, 2 and 5 hours all read correctly.
@@ -556,11 +550,6 @@ MSG_BIRTHDAY = (
 )
 BTN_BIRTHDAY_FAVOURITES = "⭐ Мої улюблені"
 MSG_BACK_IN_STOCK_HEADER = "🔔 Знову в наявності:"
-# Numbered like the order buttons, for the same reason: a 40-character product
-# name does not fit on a button next to another one.
-BTN_NOTIFY_ME = "🔔 {product}"
-BTN_NOTIFY_CANCEL = "🔕 {product}"
-MSG_STOCK_HINT = "🔔 номер: повідомимо, щойно зʼявиться"
 MSG_SUBSCRIBED = "Повідомимо, щойно товар знову з'явиться."
 MSG_UNSUBSCRIBED = "Більше не сповіщатимемо про цей товар."
 MSG_FAVOURITE_OUT_OF_STOCK = "зараз немає"

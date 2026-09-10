@@ -104,8 +104,8 @@ def _render(novaposhta=None) -> str:
 # --- what the customer sees when there is nothing to show ------------------
 
 def test_a_user_without_a_phone_is_told_so(wired):
-    """And told the right thing: ERR_PHONE_NOT_FOUND says "we found no orders
-    for this number", which is a sentence about a number we do not have."""
+    """And told the right thing: the string it used to borrow said "we found
+    no orders for this number", about a number we do not have."""
     wired["phone"] = None
     assert _render() == T.MSG_NO_PHONE_YET
 
