@@ -121,7 +121,9 @@ async def delivery_screen(
     """
     phone = await get_user_phone(chat_id)
     if not phone:
-        return t.ERR_PHONE_NOT_FOUND, _menu_kb(t)
+        # Same case, same words as the order screens: this is "we have no
+        # number", not "that number found nothing".
+        return t.MSG_NO_PHONE_YET, _menu_kb(t)
 
     tracked_orders = await get_orders_with_tracking(chat_id)
     track(chat_id, "delivery_viewed", found=len(tracked_orders))

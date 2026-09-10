@@ -53,6 +53,12 @@ EN: dict[str, str] = {
     ),
     "ERR_GENERIC": "Something went wrong. Please try again later.",
     "ERR_API_UNAVAILABLE": "The service is temporarily unavailable. Please try again in a few minutes.",
+    "MSG_NO_PHONE_YET": (
+        "To show your orders we need your phone number: the same one you used "
+        "when ordering.\n\n"
+        "Share it through «📱 Change number», or write to us and we will find "
+        "your orders by hand."
+    ),
     "ERR_PHONE_NOT_FOUND": (
         "We couldn't find any orders for this number.\n"
         "Please check the number or contact support."

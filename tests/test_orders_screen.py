@@ -420,4 +420,46 @@ def test_a_customer_with_no_number_gets_no_blocks_either(tmp_path, monkeypatch):
     asyncio.run(init_db())
     screen = asyncio.run(orders.orders_screen(3, T, _Keycrm(), _anchor()))
     assert screen.blocks is None
-    assert screen.markup is None
+    # It used to assert `markup is None` as well, which pinned the dead end
+    # rather than the behaviour: a screen with nothing to tap was the thing
+    # worth fixing, not a property worth keeping.
+    assert screen.markup is not None
+
+
+# --- the last dead end -------------------------------------------------------
+#
+# Both order screens answered "no phone stored" with a bare string and no
+# keyboard. Nothing to tap, and the reply keyboard underneath cannot help: each
+# of its keys lands back on a screen that needs the number. The words were
+# borrowed too — ERR_PHONE_NOT_FOUND says "we found no orders for this number",
+# about a number we do not have.
+
+
+def _no_phone_db(tmp_path, monkeypatch):
+    monkeypatch.setattr(repos_base, "DB_PATH", str(tmp_path / "bot_data.db"))
+    asyncio.run(init_db())
+
+
+def test_a_screen_with_no_phone_has_a_way_out(tmp_path, monkeypatch):
+    _no_phone_db(tmp_path, monkeypatch)
+    screen = asyncio.run(orders.orders_screen(1, T, _Keycrm(), _anchor()))
+    assert screen.markup is not None, "the one dead end left in the bot"
+    labels = _labels(screen.markup)
+    assert T.BTN_CHANGE_PHONE in labels, "the button that actually fixes it"
+    assert T.BTN_SUPPORT in labels, "for an order under a different number"
+    assert T.BTN_MENU in labels
+
+
+def test_it_says_we_have_no_number_not_that_hers_found_nothing(tmp_path, monkeypatch):
+    _no_phone_db(tmp_path, monkeypatch)
+    screen = asyncio.run(orders.orders_screen(1, T, _Keycrm(), _anchor()))
+    assert screen.text == T.MSG_NO_PHONE_YET
+    assert screen.text != T.ERR_PHONE_NOT_FOUND
+
+
+def test_favourites_has_the_same_way_out(tmp_path, monkeypatch):
+    _no_phone_db(tmp_path, monkeypatch)
+    text, markup = asyncio.run(
+        orders.favourites_screen(1, T, _Keycrm(), _anchor(), ""))[:2]
+    assert text == T.MSG_NO_PHONE_YET
+    assert markup is not None

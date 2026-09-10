@@ -16,7 +16,8 @@ from loguru import logger
 
 from core import texts
 from core.i18n import Texts, operator_texts
-from bot.callbacks import DiscountAction, MenuAction, OrderAction, StockAction
+from bot.callbacks import (DiscountAction, MenuAction, OrderAction,
+                           SettingsAction, StockAction)
 from bot.alerts import tell_admins_once
 from bot.analytics import track
 from bot.customer import describe
@@ -415,6 +416,28 @@ def _orders_kb(
     return builder.as_markup()
 
 
+def _no_phone_kb(t: Texts) -> InlineKeyboardMarkup:
+    """The way out of the screen that had none.
+
+    Both order screens answered "no phone stored" with a bare string and no
+    keyboard, which is the only dead end left in the bot: nothing to tap, and
+    the reply keyboard underneath cannot help because every one of its keys
+    lands back on a screen that needs the number.
+
+    The first button is the actual fix — it starts the same phone-change flow
+    as Settings, which sends the share-contact keyboard. The second is for the
+    likelier cause, an order under a different number than her Telegram, which
+    only a person can join up.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text=t.BTN_CHANGE_PHONE,
+                   callback_data=SettingsAction(action="phone"))
+    builder.button(text=t.BTN_SUPPORT, callback_data=MenuAction(action="support"))
+    builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="menu"))
+    builder.adjust(1)
+    return builder.as_markup()
+
+
 def _no_orders_kb(t: Texts, config: AppConfig | None = None) -> InlineKeyboardMarkup:
     """The first-order discount, support, and the way back.
 
@@ -609,7 +632,7 @@ async def orders_screen(
     """
     phone = await get_user_phone(chat_id)
     if not phone:
-        return Screen(t.ERR_PHONE_NOT_FOUND, None)
+        return Screen(t.MSG_NO_PHONE_YET, _no_phone_kb(t))
 
     cached = await get_cached_orders(chat_id)
     if cached:
@@ -768,7 +791,7 @@ async def favourites_screen(
     """
     phone = await get_user_phone(chat_id)
     if not phone:
-        return t.ERR_PHONE_NOT_FOUND, None
+        return t.MSG_NO_PHONE_YET, _no_phone_kb(t)
 
     cached = await get_cached_orders(chat_id)
     if not cached:

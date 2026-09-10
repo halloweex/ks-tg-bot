@@ -48,6 +48,18 @@ MSG_USE_SHARE_BUTTON = (
 # Error messages (neutral/factual tone)
 ERR_GENERIC = "Щось пішло не так на нашому боці. Спробуй, будь ласка, трохи згодом."
 ERR_API_UNAVAILABLE = "Зараз не вдається дістати дані. Спробуй, будь ласка, за кілька хвилин."
+# Not the same thing as ERR_PHONE_NOT_FOUND below, and it used to borrow it:
+# that one says "we found no orders for this number", which is a sentence about
+# a number we do not have. This is the case where nothing was ever shared —
+# after a failed onboarding, or a row that went missing — and the screen it
+# produced had no keyboard at all, so it was the one dead end in the bot.
+MSG_NO_PHONE_YET = (
+    "Щоб показати твої замовлення, нам потрібен номер телефону: той самий, "
+    "що ти вказувала при покупці.\n\n"
+    "Поділись ним через «📱 Змінити номер», або напиши нам, і ми знайдемо "
+    "замовлення вручну."
+)
+
 ERR_PHONE_NOT_FOUND = (
     "На жаль, замовлень за цим номером не знайшли.\n"
     "Перевір номер або напиши нам, і розберемось разом."
