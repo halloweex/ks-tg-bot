@@ -25,12 +25,17 @@ from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
 from aiogram.types import (CallbackQuery, InlineKeyboardButton,
-                           InlineKeyboardMarkup, InputRichMessage, Message,
+                           InlineKeyboardMarkup, InputMediaPhoto,
+                           InputRichBlockPhoto, InputRichMessage, Message,
                            RichTextBold)
 from loguru import logger
 
 from bot import rich
+from bot.handlers.orders import favourite_products
+from core import texts
 from core.config import AppConfig
+from core.repos.catalogue import get_offers
+from core.repos.orders import get_cached_orders
 
 router = Router()
 
@@ -158,6 +163,66 @@ async def cmd_richprobe(message: Message, config: AppConfig) -> None:
         "8. What does an older client show instead? Same chat, older app.",
         "",
         "Tap either button above; the reply says what arrived.",
+    ]
+    await bot.send_message(chat_id, "\n".join(lines))
+
+
+@router.message(Command("favprobe"))
+async def cmd_favprobe(message: Message, config: AppConfig) -> None:
+    """What the favourites screen would become, sent rather than described.
+
+    The question it exists to answer is the owner's, and it is a product one:
+    media in a rich message can only be its own block — "Media can be specified
+    only as a separate block" — so the row this screen is made of today, a
+    thumbnail on the left with the name and price beside it, does not exist in
+    blocks. Favourites in rich is a vertical ribbon of full-width cards, which
+    is a longer screen that scrolls differently, not the same screen drawn
+    better. That is worth looking at rather than reading about.
+
+    It answers one technical unknown on the way: whether Telegram will fetch a
+    picture from cdn.shopify.com. The thumbnails in the inline panel prove
+    nothing about it — there the URL is handed to the client, not to Telegram's
+    servers.
+    """
+    chat_id = message.chat.id
+    if message.from_user is None or message.from_user.id not in config.env.admin_ids:
+        return
+    bot = message.bot
+
+    cached = await get_cached_orders(chat_id)
+    favourites = favourite_products(cached)[:3]
+    if not favourites:
+        await bot.send_message(chat_id, "No favourites cached — run /demo first.")
+        return
+
+    offers = await get_offers([f.get("sku", "") for f in favourites])
+
+    blocks: list = [rich.heading("⭐ Те, що ти купуєш найчастіше", size=2)]
+    for item in favourites:
+        offer = offers.get(str(item.get("sku") or ""))
+        if offer and offer.image_url:
+            blocks.append(InputRichBlockPhoto(
+                photo=InputMediaPhoto(media=offer.image_url)))
+        name = texts.product_label(item["name"], 60)
+        blocks.append(rich.para([RichTextBold(text=name)]))
+        if offer:
+            blocks.append(rich.para(f"{offer.price} грн"))
+            blocks.append(rich.buttons(rich.button(
+                f"🛒 Замовити ще раз", callback_data=PROBE_CALLBACK)))
+        blocks.append(rich.divider())
+
+    lines = [await _ask(
+        "favourites as a vertical ribbon of cards",
+        rich.send(bot, chat_id, blocks,
+                  plain="(the plain favourites screen would go here)"))]
+    lines += [
+        "",
+        "<b>Look at the screen above and compare it with ⭐ Улюблені:</b>",
+        "· is the ribbon worth the length it costs?",
+        "· did the photos load at all? They come from cdn.shopify.com, and "
+        "whether Telegram fetches from there was never established.",
+        "",
+        "There is no thumbnail-left row in blocks. That is the whole trade.",
     ]
     await bot.send_message(chat_id, "\n".join(lines))
 
