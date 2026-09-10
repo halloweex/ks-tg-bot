@@ -39,6 +39,7 @@ owner's Premium lapses is the day these screens stop arriving.
 """
 from __future__ import annotations
 
+from html import escape
 from typing import Sequence, Union
 
 from aiogram import Bot
@@ -52,6 +53,8 @@ from aiogram.types import (InlineKeyboardMarkup, InputRichBlock,
                            InputRichBlockTable, InputRichMessage, Message,
                            RichBlockTableCell, RichMessageButton)
 from loguru import logger
+
+from bot.alerts import tell_admins_once
 
 # What a rich text field accepts: a string, one of the RichText* objects, or a
 # list mixing them. Typed as an alias rather than `Any` because the failure it
@@ -277,7 +280,8 @@ def fits(blocks: Sequence[object]) -> bool:
 async def send(bot: Bot, chat_id: int, blocks: Sequence[object], *,
                plain: str, reply_markup: InlineKeyboardMarkup | None = None,
                disable_notification: bool | None = None,
-               message_effect_id: str | None = None) -> Message | None:
+               message_effect_id: str | None = None,
+               admins: Sequence[int] | None = None) -> Message | None:
     """Send the rich screen, or the plain one if Telegram will not have it.
 
     `reply_markup` rides along with the blocks: `sendRichMessage` takes one,
@@ -298,8 +302,20 @@ async def send(bot: Bot, chat_id: int, blocks: Sequence[object], *,
             disable_notification=disable_notification,
             message_effect_id=message_effect_id)
     except TelegramBadRequest as exc:
+        # Loud, because the alternative is invisible. A refusal here does not
+        # break anything — the customer gets the plain screen, which is a real
+        # screen — and that is exactly the danger: every customer would go on
+        # getting the old screen while the log filled up and nobody read it.
+        # The whole migration could be dead in production and look identical to
+        # working.
         logger.warning("Rich message refused ({}), sending the plain screen",
                        exc.message)
+        if admins:
+            await tell_admins_once(
+                bot, list(admins), "rich-refused",
+                f"⚠️ Telegram refused a rich screen: {escape(exc.message)}\n\n"
+                f"Customers are getting the plain one. This does not raise and "
+                f"does not fail a test — it only shows up here.")
     except AttributeError:
         # An aiogram older than 3.31 has no such method. Worth surviving
         # rather than crashing a screen over a dependency version.

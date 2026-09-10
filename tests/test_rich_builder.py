@@ -151,3 +151,35 @@ def test_no_block_may_carry_a_custom_emoji():
         dumped = json.dumps([b.model_dump(exclude_none=True, mode="json")
                              for b in blocks], ensure_ascii=False)
         assert "tg-emoji" not in dumped, f"with parcels={bool(parcels)}"
+
+
+def test_a_refused_screen_tells_the_admins_rather_than_only_the_log():
+    """The failure that looks exactly like success. A refusal costs nobody a
+    screen — the plain one is a real screen — so every customer would go on
+    getting the old one while the whole migration sat dead in production and
+    the suite stayed green."""
+    import asyncio
+
+    told = []
+
+    async def fake_alert(bot, admin_ids, key, text):
+        told.append((key, text))
+        return len(admin_ids)
+
+    class FakeBot:
+        async def send_rich_message(self, **kw):
+            raise TelegramBadRequest(method=None, message="RICH_SOMETHING_WRONG")
+
+        async def send_message(self, chat_id, text, **kw):
+            return None
+
+    original = rich.tell_admins_once
+    rich.tell_admins_once = fake_alert
+    try:
+        asyncio.run(rich.send(FakeBot(), 1, [rich.para("x")], plain="x",
+                              admins=[7]))
+    finally:
+        rich.tell_admins_once = original
+
+    assert told, "a refusal that only reaches the log reaches nobody"
+    assert "RICH_SOMETHING_WRONG" in told[0][1]

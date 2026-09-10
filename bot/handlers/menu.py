@@ -74,7 +74,8 @@ async def open_orders(
     await state.clear()
     screen = await orders_screen(message.chat.id, t, keycrm, message, config)
     sent = await rich.send(message.bot, message.chat.id, screen.blocks or [],
-                           plain=screen.text, reply_markup=screen.markup)
+                           plain=screen.text, reply_markup=screen.markup,
+                           admins=config.env.admin_ids)
     # And a moment later, where the parcel is — from the carrier, in the
     # background, so this screen still opens from the cache instantly.
     follow_up_parcel(sent, message.chat.id, t, novaposhta)
@@ -107,7 +108,8 @@ async def open_favourites(
         message.chat.id, t, keycrm, message, config.website_url, config
     )
     await rich.send(message.bot, message.chat.id, screen.blocks or [],
-                    plain=screen.text, reply_markup=screen.markup)
+                    plain=screen.text, reply_markup=screen.markup,
+                    admins=config.env.admin_ids)
 
 
 @_menu("BTN_SUPPORT")

@@ -100,14 +100,16 @@ async def cmd_start(
                 message.chat.id, t, keycrm, message, config.website_url, config
             )
             await rich.send(message.bot, message.chat.id, screen.blocks or [],
-                            plain=screen.text, reply_markup=screen.markup)
+                            plain=screen.text, reply_markup=screen.markup,
+                            admins=config.env.admin_ids)
             return
         if payload == ORDERS_DEEP_LINK:
             screen = await orders_screen(message.chat.id, t, keycrm, message,
                                          config)
             sent = await rich.send(message.bot, message.chat.id,
                                    screen.blocks or [], plain=screen.text,
-                                   reply_markup=screen.markup)
+                                   reply_markup=screen.markup,
+                                   admins=config.env.admin_ids)
             follow_up_parcel(sent, message.chat.id, t, novaposhta)
             return
 
