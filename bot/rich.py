@@ -295,7 +295,14 @@ async def send(bot: Bot, chat_id: int, blocks: Sequence[object], *,
         # An aiogram older than 3.31 has no such method. Worth surviving
         # rather than crashing a screen over a dependency version.
         logger.warning("This aiogram cannot send rich messages; sending plain")
-    return await bot.send_message(chat_id, plain, reply_markup=reply_markup)
+    # The fallback carries them too. Without this the docstring above was a
+    # promise the function broke on the one path where it mattered: a restock
+    # that Telegram refused as rich went out loud, at night, with no 🎉 —
+    # losing exactly the two properties declared for it.
+    return await bot.send_message(
+        chat_id, plain, reply_markup=reply_markup,
+        disable_notification=disable_notification,
+        message_effect_id=message_effect_id)
 
 
 async def edit(message: Message, blocks: Sequence[object], *,

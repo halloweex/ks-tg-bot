@@ -190,8 +190,11 @@ class _Bot:
                           disable_notification, message_effect_id))
         return "rich"
 
-    async def send_message(self, chat_id, text, reply_markup=None):
+    async def send_message(self, chat_id, text, reply_markup=None, **kw):
+        # **kw on purpose: a narrow fake is how the fallback quietly lost
+        # disable_notification and message_effect_id for so long.
         self.plain.append((chat_id, text, reply_markup))
+        self.plain_kw = kw
         return "plain"
 
 
@@ -217,7 +220,7 @@ def test_an_aiogram_without_rich_messages_still_delivers():
         def __init__(self):
             self.plain = []
 
-        async def send_message(self, chat_id, text, reply_markup=None):
+        async def send_message(self, chat_id, text, reply_markup=None, **kw):
             self.plain.append(text)
             return "plain"
 
