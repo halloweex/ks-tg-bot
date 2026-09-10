@@ -96,10 +96,11 @@ async def cmd_start(
         # from is already on their screen.
         payload = command.args or ""
         if payload == FAVOURITES_DEEP_LINK:
-            text, markup = await favourites_screen(
+            screen = await favourites_screen(
                 message.chat.id, t, keycrm, message, config.website_url, config
             )
-            await message.answer(text, reply_markup=markup)
+            await rich.send(message.bot, message.chat.id, screen.blocks or [],
+                            plain=screen.text, reply_markup=screen.markup)
             return
         if payload == ORDERS_DEEP_LINK:
             screen = await orders_screen(message.chat.id, t, keycrm, message,

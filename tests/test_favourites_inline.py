@@ -323,10 +323,18 @@ def test_the_deep_link_opens_the_favourites_screen(db):
     async def nothing(*args, **kwargs):
         return None
 
+    async def send_rich(chat_id, rich_message=None, reply_markup=None, **kw):
+        sent.append((rich_message, reply_markup))
+        return SimpleNamespace(message_id=1)
+
     message = SimpleNamespace(
         chat=SimpleNamespace(id=CHAT),
         from_user=SimpleNamespace(id=CHAT, language_code="uk"),
-        bot=SimpleNamespace(set_chat_menu_button=nothing),
+        # The screen goes out as blocks now, so the deep link sends through the
+        # bot rather than answering the message.
+        bot=SimpleNamespace(set_chat_menu_button=nothing,
+                            send_rich_message=send_rich,
+                            send_message=nothing),
         answer=answer,
     )
     asyncio.run(cmd_start(
@@ -342,10 +350,20 @@ def test_the_deep_link_opens_the_favourites_screen(db):
     ))
 
     assert len(sent) == 1, "the screen and nothing else"
-    _text, markup = sent[0]
-    buttons = [b for row in markup.inline_keyboard for b in row]
-    assert any(b.text.startswith("🛒 Product 1") for b in buttons)
-    assert any(b.text == Texts("uk").BTN_WANT_DISCOUNT_PLAIN for b in buttons)
+    payload, _markup = sent[0]
+
+    named, bought, asked = [], [], []
+    for block in payload.blocks:
+        said = getattr(block, "text", None)
+        if isinstance(said, list):
+            named += [getattr(x, "text", "") for x in said]
+        if getattr(block, "type", None) == "buttons":
+            for button in block.buttons:
+                (bought if button.url else asked).append(button.text)
+
+    assert "Product 1" in named, "the card names its own product"
+    assert bought, "and offers a cart link for it"
+    assert Texts("uk").BTN_WANT_DISCOUNT_PLAIN in asked
 
 
 def test_a_card_opens_wearing_the_tick_once_it_has_been_asked_about(db):

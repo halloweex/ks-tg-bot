@@ -103,10 +103,11 @@ async def open_favourites(
 ) -> None:
     """⭐ — what this customer buys most, and what of it is out of stock."""
     await state.clear()
-    text, markup = await favourites_screen(
+    screen = await favourites_screen(
         message.chat.id, t, keycrm, message, config.website_url, config
     )
-    await message.answer(text, reply_markup=markup)
+    await rich.send(message.bot, message.chat.id, screen.blocks or [],
+                    plain=screen.text, reply_markup=screen.markup)
 
 
 @_menu("BTN_SUPPORT")
@@ -214,11 +215,11 @@ async def favourites_from_menu(
     """
     await callback.answer()
     await state.clear()
-    text, markup = await favourites_screen(
+    screen = await favourites_screen(
         callback.from_user.id, t, keycrm, callback.message, config.website_url,
         config
     )
-    await render(callback, text, markup)
+    await render(callback, screen.text, screen.markup, blocks=screen.blocks)
 
 
 @router.callback_query(MenuAction.filter(F.action == "open_delivery"))

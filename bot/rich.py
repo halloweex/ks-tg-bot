@@ -169,7 +169,16 @@ def _walk(value, depth: int = 1):
 
 
 def _dumped(blocks: Sequence[object]) -> list:
-    return [b.model_dump(exclude_none=True, mode="json") for b in blocks]
+    """The blocks as plain data, for the counters to walk.
+
+    `fallback` because aiogram fills unset fields of a media block with a
+    `Default(...)` sentinel that only resolves inside a Bot: without it every
+    counter — and so `fits` — raises on any screen carrying a photo, which is
+    every favourites screen. The sentinel stringifies to something no counter
+    cares about; what matters is that it does not stop the walk.
+    """
+    return [b.model_dump(exclude_none=True, mode="json", fallback=str)
+            for b in blocks]
 
 
 def count_blocks(blocks: Sequence[object]) -> int:

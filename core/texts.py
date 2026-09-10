@@ -491,6 +491,13 @@ MSG_NO_FAVOURITES = (
 # numbers meant — and a screen that has to explain its own buttons has already
 # lost the argument.
 BTN_BUY_PRODUCT = "🛒 {name} · {price} ₴"
+# Inside a card the product is already named above the button and pictured
+# above that, so the button says only what it does. The plain screen cannot do
+# this: there the label is the only place the name can be.
+BTN_BUY_ONE = "🛒 Замовити"
+BTN_NOTIFY_SHORT = "🔔 Повідомити, коли зʼявиться"
+BTN_NOTIFY_WAITING_SHORT = "✅ Чекаєш"
+MSG_FAVOURITE_PRICE = "{price} ₴"
 # The verb first, and the verb is the bot's promise rather than the product's
 # state: "немає" told the customer something they could already see and offered
 # them nothing. Every shop that does this well — Rozetka, MAKEUP, Zara — puts

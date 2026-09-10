@@ -9,7 +9,8 @@ from typing import NamedTuple
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError
-from aiogram.types import (CallbackQuery, InlineKeyboardMarkup, Message,
+from aiogram.types import (CallbackQuery, InlineKeyboardMarkup,
+                           InputMediaPhoto, InputRichBlockPhoto, Message,
                            RichTextBold, RichTextUrl)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from loguru import logger
@@ -78,6 +79,14 @@ INLINE_LIMIT = 50
 
 # How many favourites the screen itself lists.
 _ON_SCREEN = 5
+
+# What we ask the storefront for when a favourite becomes a card. There is no
+# size control in the rich API — InputRichBlockPhoto takes a photo and a
+# caption, and width/height exist only on the map block — so the picture's size
+# is decided by which picture we hand over. Telegram draws a small one small:
+# the owner compared full-width against this side by side on 2026-09-10 and
+# chose this. Same number the inline panel's thumbnails have always used.
+_RICH_PHOTO_WIDTH = 200
 
 # Orders per page: one card and nine lines. It used to be three, because three
 # full blocks were already a screen and a half; a digest line is forty
@@ -805,7 +814,7 @@ async def favourites_screen(
     anchor: Message,
     website_url: str,
     config: AppConfig | None = None,
-) -> tuple[str, InlineKeyboardMarkup | None]:
+) -> Screen:
     """The favourites screen.
 
     Computed from the cached orders, which already carry their product lines —
@@ -814,7 +823,7 @@ async def favourites_screen(
     """
     phone = await get_user_phone(chat_id)
     if not phone:
-        return t.MSG_NO_PHONE_YET, _no_phone_kb(t)
+        return Screen(t.MSG_NO_PHONE_YET, _no_phone_kb(t))
 
     cached = await get_cached_orders(chat_id)
     if not cached:
@@ -822,16 +831,16 @@ async def favourites_screen(
         await _refresh_orders(chat_id, keycrm)
         cached = await get_cached_orders(chat_id)
 
-    text, markup, found = await _favourites_view(chat_id, t, cached, website_url,
-                                                 config)
+    text, markup, blocks, found = await _favourites_view(
+        chat_id, t, cached, website_url, config)
     track(chat_id, "favourites_viewed", found=found)
-    return text, markup
+    return Screen(text, markup, blocks)
 
 
 async def _favourites_view(
     chat_id: int, t: Texts, cached: list[dict], website_url: str,
     config: AppConfig | None = None,
-) -> tuple[str, InlineKeyboardMarkup, int]:
+) -> tuple[str, InlineKeyboardMarkup, list | None, int]:
     """The favourites screen — its text, its buttons, and how many it lists.
 
     The list *is* the buttons. What used to be five text blocks plus two rows of
@@ -856,7 +865,7 @@ async def _favourites_view(
         empty = t.MSG_NO_FAVOURITES if cached else t.MSG_NO_ORDERS
         offer = first_order_offer(t, config) if config is not None and not cached else ""
         return (f"{empty}\n\n{offer}" if offer else empty,
-                _no_orders_kb(t, config), 0)
+                _no_orders_kb(t, config), None, 0)
 
     offers = await get_offers(str(item.get("sku") or "") for item in favourites)
     levels = await get_stock_levels()
@@ -873,10 +882,13 @@ async def _favourites_view(
         names = ", ".join(texts.product_label(item["name"], 28) for item in silent)
         lines += ["", t.MSG_FAVOURITES_ALSO.format(names=escape(names))]
 
+    asked = await pending_discount_request(chat_id)
     return (
         "\n".join(lines),
         _favourites_kb(favourites, offers, levels, subscribed, t, website_url,
-                       repeated, await pending_discount_request(chat_id)),
+                       repeated, asked, rich=True),
+        rich_favourites_blocks(favourites, offers, levels, subscribed, t,
+                               website_url, repeated=repeated, asked=asked),
         len(favourites),
     )
 
@@ -917,9 +929,89 @@ def _is_missing(item: dict, offers: dict[str, Offer], levels: dict[str, int]) ->
     return _is_out_of_stock(item, levels)
 
 
+def _photo_at(url: str, width: int = _RICH_PHOTO_WIDTH) -> str:
+    """The same picture, asked for smaller."""
+    joiner = "&" if "?" in url else "?"
+    return f"{url}{joiner}width={width}"
+
+
+def rich_favourites_blocks(favourites, offers, levels, subscribed, t: Texts,
+                           website_url: str, *, repeated: bool = True,
+                           asked: bool = False) -> list:
+    """Favourites as cards, each product its own picture, name, price and button.
+
+    The plain screen is a heading and a column of buttons, because a button was
+    the only place a product's name and price could sit together. Here they sit
+    beside the product's own photo, which is the thing the inline panel existed
+    to provide and the reason it was one tap further in.
+
+    What it costs, and it was weighed: media in a rich message can only be its
+    own block, so there is no row with a thumbnail on the left. Five products
+    are five full-width cards, a longer screen that scrolls differently. The
+    owner looked at it against the alternatives on 2026-09-10 and chose this,
+    with the picture asked of the storefront at _RICH_PHOTO_WIDTH.
+    """
+    blocks: list = [rich.heading(
+        t.MSG_FAVOURITES_HEADER if repeated else t.MSG_FAVOURITES_HEADER_ONCE,
+        size=2)]
+
+    for item in favourites:
+        offer = _buyable(item, offers)
+        picture = offers.get(str(item.get("sku") or ""))
+        if picture is not None and picture.image_url:
+            blocks.append(InputRichBlockPhoto(
+                # parse_mode spelled out because the field defaults to a
+                # Default(...) sentinel that only resolves inside a Bot, and
+                # anything that serialises these blocks outside one — the
+                # budget counters, every test — dies on it. There is no caption
+                # here to parse anyway.
+                photo=InputMediaPhoto(media=_photo_at(picture.image_url),
+                                      parse_mode=None,
+                                      show_caption_above_media=None)))
+
+        blocks.append(rich.para([RichTextBold(
+            text=texts.product_label(item["name"], _BUTTON_NAME_LEN))]))
+
+        if offer is not None:
+            blocks.append(rich.para(t.MSG_FAVOURITE_PRICE.format(
+                price=texts.price_label(offer.price))))
+            blocks.append(rich.buttons(rich.button(
+                t.BTN_BUY_ONE,
+                url=cart_url(website_url, [offer.variant_id], t.lang),
+                style=STYLE_CART)))
+        else:
+            sku = str(item.get("sku") or "")
+            if sku and _is_missing(item, offers, levels):
+                waiting = sku in subscribed
+                blocks.append(rich.buttons(rich.button(
+                    t.BTN_NOTIFY_WAITING_SHORT if waiting else t.BTN_NOTIFY_SHORT,
+                    callback_data=StockAction(
+                        action="unsub" if waiting else "sub", sku=sku).pack(),
+                    style=STYLE_UNDO if waiting else None)))
+        blocks.append(rich.divider())
+
+    # The lot, and the ask. Both are about the whole screen rather than about
+    # one product, so they sit under the rule rather than inside a card.
+    basket = [o.variant_id for o in
+              (_buyable(i, offers) for i in favourites) if o is not None]
+    total = sum(_as_number(o.price) for o in
+                (_buyable(i, offers) for i in favourites) if o is not None)
+    tail: list = []
+    if len(basket) > 1:
+        tail.append(rich.button(
+            t.BTN_BUY_ALL.format(total=texts.price_label(total)),
+            url=cart_url(website_url, basket, t.lang), style=STYLE_CART))
+    tail.append(rich.button(
+        t.BTN_DISCOUNT_ASKED if asked
+        else (t.BTN_WANT_DISCOUNT if repeated else t.BTN_WANT_DISCOUNT_PLAIN),
+        callback_data=DiscountAction(action="ask").pack()))
+    blocks.append(rich.buttons(*tail))
+    return blocks
+
+
 def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
                    website_url: str, repeated: bool = True,
-                   asked: bool = False) -> InlineKeyboardMarkup:
+                   asked: bool = False, rich: bool = False) -> InlineKeyboardMarkup:
     """The way into the inline list, one button per product, one for the lot,
     then the discount ask.
 
@@ -945,7 +1037,11 @@ def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
     basket: list[int] = []
     total = 0.0
 
-    for item in favourites:
+    # On a rich screen every one of these lives inside the card it belongs to,
+    # beside the product's own picture — which is the whole point of the move.
+    # Leaving them here as well would be the same button twice, once with the
+    # name it acts on and once without.
+    for item in ([] if rich else favourites):
         label = texts.product_label(item["name"], _BUTTON_NAME_LEN)
         offer = _buyable(item, offers)
         if offer is not None:
@@ -978,7 +1074,7 @@ def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
 
     # One basket with everything available in it. Only from two products up:
     # with one it is the button directly above it, worded at greater length.
-    if len(basket) > 1:
+    if not rich and len(basket) > 1:
         builder.button(text=t.BTN_BUY_ALL.format(total=texts.price_label(total)),
                        url=cart_url(website_url, basket, t.lang), style=STYLE_CART)
         rows += 1
@@ -991,16 +1087,19 @@ def _favourites_kb(favourites, offers, levels, subscribed, t: Texts,
     # Otherwise, the same fact the header is chosen by: with nothing bought
     # twice, «на ці товари» would be asking for a discount on the strength of a
     # habit the customer does not have yet.
-    if asked:
+    if rich:
+        pass          # both live under the rule in the blocks
+    elif asked:
         builder.button(text=t.BTN_DISCOUNT_ASKED,
                        callback_data=DiscountAction(action="ask"),
                        style=STYLE_UNDO)
+        rows += 1
     else:
         builder.button(
             text=t.BTN_WANT_DISCOUNT if repeated else t.BTN_WANT_DISCOUNT_PLAIN,
             callback_data=DiscountAction(action="ask"),
         )
-    rows += 1
+        rows += 1
     # The way back, for the same reason it is on every other screen.
     builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="menu"))
     rows += 1
@@ -1205,10 +1304,10 @@ async def _redraw_favourites(callback: CallbackQuery, chat_id: int, t: Texts,
     reads 🔔. These buttons exist nowhere else, so the screen the callback came
     from is always the favourites list.
     """
-    text, markup, _found = await _favourites_view(
+    text, markup, blocks, _found = await _favourites_view(
         chat_id, t, await get_cached_orders(chat_id), website_url
     )
-    await render(callback, text, markup)
+    await render(callback, text, markup, blocks=blocks)
 
 
 @router.callback_query(OrderAction.filter(F.action.in_({"show", "items"})))

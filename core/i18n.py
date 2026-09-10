@@ -171,6 +171,10 @@ EN: dict[str, str] = {
         "Nothing to base favourites on yet. The products you order most often "
         "will show up here."
     ),
+    "BTN_BUY_ONE": "🛒 Order",
+    "BTN_NOTIFY_SHORT": "🔔 Tell me when it is back",
+    "BTN_NOTIFY_WAITING_SHORT": "✅ Waiting",
+    "MSG_FAVOURITE_PRICE": "{price} ₴",
     "BTN_BUY_PRODUCT": "🛒 {name} · {price} ₴",
     "BTN_NOTIFY_PRODUCT": "🔔 Notify me: {name}",
     "BTN_NOTIFY_WAITING": "✅ Waiting: {name}",

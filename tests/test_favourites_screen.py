@@ -48,11 +48,83 @@ def _offer(sku, *, variant=111, available=True, price="680.00") -> Offer:
                  price=price, available=available)
 
 
+def _buttons_in(blocks) -> list:
+    """Every button in the blocks, wherever it sits.
+
+    The screen moved its buttons from the slab under the message into the cards
+    they belong to, beside each product's own picture. What these tests are
+    about did not move: whether the button exists, what it says, where its cart
+    link points. So they ask the screen rather than the keyboard, and stop
+    caring which container holds the answer."""
+    found = []
+
+    def walk(node):
+        if getattr(node, "type", None) == "buttons":
+            found.extend(node.buttons)
+            return
+        for name in getattr(type(node), "model_fields", {}):
+            value = getattr(node, name, None)
+            if isinstance(value, (list, tuple)):
+                for item in value:
+                    walk(item)
+            elif hasattr(value, "model_fields"):
+                walk(value)
+
+    for block in blocks or []:
+        walk(block)
+    return found
+
+
+def _cards(blocks) -> list[dict]:
+    """The screen grouped the way the reader sees it: a picture, a name, a
+    price and the button that acts on them, up to the rule that ends the card.
+
+    The plain screen had to put the product's name inside the button, because a
+    button was the only place the name and the action could be together. In a
+    card the name is above the button, in bold, under the product's own
+    picture — so a test asking "does this button name its product" has to ask
+    the card instead."""
+    cards, current = [], None
+    for block in blocks or []:
+        kind = getattr(block, "type", None)
+        if kind == "divider":
+            if current:
+                cards.append(current)
+            current = None
+            continue
+        if kind == "photo":
+            current = current or {"name": "", "lines": [], "buttons": []}
+            current["photo"] = block.photo.media
+            continue
+        if kind == "paragraph":
+            said = block.text
+            if isinstance(said, list):
+                said = "".join(getattr(x, "text", str(x)) for x in said)
+            current = current or {"name": "", "lines": [], "buttons": []}
+            if not current["name"]:
+                current["name"] = said
+            else:
+                current["lines"].append(said)
+            continue
+        if kind == "buttons" and current is not None:
+            current["buttons"].extend(block.buttons)
+    if current:
+        cards.append(current)
+    return cards
+
+
+def _view_cards(orders, lang="uk"):
+    _text, _kb, blocks, _n = asyncio.run(
+        _favourites_view(CHAT, Texts(lang), orders, SHOP))
+    return _cards(blocks)
+
+
 def _view(orders, lang="uk"):
-    text, kb, _n = asyncio.run(
+    text, kb, blocks, _n = asyncio.run(
         _favourites_view(CHAT, Texts(lang), orders, SHOP)
     )
     buttons = [b for row in kb.inline_keyboard for b in row]
+    buttons += _buttons_in(blocks)
     return re.sub(r"<[^>]+>", "", text), buttons
 
 
@@ -78,21 +150,21 @@ def _products(buttons):
 
 def test_a_sellable_favourite_gets_a_cart_link_to_its_own_variant(db):
     asyncio.run(save_offers({"1": _offer("1", variant=99)}))
-    _text, buttons = _view([_order("1")])
-    buy = _products(buttons)[0]
-    assert urlparse(buy.url).path == "/cart/99:1"
-    assert buy.text.startswith("🛒 Product 1")
-    assert buy.text.endswith("680 ₴")
+    card = _view_cards([_order("1")])[0]
+    assert card["name"] == "Product 1"
+    assert "680 ₴" in " ".join(card["lines"])
+    assert urlparse(card["buttons"][0].url).path == "/cart/99:1"
 
 
-def test_a_button_names_its_own_product(db):
-    """The numbered buttons this replaced needed a legend under the list saying
-    what the numbers meant. Nothing here has to be matched to anything else."""
+def test_every_button_sits_with_the_product_it_acts_on(db):
+    """The numbered buttons this replaced needed a legend saying what the
+    numbers meant. Nothing here has to be matched to anything else: the name is
+    the line above the button, under that product's own picture."""
     asyncio.run(save_offers({"1": _offer("1"), "2": _offer("2", variant=22)}))
-    text, buttons = _view([_order("1", "2")])
-    named = [b.text.split(" · ")[0] for b in _products(buttons)[:2]]
-    assert named == ["🛒 Product 1", "🛒 Product 2"]
-    assert "номер" not in text
+    cards = _view_cards([_order("1", "2")])
+    assert [c["name"] for c in cards[:2]] == ["Product 1", "Product 2"]
+    assert urlparse(cards[0]["buttons"][0].url).path.endswith("111:1")
+    assert urlparse(cards[1]["buttons"][0].url).path.endswith("22:1")
 
 
 def test_the_cart_link_is_tagged_so_the_shop_can_count_it(db):
@@ -107,8 +179,8 @@ def test_the_cart_link_is_tagged_so_the_shop_can_count_it(db):
 
 def test_the_checkout_opens_in_the_customers_own_language(db):
     asyncio.run(save_offers({"1": _offer("1")}))
-    _text, buttons = _view([_order("1")], lang="en")
-    assert parse_qs(urlparse(_products(buttons)[0].url).query)["locale"] == ["en"]
+    card = _view_cards([_order("1")], lang="en")[0]
+    assert parse_qs(urlparse(card["buttons"][0].url).query)["locale"] == ["en"]
 
 
 def test_one_basket_holds_everything_available(db):
@@ -127,8 +199,7 @@ def test_a_single_available_product_gets_no_order_everything_button(db):
     """It would be the button directly above it, worded at greater length."""
     asyncio.run(save_offers({"1": _offer("1")}))
     _text, buttons = _view([_order("1")])
-    assert [b.text.split(" · ")[0] for b in _products(buttons)] == [
-        "🛒 Product 1", "💰 Хочу знижку"]
+    assert not any(b.text.startswith(T.BTN_BUY_ALL[:5]) for b in buttons)
 
 
 # --- what the discount button is allowed to claim ---------------------------
@@ -176,17 +247,17 @@ def test_the_storefront_outranks_the_crm_count(db):
     way to buy it, so the screen must not offer one."""
     asyncio.run(save_offers({"1": _offer("1", available=False)}))
     asyncio.run(save_stock_levels({"1": 50}))
-    _text, buttons = _view([_order("1")])
-    assert not any(b.text.startswith("🛒 Product") for b in buttons)
-    assert "🔔 Повідомити: Product 1" in _labels(buttons)
+    card = _view_cards([_order("1")])[0]
+    assert not any(b.url for b in card["buttons"]), "nothing to buy it with"
+    assert card["buttons"][0].text == T.BTN_NOTIFY_SHORT
 
 
 def test_without_an_offer_the_crm_count_still_answers(db):
     """About a fifth of the catalogue is sold but never listed — samples, sets.
     Those keep the behaviour the screen had before the storefront existed."""
     asyncio.run(save_stock_levels({"1": 0}))
-    _text, buttons = _view([_order("1")])
-    assert "🔔 Повідомити: Product 1" in _labels(buttons)
+    card = _view_cards([_order("1")])[0]
+    assert card["buttons"][0].text == T.BTN_NOTIFY_SHORT
 
 
 def test_where_neither_source_knows_the_screen_says_nothing(db):
@@ -202,8 +273,11 @@ def test_where_neither_source_knows_the_screen_says_nothing(db):
 def test_a_subscription_already_taken_shows_as_cancellable(db):
     asyncio.run(save_offers({"1": _offer("1", available=False)}))
     asyncio.run(add_stock_subscription(CHAT, "1", "Product 1"))
-    _text, buttons = _view([_order("1")])
-    assert "✅ Чекаєте: Product 1" in _labels(buttons)
+    card = _view_cards([_order("1")])[0]
+    waiting = card["buttons"][0]
+    assert waiting.text == T.BTN_NOTIFY_WAITING_SHORT
+    assert waiting.style == "danger", (
+        "red only where pressing it cancels a promise she asked for")
 
 
 # --- the hints under the list ----------------------------------------------

@@ -62,7 +62,7 @@ def test_a_code_with_awkward_characters_survives_the_url():
 
 def test_a_customer_with_no_orders_is_offered_it(db):
     asyncio.run(save_user(CHAT, "+380670000000"))
-    text, markup, _ = asyncio.run(
+    text, markup, _blocks, _ = asyncio.run(
         _favourites_view(CHAT, T, [], SHOP, _config()))
     assert "перше замовлення" in text
     assert T.BTN_FIRST_ORDER in _labels(markup)
@@ -83,7 +83,7 @@ def test_a_customer_who_has_bought_before_is_not(db):
     }
     asyncio.run(upsert_orders(CHAT, [order]))
     cached = [order]
-    text, markup, _ = asyncio.run(
+    text, markup, _blocks, _ = asyncio.run(
         _favourites_view(CHAT, T, cached, SHOP, _config()))
     assert "перше замовлення" not in text
     assert T.BTN_FIRST_ORDER not in _labels(markup)
