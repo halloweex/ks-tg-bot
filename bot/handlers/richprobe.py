@@ -197,6 +197,15 @@ async def cmd_favprobe(message: Message, config: AppConfig) -> None:
 
     offers = await get_offers([f.get("sku", "") for f in favourites])
 
+    # Counted before anything is sent, because a card with no picture has two
+    # very different causes and the screen looks identical either way: Telegram
+    # would not fetch it, or we never handed it a URL. Without this the probe
+    # cannot answer its own question — and demo SKUs are the likeliest reason
+    # the catalogue has nothing to give.
+    with_offer = sum(1 for f in favourites if offers.get(str(f.get("sku") or "")))
+    with_image = sum(1 for f in favourites
+                     if (o := offers.get(str(f.get("sku") or ""))) and o.image_url)
+
     blocks: list = [rich.heading("⭐ Те, що ти купуєш найчастіше", size=2)]
     for item in favourites:
         offer = offers.get(str(item.get("sku") or ""))
@@ -217,12 +226,29 @@ async def cmd_favprobe(message: Message, config: AppConfig) -> None:
                   plain="(the plain favourites screen would go here)"))]
     lines += [
         "",
-        "<b>Look at the screen above and compare it with ⭐ Улюблені:</b>",
-        "· is the ribbon worth the length it costs?",
-        "· did the photos load at all? They come from cdn.shopify.com, and "
-        "whether Telegram fetches from there was never established.",
+        f"Favourites: {len(favourites)}. "
+        f"Found in the catalogue: {with_offer}. With a picture URL: {with_image}.",
+    ]
+    if not with_image:
+        lines += [
+            "",
+            "⚠️ <b>No picture URLs, so the cards above prove nothing about "
+            "photos.</b> Demo orders carry SKUs the catalogue may not know. "
+            "Judge the shape from this, and run it again on real favourites "
+            "to see whether Telegram fetches from cdn.shopify.com.",
+        ]
+    else:
+        lines += [
+            "",
+            f"<b>{with_image} picture URL(s) went out.</b> If they are blank "
+            "above, Telegram would not fetch from cdn.shopify.com — which "
+            "nothing had established until now.",
+        ]
+    lines += [
         "",
-        "There is no thumbnail-left row in blocks. That is the whole trade.",
+        "<b>Compare it with ⭐ Улюблені and decide one thing:</b> is the ribbon "
+        "worth the length it costs? There is no thumbnail-left row in blocks, "
+        "so this shape is the whole trade.",
     ]
     await bot.send_message(chat_id, "\n".join(lines))
 
