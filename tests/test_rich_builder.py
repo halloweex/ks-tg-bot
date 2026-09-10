@@ -43,3 +43,58 @@ def test_a_button_weighs_its_label_and_not_its_destination():
     weighed = rich.text_bytes([rich.buttons(
         rich.button("Меню", callback_data="menu:menu:0:0"))])
     assert weighed == len("Меню".encode("utf-8"))
+
+
+# --- the counter has to count what Telegram counts ---------------------------
+
+
+def test_a_list_item_is_a_block():
+    """InputRichBlockListItem is the one block type that does not inherit
+    InputRichBlock, and its `type` defaults to None — so on the serialised form
+    it looks like a bare {"blocks": [...]} and went uncounted. bullets() makes
+    one per product, which is where the screen's blocks actually live."""
+    # bullets() wraps every entry in a paragraph, so three products are the
+    # list, three items, and three paragraphs — seven blocks for what reads as
+    # three lines. That ratio is why the undercount mattered: the screen's
+    # blocks live almost entirely inside product lists.
+    assert rich.count_blocks([rich.bullets(["a", "b", "c"])]) == 7
+
+
+def test_inline_markup_is_not_a_block():
+    """The mirror error: RichTextAnchor carries a `type` that happens to exist
+    in InputRichBlockType, so counting by `type` called it a block."""
+    from aiogram.types import RichTextBold
+
+    assert rich.count_blocks([rich.para(["a ", RichTextBold(text="b")])]) == 1
+
+
+def test_the_counter_agrees_with_what_goes_on_the_wire():
+    """The property the budget rests on. Before this the two disagreed by 45%
+    on the module's own worked example, and fits() waved through screens of
+    619 and 759 blocks against a ceiling of 500."""
+    from aiogram.types.base import TelegramObject
+
+    def on_the_wire(blocks) -> int:
+        total = 0
+
+        def walk(node):
+            nonlocal total
+            if isinstance(node, TelegramObject):
+                if type(node).__name__.startswith("InputRichBlock"):
+                    total += 1
+                for name in type(node).model_fields:
+                    walk(getattr(node, name, None))
+            elif isinstance(node, (list, tuple)):
+                for item in node:
+                    walk(item)
+
+        walk(list(blocks))
+        return total
+
+    screen = [
+        rich.heading("Заголовок"),
+        rich.details("Заказ", [rich.para("рядок"), rich.bullets(["a", "b", "c", "d"])]),
+        rich.divider(),
+        rich.buttons(rich.button("Меню", callback_data="menu:menu")),
+    ]
+    assert rich.count_blocks(screen) == on_the_wire(screen)

@@ -47,3 +47,6 @@ build/
 .import_linter_cache/
 .pytest_cache/
 .coverage
+
+# Черновики агентов и разовые замеры — не имущество репозитория.
+scratchpad/

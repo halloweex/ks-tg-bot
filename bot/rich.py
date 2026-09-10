@@ -44,7 +44,8 @@ from typing import Sequence, Union
 from aiogram import Bot
 from aiogram.enums import InputRichBlockType
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import (InlineKeyboardMarkup, InputRichBlockButtons,
+from aiogram.types import (InlineKeyboardMarkup, InputRichBlock,
+                           InputRichBlockButtons,
                            InputRichBlockDetails, InputRichBlockDivider,
                            InputRichBlockList, InputRichBlockListItem,
                            InputRichBlockParagraph, InputRichBlockSectionHeading,
@@ -174,12 +175,37 @@ def _dumped(blocks: Sequence[object]) -> list:
 def count_blocks(blocks: Sequence[object]) -> int:
     """How many actual blocks, nested ones included.
 
-    Counted by `type` against the enum, because inline rich text carries a
-    `type` of its own — counting every mapping calls bold runs and links blocks
-    and overstates a screen by about a third.
+    Counted on the models rather than on their serialised form, because the
+    serialised form cannot be told apart reliably. Two errors came of trying:
+
+    * `InputRichBlockListItem` is the only block type that does not inherit
+      `InputRichBlock`, and its `type` field defaults to None — so a list item
+      is dumped as a bare `{"blocks": [...]}` and was skipped. `bullets()`
+      makes one per product, so a screen of 25 orders with 30 items each
+      counted 399 while carrying 759. `fits()` said yes to every one of them.
+    * Inline `RichTextAnchor` and `RichTextMathematicalExpression` carry a
+      `type` that happens to exist in `InputRichBlockType`, so they counted as
+      blocks. Not used on this screen yet, but loaded.
+
+    Whether Telegram counts a list item toward its 500 is not documented and
+    the probe did not ask — it sent 600 flat paragraphs. Counting them is the
+    conservative reading and matches the measurement this module's budget was
+    set from ("eight orders of thirty items each is 530 blocks").
     """
-    return sum(1 for node, _d in _walk(_dumped(blocks))
-               if node.get("type") in _BLOCK_TYPES)
+    total = 0
+
+    def walk(node) -> None:
+        nonlocal total
+        if isinstance(node, (InputRichBlock, InputRichBlockListItem)):
+            total += 1
+            for name in type(node).model_fields:
+                walk(getattr(node, name, None))
+        elif isinstance(node, (list, tuple)):
+            for item in node:
+                walk(item)
+
+    walk(list(blocks))
+    return total
 
 
 # Keys whose string value is structure rather than something anybody reads:
