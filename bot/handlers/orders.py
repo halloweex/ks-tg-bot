@@ -687,25 +687,20 @@ async def orders_screen(
         offer = first_order_offer(t, config)
         if offer:
             text = f"{text}\n\n{offer}"
-    # Blocks only for admins, which is what the plan said and the first
-    # attempt did not do. Two reasons, and either alone is enough.
+    # The gate is gone: the owner decided on 2026-09-10 that every customer is
+    # assumed to be on a current Telegram (docs/rich-messages.md). It stood
+    # while the screen was raw and while nobody had looked at an older client;
+    # the first is fixed and the second is now a decision rather than an
+    # unknown.
     #
-    # A rich message carries no plain text: `SendRichMessage` has no `text`
-    # field at all. The `plain` beside it is used when Telegram *refuses* the
-    # message — and Telegram does not refuse on account of the reader's client.
-    # It answers 200 and the degrading happens on the device, so for a customer
-    # on an older Telegram there is no fallback, only whatever that client
-    # shows for something it cannot draw. Nobody has looked yet.
-    #
-    # And the slab under the screen is still the plain screen's keyboard: on a
-    # rich screen ten of its thirteen buttons change nothing, because folding
-    # belongs to the client now. See docs/found-during-move.md.
-    rich_ok = bool(config and chat_id in config.env.admin_ids)
+    # What the gate bought in the meantime: twenty-six review findings, a hole
+    # in the gate itself, and three counters that lied — all met by an admin
+    # rather than by a customer.
     return Screen(
         f"{notice}\n\n{text}" if notice else text,
-        _orders_kb(cached, t, rich=bool(cached and rich_ok))
+        _orders_kb(cached, t, rich=bool(cached))
         if cached else _no_orders_kb(t, config),
-        rich_orders_blocks(cached, t) if cached and rich_ok else None,
+        rich_orders_blocks(cached, t, notice=notice) if cached else None,
     )
 
 
@@ -1392,7 +1387,8 @@ def _order_details(row: dict, t: Texts, *, parcel: list[str] | None = None) -> l
 
 def rich_orders_blocks(orders: list[dict], t: Texts, *,
                        parcels: dict[int, list[str]] | None = None,
-                       cancelled: bool = False, page: int = 0) -> list:
+                       cancelled: bool = False, page: int = 0,
+                       notice: str = "") -> list:
     # NOTE: `parcels` must come from parcel_lines(..., as_html=False). A block's
     # text is structured, not parsed, so an escaped apostrophe arrives as the
     # literal "&#x27;". Nothing here can tell the two apart, which is why it is
@@ -1421,6 +1417,13 @@ def rich_orders_blocks(orders: list[dict], t: Texts, *,
     if page:
         active, _ = _page_slice(active, page)
     blocks: list = [rich.heading(t.MSG_ORDERS_TITLE, size=2)]
+    # §5.5, the customer-facing half of the stalled-sync alert. The plain
+    # screen has carried it since it was written; the rich one dropped it on
+    # the floor, so the warning was dead for everyone modern enough to see
+    # blocks — which, after today's decision, is everyone. Above the list, for
+    # the same reason as in the plain form: a long history must not bury it.
+    if notice:
+        blocks.append(rich.para(notice))
     parcels = parcels or {}
 
     # Everything that goes on after the loop, weighed with every candidate.
@@ -1450,7 +1453,13 @@ def rich_orders_blocks(orders: list[dict], t: Texts, *,
         section = rich.details(
             _order_summary(row, t),
             _order_details(row, t, parcel=parcels.get(row.get("id", 0))),
-            is_open=(row is active[0]),
+            # Open the one being answered about, else the newest. The parcel
+            # lookup redraws the whole screen with one section's lines filled
+            # in, and pinning this to active[0] delivered that answer into a
+            # folded section: she tapped "Де посилка?", the screen redrew, and
+            # nothing she could see had changed.
+            is_open=(row.get("id", 0) in parcels if parcels
+                     else row is active[0]),
         )
         if not rich.fits(blocks + [section] + tail):
             break

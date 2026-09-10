@@ -372,25 +372,24 @@ def test_the_screen_carries_both_shapes(db_with_orders):
     assert screen.markup is not None
 
 
-def test_a_customer_gets_the_plain_screen_until_the_rich_one_is_ready(db_with_orders):
-    """The gate the plan called for and the first attempt skipped.
+def test_every_customer_gets_the_rich_screen_now(db_with_orders):
+    """The admin gate is gone. It stood while the screen was raw and while
+    nobody had looked at an older client; the owner settled the second on
+    2026-09-10 by deciding every customer is on a current Telegram
+    (docs/rich-messages.md), and the first was fixed before it was lifted.
 
-    A rich message carries no plain text — SendRichMessage has no `text` field
-    — and Telegram does not refuse it on account of the reader's client, so an
-    older Telegram gets no fallback at all, only whatever it shows for
-    something it cannot draw. Nobody has looked yet, and the slab under the
-    screen is still the plain screen's keyboard. Admins first."""
+    What it bought while it stood: twenty-six review findings, a hole in the
+    gate itself, and three counters that lied — all met by an admin."""
     screen = asyncio.run(orders.orders_screen(1, T, _Keycrm(), _anchor(),
                                               _admin_config(999)))
-    assert screen.text, "the plain screen is the whole screen for her"
-    assert screen.blocks is None, "no blocks until somebody has seen an old client"
+    assert screen.blocks, "no longer only for admins"
+    assert screen.text, "and the plain form is still built beside it"
 
 
-def test_without_a_config_nobody_gets_blocks(db_with_orders):
-    """The entrances that pass no config are internal redraws; defaulting to
-    plain there is the safe direction."""
+def test_blocks_do_not_need_a_config(db_with_orders):
+    """The internal redraws pass none, and they must draw the same screen."""
     screen = asyncio.run(orders.orders_screen(1, T, _Keycrm(), _anchor()))
-    assert screen.blocks is None
+    assert screen.blocks
 
 
 def test_the_rich_shape_is_a_valid_rich_message(db_with_orders):

@@ -372,3 +372,31 @@ def test_at_least_one_order_survives_any_budget():
     fall back from is the better failure."""
     blocks = rich_orders_blocks(_many(1, 2000), T, cancelled=True)
     assert len(_sections(blocks)) >= 1
+
+
+# --- what the redraw is for --------------------------------------------------
+
+def test_the_parcel_answer_lands_in_a_section_she_can_see():
+    """is_open was pinned to the newest order, so the answer to "Де посилка?"
+    arrived inside a folded section: she tapped, the screen redrew, and nothing
+    she could see had changed."""
+    rows = [_order(1), _order(2), _order(3)]
+
+    quiet = [b for b in rich_orders_blocks(rows, T) if b.type == "details"]
+    assert quiet[0].is_open and not quiet[2].is_open, "the newest, by default"
+
+    answered = [b for b in rich_orders_blocks(
+        rows, T, parcels={3: ["Статус: В дорозі"]}) if b.type == "details"]
+    assert answered[2].is_open, "the one being answered about"
+    assert not answered[0].is_open
+
+
+def test_the_stale_warning_reaches_the_rich_screen_too():
+    """§5.5 is the customer's half of the stalled-sync alert. The plain screen
+    has carried it since it was written; the rich one dropped it, so it was
+    dead for everyone modern enough to see blocks."""
+    blocks = rich_orders_blocks([_order(1)], T, notice="⏳ Дані застаріли")
+    said = [str(getattr(b, "text", "")) for b in blocks]
+    assert any("застаріли" in line for line in said)
+    # Above the list: a long history must not bury it.
+    assert said.index(next(l for l in said if "застаріли" in l)) <= 1
