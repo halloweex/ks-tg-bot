@@ -33,8 +33,6 @@ ADMIN_COMMANDS = [
     ("stats", "Funnel and event stats"),
     ("broadcast", "Send a message to all subscribers"),
     ("demo", "Seed demo orders (/demo clear to remove)"),
-    ("richprobe", "Ask Telegram what rich messages really do (temporary)"),
-    ("favprobe", "See favourites as rich cards before deciding (temporary)"),
     ("chatid", "Show this chat's id"),
 ]
 

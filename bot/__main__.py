@@ -31,7 +31,6 @@ from bot.handlers.info import router as info_router
 from bot.handlers.inline import router as inline_router
 from bot.handlers.menu import router as menu_router
 from bot.handlers.onboarding import router as onboarding_router
-from bot.handlers.richprobe import router as richprobe_router
 from bot.handlers.orders import router as orders_router
 from bot.handlers.settings import router as settings_router
 from bot.handlers.support import router as support_router
@@ -226,9 +225,6 @@ async def main() -> None:
     dp.include_router(common_router)
     dp.include_router(broadcast_router)
     dp.include_router(demo_router)
-    # Temporary: /richprobe asks Telegram the questions reading could not
-    # answer. Goes away with the answers — see bot/handlers/richprobe.py.
-    dp.include_router(richprobe_router)
     dp.include_router(menu_router)
     dp.include_router(orders_router)
     dp.include_router(info_router)
