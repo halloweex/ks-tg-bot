@@ -22,9 +22,19 @@ class NovaPoshtaClient:
 
     Measured against real TTNs spanning 2024-2026, including parcels from
     different sender prefixes: every one of the six accounts' keys resolved every
-    TTN. It is the supplied phone that authorises the lookup, not which account
-    created the parcel — so **one key is enough**, and the loop below exits on
-    the first one every time.
+    TTN. So **one key is enough**, and the loop below exits on the first one
+    every time.
+
+    **Why is not known, and the sentence that used to say why was wrong.** It
+    read "it is the supplied phone that authorises the lookup, not which account
+    created the parcel" — and the phone authorises nothing. Asked twice, once
+    from a fixture and once live in September 2026: the same TTN with an empty
+    `Phone` comes back with the whole document, 123 fields, both delivery dates,
+    the recipient's branch. `getStatusDocuments` appears to answer any key about
+    any number, and the phone is a field it accepts rather than a credential it
+    checks. Nothing here depends on that being true either way — the measurement
+    above stands on its own — but a false reason is worse than none, because the
+    decision it props up is the one not to hold a key per legal entity.
 
     Several keys are still accepted, and the loop is kept as failover: a revoked
     or rate-limited key falls through to the next instead of silently showing the

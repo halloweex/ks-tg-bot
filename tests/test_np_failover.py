@@ -119,3 +119,15 @@ def test_key_that_cannot_see_the_parcel_is_skipped(asked):
     )
     assert _track() is not None
     assert asked["calls"] == ["k1", "k2"]
+
+
+def test_the_phone_is_not_what_makes_the_lookup_work(asked):
+    """The client's docstring claimed the phone authorised the request until
+    September 2026, and the decision not to hold a key per legal entity rested
+    on it. Measured twice, once from a fixture and once against the live API:
+    the same TTN with an empty Phone comes back whole."""
+    asked["install"](lambda r: httpx.Response(200, json={
+        "success": True,
+        "data": [{"Number": TTN, "StatusCode": "9", "Status": "Відправлення отримано"}],
+    }))
+    assert _track(phone="") is not None
