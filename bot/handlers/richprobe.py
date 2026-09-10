@@ -26,7 +26,8 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
 from aiogram.types import (CallbackQuery, InlineKeyboardButton,
                            InlineKeyboardMarkup, InputMediaPhoto,
-                           InputRichBlockPhoto, InputRichMessage, Message,
+                           InputRichBlockCollage, InputRichBlockPhoto,
+                           InputRichMessage, Message,
                            RichTextBold)
 from loguru import logger
 
@@ -206,24 +207,61 @@ async def cmd_favprobe(message: Message, config: AppConfig) -> None:
     with_image = sum(1 for f in favourites
                      if (o := offers.get(str(f.get("sku") or ""))) and o.image_url)
 
-    blocks: list = [rich.heading("⭐ Те, що ти купуєш найчастіше", size=2)]
-    for item in favourites:
-        offer = offers.get(str(item.get("sku") or ""))
-        if offer and offer.image_url:
-            blocks.append(InputRichBlockPhoto(
-                photo=InputMediaPhoto(media=offer.image_url)))
-        name = texts.product_label(item["name"], 60)
-        blocks.append(rich.para([RichTextBold(text=name)]))
-        if offer:
-            blocks.append(rich.para(f"{offer.price} грн"))
-            blocks.append(rich.buttons(rich.button(
-                f"🛒 Замовити ще раз", callback_data=PROBE_CALLBACK)))
-        blocks.append(rich.divider())
+    def ribbon(title: str, width: int | None) -> list:
+        """The same screen, asking the CDN for a different picture.
 
-    lines = [await _ask(
-        "favourites as a vertical ribbon of cards",
-        rich.send(bot, chat_id, blocks,
-                  plain="(the plain favourites screen would go here)"))]
+        There is no size control in the API — InputRichBlockPhoto takes a photo
+        and a caption, and only the map block has width and height — so the one
+        lever is which picture we hand over. Shopify honours `width` on the URL
+        (bot/handlers/inline.py::_thumbnail already relies on it). Whether
+        Telegram then draws it small or scales it back up to the bubble is a
+        rendering question, and the only way to know is to look at both.
+        """
+        out: list = [rich.heading(title, size=2)]
+        for item in favourites:
+            offer = offers.get(str(item.get("sku") or ""))
+            if offer and offer.image_url:
+                url = offer.image_url
+                if width:
+                    joiner = "&" if "?" in url else "?"
+                    url = f"{url}{joiner}width={width}"
+                out.append(InputRichBlockPhoto(photo=InputMediaPhoto(media=url)))
+            out.append(rich.para([RichTextBold(
+                text=texts.product_label(item["name"], 60))]))
+            if offer:
+                out.append(rich.para(f"{offer.price} грн"))
+                out.append(rich.buttons(rich.button(
+                    "🛒 Замовити ще раз", callback_data=PROBE_CALLBACK)))
+            out.append(rich.divider())
+        return out
+
+    def collage() -> list:
+        """Every picture in one block instead of one block each.
+
+        A different answer to the same complaint: a collage is a grid, so the
+        pictures are small because there are several of them, and the screen
+        stops being one product tall per product. The cost is that a name and a
+        price can no longer sit beside their own photo."""
+        photos = [InputRichBlockPhoto(photo=InputMediaPhoto(media=o.image_url))
+                  for o in (offers.get(str(f.get("sku") or "")) for f in favourites)
+                  if o and o.image_url]
+        out: list = [rich.heading("⭐ Улюблені · колаж", size=2)]
+        if photos:
+            out.append(InputRichBlockCollage(blocks=photos))
+        out.append(rich.bullets([
+            f"{texts.product_label(f['name'], 48)}" for f in favourites]))
+        return out
+
+    lines = [
+        await _ask("A · full-width pictures, as you just saw",
+                   rich.send(bot, chat_id, ribbon("⭐ Улюблені · A", None),
+                             plain="(plain favourites)")),
+        await _ask("B · the same, asking Shopify for width=200",
+                   rich.send(bot, chat_id, ribbon("⭐ Улюблені · B", 200),
+                             plain="(plain favourites)")),
+        await _ask("C · one collage instead of one photo each",
+                   rich.send(bot, chat_id, collage(), plain="(plain favourites)")),
+    ]
     lines += [
         "",
         f"Favourites: {len(favourites)}. "
@@ -246,9 +284,16 @@ async def cmd_favprobe(message: Message, config: AppConfig) -> None:
         ]
     lines += [
         "",
-        "<b>Compare it with ⭐ Улюблені and decide one thing:</b> is the ribbon "
-        "worth the length it costs? There is no thumbnail-left row in blocks, "
-        "so this shape is the whole trade.",
+        "<b>Three shapes above. Which one?</b>",
+        "A · what you liked, at full bubble width.",
+        "B · identical, but Shopify was asked for a 200px picture. If A and B "
+        "look the same, Telegram scales to the bubble and the picture size is "
+        "not ours to choose.",
+        "C · a collage: small because there are several, but a name and price "
+        "cannot sit beside their own photo.",
+        "",
+        "There is no thumbnail-left row in blocks, so one of these three is "
+        "the trade.",
     ]
     await bot.send_message(chat_id, "\n".join(lines))
 
