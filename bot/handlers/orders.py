@@ -311,9 +311,22 @@ def _format_orders_from_cache(
 
 def _orders_kb(
     orders: list[dict], t: Texts, *, shown_id: int = 0, page: int = 0,
-    cancelled: bool = False, expanded: bool = False, parcel: bool = False
+    cancelled: bool = False, expanded: bool = False, parcel: bool = False,
+    rich: bool = False,
 ) -> InlineKeyboardMarkup:
     """The way into the list, one button per line, the parcel, the folded ones.
+
+    **`rich` drops most of it, because most of it describes a state the rich
+    screen does not have.** Measured by driving every button against a rich
+    anchor: ten of thirteen left the message byte-identical. There is no card
+    in blocks — every order is its own section and the reader folds them
+    herself — so `shown_id` names nothing, "show the items" is what the section
+    already does, and the parcel button lives inside the order it belongs to.
+    Paging goes too: the rich screen is cut by the block budget, not by tens,
+    so "older" showed fewer orders than the page before it.
+
+    What survives is what still means something: the search over the whole
+    history, the cancelled toggle (blocks honour it), and the menu.
 
     Every line in the digest has a button that makes it the card, labelled with
     the same glyph and date the line carries — so nothing on the screen has to
@@ -341,7 +354,7 @@ def _orders_kb(
 
     # The two about the card, on one row: its own item list, and where it is.
     about_card = 0
-    if card is not None and len(order_products(card)) > _MAX_INLINE_ITEMS:
+    if not rich and card is not None and len(order_products(card)) > _MAX_INLINE_ITEMS:
         builder.button(
             text=(t.BTN_HIDE_ITEMS if expanded else t.BTN_SHOW_ITEMS).format(
                 count=len(order_products(card))),
@@ -353,7 +366,7 @@ def _orders_kb(
     # Where the parcel is, from Nova Poshta rather than from the shop's record.
     # Only on a card that has a number, and only until it has been asked — the
     # answer arrives by itself a moment after the screen opens, and replaces it.
-    if card is not None and card.get("tracking_code") and not parcel:
+    if not rich and card is not None and card.get("tracking_code") and not parcel:
         builder.button(
             text=t.BTN_WHERE_PARCEL,
             callback_data=OrderAction(action="track", order_id=card.get("id", 0),
@@ -367,7 +380,7 @@ def _orders_kb(
     if about_card:
         layout.append(about_card)
 
-    others = [row for row in visible if row is not card]
+    others = [] if rich else [row for row in visible if row is not card]
     for row in others:
         builder.button(
             text=f"{_status_glyph(row)} {texts.short_date(str(row.get('ordered_at') or ''))}",
@@ -392,9 +405,11 @@ def _orders_kb(
         more += 1
 
     nav: list[tuple[str, int]] = []
-    if page > 0:
+    if rich:
+        pass          # cut by the budget, not by tens; see the docstring
+    elif page > 0:
         nav.append((t.BTN_ORDERS_NEWER, page - 1))
-    if (page + 1) * _ORDERS_PER_PAGE < len(active):
+    if not rich and (page + 1) * _ORDERS_PER_PAGE < len(active):
         nav.append((t.BTN_ORDERS_OLDER, page + 1))
     for label, target in nav:
         # The card is not carried across pages: it names an order that is not
@@ -436,6 +451,17 @@ def _no_phone_kb(t: Texts) -> InlineKeyboardMarkup:
     builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="menu"))
     builder.adjust(1)
     return builder.as_markup()
+
+
+def _anchor_is_rich(callback: CallbackQuery) -> bool:
+    """Whether the screen this tap came from is drawn in blocks.
+
+    The redraw handlers build one keyboard and hand it to `render`, which picks
+    the shape by the anchor — so without asking the same question here the slab
+    under a rich screen stays the plain screen's, and most of its buttons
+    describe a state the message does not have.
+    """
+    return getattr(callback.message, "rich_message", None) is not None
 
 
 def _no_orders_kb(t: Texts, config: AppConfig | None = None) -> InlineKeyboardMarkup:
@@ -677,7 +703,8 @@ async def orders_screen(
     rich_ok = bool(config and chat_id in config.env.admin_ids)
     return Screen(
         f"{notice}\n\n{text}" if notice else text,
-        _orders_kb(cached, t) if cached else _no_orders_kb(t, config),
+        _orders_kb(cached, t, rich=bool(cached and rich_ok))
+        if cached else _no_orders_kb(t, config),
         rich_orders_blocks(cached, t) if cached and rich_ok else None,
     )
 
@@ -759,7 +786,8 @@ async def _fill_in_parcel(
                 # the slab vanished a second after the screen opened.
                 reply_markup=_orders_kb(cached, t, shown_id=card.get("id", 0),
                                         page=page, cancelled=cancelled,
-                                        expanded=expanded, parcel=True))
+                                        expanded=expanded, parcel=True,
+                                        rich=True))
         else:
             await sent.edit_text(
                 _format_orders_from_cache(cached, t, shown_id=card.get("id", 0),
@@ -1220,7 +1248,8 @@ async def show_order(
         _orders_kb(cached, t, shown_id=callback_data.order_id,
                    page=callback_data.page,
                    cancelled="c" in callback_data.state,
-                   expanded="x" in callback_data.state),
+                   expanded="x" in callback_data.state,
+                   rich=_anchor_is_rich(callback)),
         # The entrance the first attempt missed. Every button in the slab under
         # a rich screen is one of these, so without blocks here the first tap
         # on any neighbouring order wrote plain text over the blocks and
@@ -1281,7 +1310,8 @@ async def track_parcel(
         _orders_kb(cached, t, shown_id=callback_data.order_id,
                    page=callback_data.page,
                    cancelled="c" in callback_data.state,
-                   expanded="x" in callback_data.state, parcel=True),
+                   expanded="x" in callback_data.state, parcel=True,
+                   rich=_anchor_is_rich(callback)),
         # Unescaped for the blocks: their text is structured, not parsed.
         blocks=rich_orders_blocks(
             cached, t, page=callback_data.page,
