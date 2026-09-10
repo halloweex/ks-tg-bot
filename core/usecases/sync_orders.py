@@ -71,9 +71,17 @@ async def sync_orders(
 ) -> None:
     """Ask the CRM for this number's orders and write what came back.
 
-    Never raises on the CRM being unavailable, because the adapter does not:
-    get_orders_by_phone returns the pages it managed. A short read costs
-    freshness and nothing else — orders are upserted, never replaced.
+    A short read is tolerated and a silent one is not. `get_orders_by_phone`
+    returns the pages it managed, and orders are upserted rather than replaced,
+    so losing page three costs freshness and nothing else. Reading *nothing*
+    raises `Unavailable`, because returning [] for it is indistinguishable from
+    "this number has no orders" — which is what the screen then told a customer
+    who has them (§5, docs/components.md).
+
+    Both callers that must not fail on it already do not: registration wraps
+    this in a best-effort try so the CRM cannot block onboarding, and the
+    background sweep catches everything. What is left is the order screen,
+    where the customer asked and deserves an answer either way.
     """
     orders = await keycrm.get_orders_by_phone(phone)
     if not orders:

@@ -12,6 +12,8 @@ import json
 import httpx
 import pytest
 
+from core.ports.errors import Unavailable
+
 from core.adapters.novaposhta.client import NovaPoshtaClient
 
 TTN = "20450000000001"
@@ -86,8 +88,12 @@ def test_unreachable_host_stops_at_the_first_key(asked):
         raise httpx.ConnectTimeout("host unreachable", request=request)
 
     asked["install"](boom)
-    assert _track() is None
-    assert asked["calls"] == ["k1"]
+    # None is reserved for "the carrier does not know this number", which is an
+    # answer. Not being able to ask is not — and returning None for it made the
+    # delivery screen show the shop's own stale status as though it were fresh.
+    with pytest.raises(Unavailable):
+        _track()
+    assert asked["calls"] == ["k1"], "still only one key: every key posts to the same host"
 
 
 def test_an_unknown_number_stops_at_the_first_key(asked):

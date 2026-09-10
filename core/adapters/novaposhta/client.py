@@ -7,6 +7,8 @@ from __future__ import annotations
 import httpx
 from loguru import logger
 
+from core.ports.errors import Unavailable
+
 from core.adapters.novaposhta.parse import (TrackingStatus, is_not_found,
                                             parse_tracking, tracking_document)
 
@@ -116,7 +118,9 @@ class NovaPoshtaClient:
 
         except httpx.HTTPError as exc:
             logger.error("Nova Poshta HTTP error for TTN {}: {}", ttn, exc)
-            return None
+            # None is reserved for "the carrier does not know this number",
+            # which is an answer. Not being able to ask is not.
+            raise Unavailable("Nova Poshta", exc) from exc
         except (KeyError, ValueError, IndexError) as exc:
             logger.error("Nova Poshta parse error for TTN {}: {}", ttn, exc)
             return None
@@ -124,7 +128,16 @@ class NovaPoshtaClient:
     async def track_many(
         self, ttns: list[str], phone: str = ""
     ) -> dict[str, TrackingStatus]:
-        """Track multiple TTNs. Returns {ttn: TrackingStatus} for successful lookups."""
+        """Track multiple TTNs. Returns {ttn: TrackingStatus} for successful lookups.
+
+        `Unavailable` from the first parcel ends the batch rather than being
+        collected: every key posts to the same host, so a carrier that is down
+        is down for all twenty numbers, and the caller's choice is between
+        saying so and showing the shop's own stale status as though it were the
+        carrier's. A parcel the carrier does not know is different — that is an
+        answer, it comes back as None, and the screen falls back to the CRM for
+        that one row.
+        """
         results: dict[str, TrackingStatus] = {}
         for ttn in ttns:
             status = await self.track(ttn, phone)

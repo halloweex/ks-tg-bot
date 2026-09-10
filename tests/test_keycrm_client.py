@@ -12,6 +12,8 @@ import json
 import httpx
 import pytest
 
+from core.ports.errors import Unavailable
+
 from core.adapters.keycrm.client import _MAX_ORDER_PAGES, KeyCRMClient
 
 PHONE = "+380670000000"
@@ -148,7 +150,10 @@ def test_a_429_that_never_lets_up_gives_up_after_three_attempts(transport):
     transport["install"](
         lambda r: httpx.Response(429, headers={"Retry-After": "0"}, json={})
     )
-    assert _fetch() == []
+    # It used to return [], which the orders screen showed as "you have no
+    # orders" to a customer who has them. Nothing read is not a result.
+    with pytest.raises(Unavailable):
+        _fetch()
     assert len(transport["requests"]) == 3
 
 
@@ -170,7 +175,8 @@ def test_the_retry_is_only_for_429(transport):
     """A 500 is not a rate limit: retrying it would make a broken CRM three
     times as expensive while the customer waits."""
     transport["install"](lambda r: httpx.Response(500, json={"message": "boom"}))
-    assert _fetch() == []
+    with pytest.raises(Unavailable):
+        _fetch()
     assert len(transport["requests"]) == 1
 
 

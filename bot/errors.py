@@ -26,12 +26,14 @@ Two more rules hold this together:
 * **It tells the admins once per kind, not once per customer.** A broken sync
   means every tap raises, and an alert per tap is how alerting gets muted.
 
-**What it deliberately does not do** is tell "the CRM is down" from "we have a
-bug". `ERR_API_UNAVAILABLE` exists and stays unused, because no adapter lets an
-httpx error out: all three clients catch it and return `None`, `[]` or `{}`.
-Classifying exceptions here would be a branch that never runs. That is the §5
-invariant in `docs/components.md` — an error must not become an empty result —
-and it is recorded in `docs/found-during-move.md` rather than faked here.
+**It tells "the outside world is away" from "we have a bug"**, which it could
+not do until the adapters stopped swallowing their own errors. There are two
+apologies and only one of them is a claim about anything: "try again in a few
+minutes" is true when Nova Poshta is unreachable and a lie when we sent it a
+string where it wanted a number. The first version of this file classified
+`httpx` exceptions and was reviewed out, correctly — no adapter let one
+through, so the branch could never run. Now they raise `Unavailable` and it
+can.
 """
 from __future__ import annotations
 
@@ -44,6 +46,7 @@ from loguru import logger
 from bot.alerts import tell_admins_once
 from core.config import AppConfig
 from core.i18n import DEFAULT_LANG, Texts, normalize
+from core.ports.errors import Unavailable
 from core.repos.users import get_user_language
 
 
@@ -111,7 +114,7 @@ async def on_error(event: ErrorEvent, bot: Bot, config: AppConfig) -> bool:
     try:
         who = _audience(event.update)
         try:
-            await _apologise(bot, who)
+            await _apologise(bot, who, exc)
         except Exception:  # noqa: BLE001 — delivery must never cost us the alert
             logger.debug("Could not deliver the apology", exc_info=True)
         await _alert(bot, config, exc)
@@ -120,7 +123,7 @@ async def on_error(event: ErrorEvent, bot: Bot, config: AppConfig) -> bool:
     return True
 
 
-async def _apologise(bot: Bot, who: _Audience) -> None:
+async def _apologise(bot: Bot, who: _Audience, exc: BaseException) -> None:
     """Say sorry on whichever surface the person is actually looking at."""
     if who.inline is not None:
         # An inline answer carries results, not errors, so there is no apology
@@ -133,6 +136,8 @@ async def _apologise(bot: Bot, who: _Audience) -> None:
         return
 
     t = Texts(await _language(who.user))
+    # The only claim about the outside world we are entitled to make.
+    text = t.ERR_API_UNAVAILABLE if isinstance(exc, Unavailable) else t.ERR_GENERIC
     if who.callback is not None:
         # Best effort, result ignored on purpose: if the handler already
         # answered — and most of them do — this reaches nobody, and the message
@@ -141,7 +146,7 @@ async def _apologise(bot: Bot, who: _Audience) -> None:
             await who.callback.answer()
         except Exception:  # noqa: BLE001 — the spinner is cosmetic
             pass
-    await bot.send_message(who.chat_id, t.ERR_GENERIC)
+    await bot.send_message(who.chat_id, text)
 
 
 async def _alert(bot: Bot, config: AppConfig, exc: BaseException) -> None:

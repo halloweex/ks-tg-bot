@@ -10,6 +10,8 @@ import asyncio
 import httpx
 from loguru import logger
 
+from core.ports.errors import Unavailable
+
 from core.adapters.keycrm.parse import (last_page, normalize_phone_for_keycrm,
                                         parse_buyer, parse_orders,
                                         parse_stock_page, retry_after_seconds)
@@ -129,6 +131,17 @@ class KeyCRMClient:
 
         except httpx.HTTPError as exc:
             logger.error("KeyCRM HTTP error for phone {}: {}", normalized, exc)
+            # Partial reads stay partial: the except sits outside the page loop
+            # on purpose, and orders are upserted rather than replaced, so a
+            # short read costs freshness and nothing else.
+            #
+            # Nothing read is a different thing entirely, and returning [] for
+            # it was the lie: indistinguishable from "this number has no
+            # orders", which is what the screen then told a customer who has
+            # them. §5 of docs/components.md — an error must not become an
+            # empty result.
+            if not orders:
+                raise Unavailable("KeyCRM", exc) from exc
 
         return orders
 
@@ -217,7 +230,9 @@ class KeyCRMClient:
     async def get_buyer_by_phone(self, phone: str) -> dict | None:
         """Fetch buyer profile (full_name, email) by phone from the first order.
 
-        Returns None if no orders or on error.
+        Returns None when the number has no orders. Raises `Unavailable` when
+        the CRM could not be asked — None used to mean both, and a name missing
+        because nobody answered is not a customer without a name.
         """
         normalized = normalize_phone_for_keycrm(phone)
         params = {
@@ -232,4 +247,4 @@ class KeyCRMClient:
                 return parse_buyer(response.json())
         except httpx.HTTPError as exc:
             logger.error("KeyCRM buyer lookup error for {}: {}", normalized, exc)
-            return None
+            raise Unavailable("KeyCRM", exc) from exc

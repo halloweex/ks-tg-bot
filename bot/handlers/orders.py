@@ -24,6 +24,7 @@ from bot.analytics import track
 from bot.customer import describe
 from core.config import AppConfig
 from core.domain.offer import Offer
+from core.ports.errors import Unavailable
 from core.repos.support import (PENDING_LIMIT, add_discount_request,
                                 pending_discount_count,
                                 pending_discount_request,
@@ -801,6 +802,13 @@ async def _fill_in_parcel(
                                         page=page, cancelled=cancelled,
                                         expanded=expanded, parcel=True),
             )
+    except Unavailable as exc:
+        # Nobody asked for this one: it fills itself in a second after the
+        # screen opens. The screen is already drawn and correct without it, so
+        # a carrier that is down costs the extra line and nothing else — the
+        # apology belongs to the tap on «Де посилка?», not to a background
+        # errand the customer never started.
+        logger.info("Parcel status not filled in, carrier unavailable: {}", exc)
     except TelegramAPIError as exc:
         # The customer has moved on, or the screen already says this. Neither
         # is worth more than a line in the debug log.

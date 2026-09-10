@@ -342,3 +342,24 @@ def test_the_dispatcher_reaches_a_tap_that_already_answered(dispatcher_wired):
     text = next(t for name, t in session.calls if name == "SendMessage")
     assert "Щось пішло не так" in text
     assert dispatcher_wired == ["handler-error:KeyError"]
+
+
+# --- the branch that could not run until the adapters stopped lying ----------
+
+def test_an_unreachable_service_is_worth_come_back_in_a_minute(wired):
+    """The first version of this handler classified httpx exceptions and was
+    reviewed out: no adapter let one through, so the branch never ran. The
+    adapters raise Unavailable now, and this is the case the string exists for
+    — the one where waiting actually helps."""
+    from core.ports.errors import Unavailable
+
+    callback, bot = FakeCallback(), FakeBot()
+    _run(_event(Unavailable("Nova Poshta"), callback=callback), bot)
+    assert "за кілька хвилин" in bot.sent[0][1]
+
+
+def test_a_bug_of_ours_still_does_not_promise_that_waiting_helps(wired):
+    callback, bot = FakeCallback(), FakeBot()
+    _run(_event(KeyError("products_json"), callback=callback), bot)
+    assert "за кілька хвилин" not in bot.sent[0][1]
+    assert "Щось пішло не так" in bot.sent[0][1]
