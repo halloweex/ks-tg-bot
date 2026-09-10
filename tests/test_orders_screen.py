@@ -358,18 +358,47 @@ def _anchor():
 # forms are built every time, and neither may be an afterthought.
 
 
+def _admin_config(*ids):
+    from types import SimpleNamespace
+    return SimpleNamespace(env=SimpleNamespace(admin_ids=list(ids)),
+                           first_order_discount=None)
+
+
 def test_the_screen_carries_both_shapes(db_with_orders):
-    screen = asyncio.run(orders.orders_screen(1, T, _Keycrm(), _anchor()))
+    screen = asyncio.run(orders.orders_screen(1, T, _Keycrm(), _anchor(),
+                                              _admin_config(1)))
     assert screen.text, "the plain screen is a real screen, not a placeholder"
     assert screen.blocks, "and the rich one is built in the same call"
     assert screen.markup is not None
+
+
+def test_a_customer_gets_the_plain_screen_until_the_rich_one_is_ready(db_with_orders):
+    """The gate the plan called for and the first attempt skipped.
+
+    A rich message carries no plain text — SendRichMessage has no `text` field
+    — and Telegram does not refuse it on account of the reader's client, so an
+    older Telegram gets no fallback at all, only whatever it shows for
+    something it cannot draw. Nobody has looked yet, and the slab under the
+    screen is still the plain screen's keyboard. Admins first."""
+    screen = asyncio.run(orders.orders_screen(1, T, _Keycrm(), _anchor(),
+                                              _admin_config(999)))
+    assert screen.text, "the plain screen is the whole screen for her"
+    assert screen.blocks is None, "no blocks until somebody has seen an old client"
+
+
+def test_without_a_config_nobody_gets_blocks(db_with_orders):
+    """The entrances that pass no config are internal redraws; defaulting to
+    plain there is the safe direction."""
+    screen = asyncio.run(orders.orders_screen(1, T, _Keycrm(), _anchor()))
+    assert screen.blocks is None
 
 
 def test_the_rich_shape_is_a_valid_rich_message(db_with_orders):
     """It fails here, in our process, rather than as a 400 that costs the
     customer the whole screen."""
     from aiogram.types import InputRichMessage
-    screen = asyncio.run(orders.orders_screen(1, T, _Keycrm(), _anchor()))
+    screen = asyncio.run(orders.orders_screen(1, T, _Keycrm(), _anchor(),
+                                              _admin_config(1)))
     payload = InputRichMessage(blocks=screen.blocks)
     assert payload.model_dump(exclude_none=True, mode="json")["blocks"]
     assert rich.fits(screen.blocks)

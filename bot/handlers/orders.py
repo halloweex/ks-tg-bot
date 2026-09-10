@@ -632,10 +632,24 @@ async def orders_screen(
         offer = first_order_offer(t, config)
         if offer:
             text = f"{text}\n\n{offer}"
+    # Blocks only for admins, which is what the plan said and the first
+    # attempt did not do. Two reasons, and either alone is enough.
+    #
+    # A rich message carries no plain text: `SendRichMessage` has no `text`
+    # field at all. The `plain` beside it is used when Telegram *refuses* the
+    # message — and Telegram does not refuse on account of the reader's client.
+    # It answers 200 and the degrading happens on the device, so for a customer
+    # on an older Telegram there is no fallback, only whatever that client
+    # shows for something it cannot draw. Nobody has looked yet.
+    #
+    # And the slab under the screen is still the plain screen's keyboard: on a
+    # rich screen ten of its thirteen buttons change nothing, because folding
+    # belongs to the client now. See docs/found-during-move.md.
+    rich_ok = bool(config and chat_id in config.env.admin_ids)
     return Screen(
         f"{notice}\n\n{text}" if notice else text,
         _orders_kb(cached, t) if cached else _no_orders_kb(t, config),
-        rich_orders_blocks(cached, t) if cached else None,
+        rich_orders_blocks(cached, t) if cached and rich_ok else None,
     )
 
 
