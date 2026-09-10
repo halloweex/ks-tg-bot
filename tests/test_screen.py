@@ -339,3 +339,15 @@ def test_a_plain_screen_is_never_converted_to_rich(monkeypatch):
 
     assert captured["rich"] is None, "a plain screen must stay plain"
     assert captured["text"] == "плоский текст"
+
+
+def test_a_deliberate_move_to_a_plain_screen_says_nothing(monkeypatch):
+    """«📋 Меню» leaves the orders screen for the menu, and the menu is plain.
+    Without a way to say so the warning fired on the commonest tap in the bot,
+    and a detector that cries wolf every second tap is not a detector."""
+    msg, done = _anchor(monkeypatch, rich=True)
+    callback = SimpleNamespace(message=msg, bot=None)
+    said = _said(lambda: asyncio.run(
+        screen.render(callback, "меню", plain_ok=True)))
+    assert done == [("plain", "меню")], "the move still happens"
+    assert "rich screen" not in said

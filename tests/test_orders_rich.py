@@ -21,6 +21,27 @@ from bot.handlers.orders import rich_orders_blocks
 from core.i18n import customer_texts
 
 T = customer_texts("uk")
+CHAT = 4242
+
+
+@pytest.fixture()
+def db_with_orders(tmp_path, monkeypatch):
+    """The handlers re-read the cache for the caller's own chat, so driving one
+    needs a database with something in it."""
+    from core.repos import base as repos_base
+    from core.repos.orders import upsert_orders
+    from core.repos.schema import init_db
+    from core.repos.users import save_user
+
+    monkeypatch.setattr(repos_base, "DB_PATH", str(tmp_path / "bot_data.db"))
+    asyncio.run(init_db())
+    asyncio.run(save_user(CHAT, "+380670000000"))
+    asyncio.run(upsert_orders(CHAT, [
+        {**_order(i), "chat_id": CHAT, "source_order_id": str(i),
+         "external_id": str(i), "buyer_name": "", "payment_status": "",
+         "recipient_name": "", "tracking_code": "59000123456" if i == 1 else ""}
+        for i in (1, 2, 3)
+    ]))
 
 
 def _order(idx: int = 1, **kw) -> dict:
@@ -293,40 +314,79 @@ def test_the_budget_counts_bytes_not_characters():
 # a local commit. This is the test that would have caught it.
 
 
-def _order_action_buttons(markup) -> list[str]:
-    return [b.callback_data for row in markup.inline_keyboard for b in row
-            if (b.callback_data or "").startswith("ord:")]
+def _rich_anchor(monkeypatch):
+    """A real Message that is a rich screen, with its edit intercepted.
+
+    The tests this replaced read the handlers' source for the substring
+    `blocks=`. That catches a rename and nothing else: four separate mutations
+    went through the suite untouched. What matters is not that the word appears
+    but that a rich_message goes out — so this drives the handler and reads the
+    request.
+    """
+    from aiogram.types import Message as _M
+
+    sent: list[dict] = []
+    msg = _M.model_validate({
+        "message_id": 10, "date": 0, "chat": {"id": CHAT, "type": "private"},
+        "text": "before",
+        "rich_message": {"blocks": [{"type": "paragraph", "text": "x"}]},
+    })
+
+    async def fake_edit(self, text=None, reply_markup=None, **kw):
+        sent.append({"text": text, "rich_message": kw.get("rich_message"),
+                     "reply_markup": reply_markup})
+        return self
+
+    monkeypatch.setattr(_M, "edit_text", fake_edit)
+    return msg, sent
 
 
-def test_every_order_button_in_the_slab_has_a_rich_aware_handler():
-    """A structural check rather than a behavioural one, because the failure is
-    structural: a handler that forgets `blocks=` cannot be seen from outside."""
-    import inspect
+def _callback(msg, data: str):
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        message=msg, data=data, bot=None,
+        from_user=SimpleNamespace(id=CHAT, language_code="uk"),
+        answer=_noop,
+    )
 
+
+async def _noop(*a, **kw):
+    return None
+
+
+def test_a_tap_on_a_neighbouring_order_keeps_the_screen_rich(monkeypatch, db_with_orders):
+    """The defect that shipped as far as a local commit: show_order drew plain
+    text, and every button in the slab under a rich screen is one of its
+    callbacks, so the first tap destroyed the blocks."""
+    from bot.callbacks import OrderAction
     from bot.handlers import orders as mod
 
-    rows = [_order(1), _order(2), _order(3)]
-    assert _order_action_buttons(mod._orders_kb(rows, T)), "the slab has ord: buttons"
+    msg, sent = _rich_anchor(monkeypatch)
+    asyncio.run(mod.show_order(
+        _callback(msg, "ord:show:2:0:"),
+        OrderAction(action="show", order_id=2, page=0, state=""),
+        None, T))
 
-    # Every handler registered for OrderAction must pass blocks to render().
-    for name in ("show_order", "track_parcel"):
-        src = inspect.getsource(getattr(mod, name))
-        assert "blocks=" in src, (
-            f"{name} draws the orders screen without blocks — a tap through it "
-            f"would write plain text over a rich screen and destroy it"
-        )
+    assert sent, "the screen was redrawn"
+    assert sent[0]["rich_message"] is not None, (
+        "plain text over a rich anchor destroys the blocks, silently")
+    assert sent[0]["text"] is None
 
 
-def test_the_background_parcel_fill_in_keeps_the_keyboard():
-    """editMessageText with no reply_markup takes the keyboard away, and the
-    rich branch had none: the slab vanished a second after the screen opened."""
-    import inspect
-
+def test_asking_where_the_parcel_is_keeps_the_screen_rich(monkeypatch, db_with_orders):
+    from bot.callbacks import OrderAction
     from bot.handlers import orders as mod
 
-    src = inspect.getsource(mod._fill_in_parcel)
-    rich_branch = src.split("rich.edit(")[1].split("else:")[0]
-    assert "reply_markup" in rich_branch
+    msg, sent = _rich_anchor(monkeypatch)
+    asyncio.run(mod.track_parcel(
+        _callback(msg, "ord:track:1:0:"),
+        OrderAction(action="track", order_id=1, page=0, state=""),
+        None, T))
+
+    assert sent, "the screen was redrawn"
+    assert sent[0]["rich_message"] is not None
+    assert sent[0]["reply_markup"] is not None, (
+        "an edit with no markup is read as 'take the keyboard away'")
 
 
 # --- the tail must not eat the screen ----------------------------------------

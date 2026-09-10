@@ -141,12 +141,18 @@ async def render(
     reply_markup: InlineKeyboardMarkup | None = None,
     *,
     blocks: Sequence[object] | None = None,
+    plain_ok: bool = False,
 ) -> Message | None:
     """Show this screen on the message the callback came from.
 
     `text` is always required, even when `blocks` are given: it is the screen
     for a reader whose client cannot draw blocks, and there is no way to detect
     one — Telegram answers 200 and the degrading happens on the device.
+
+    `plain_ok` is how a caller says it means to: a tap on «📋 Меню» leaves the
+    orders screen for the menu, and the menu is a plain screen. Without it the
+    warning below fires on the most common navigation in the bot, and a
+    detector that cries wolf on every second tap is not a detector.
 
     **Plain text written over a rich screen destroys it, silently.** Measured
     against the live API (`docs/rich-messages.md`): the edit succeeds, the
@@ -188,7 +194,7 @@ async def render(
     if not anchor_is_rich:
         blocks = None
 
-    if anchor_is_rich and blocks is None:
+    if anchor_is_rich and blocks is None and not plain_ok:
         logger.error(
             "Plain text written over a rich screen (chat {}, message {}): the "
             "blocks are destroyed and will not come back until something "

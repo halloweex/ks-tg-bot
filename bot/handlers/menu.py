@@ -168,7 +168,7 @@ async def invite_from_menu(callback: CallbackQuery, state: FSMContext,
     await callback.answer()
     await state.clear()
     text, markup = await invite_screen(callback.from_user.id, t, config)
-    await render(callback, text, markup)
+    await render(callback, text, markup, plain_ok=True)
 
 
 @_menu("BTN_WEBSITE")
@@ -235,7 +235,7 @@ async def delivery_from_menu(
     text, markup = await delivery_screen(
         callback.from_user.id, t, novaposhta, callback.message
     )
-    await render(callback, text, markup)
+    await render(callback, text, markup, plain_ok=True)
 
 
 @router.callback_query(MenuAction.filter(F.action == "open_settings"))
@@ -245,7 +245,7 @@ async def settings_from_menu(
     """⚙️ from the menu in the message."""
     await callback.answer()
     await state.clear()
-    await render(callback, t.MSG_SETTINGS_MENU, settings_menu_kb(t))
+    await render(callback, t.MSG_SETTINGS_MENU, settings_menu_kb(t), plain_ok=True)
 
 
 @router.callback_query(MenuAction.filter(F.action == "open_info"))
@@ -253,7 +253,7 @@ async def info_from_menu(callback: CallbackQuery, state: FSMContext, t: Texts) -
     """ℹ️ from the menu in the message."""
     await callback.answer()
     await state.clear()
-    await render(callback, t.MSG_INFO_MENU, info_menu_kb(t))
+    await render(callback, t.MSG_INFO_MENU, info_menu_kb(t), plain_ok=True)
 
 
 @router.callback_query(MenuAction.filter(F.action == "open_support"))
@@ -264,7 +264,7 @@ async def support_from_menu(
     await callback.answer()
     track(callback.from_user.id, "support_opened")
     await state.set_state(SupportStates.waiting_message)
-    await render(callback, t.MSG_SUPPORT_PROMPT, menu_kb(t))
+    await render(callback, t.MSG_SUPPORT_PROMPT, menu_kb(t), plain_ok=True)
 
 
 @router.callback_query(MenuAction.filter(F.action == "menu"))
@@ -279,8 +279,10 @@ async def back_to_menu(
     """
     await callback.answer()
     await state.clear()
+    # The tap that made the warning worthless: leaving a rich orders screen for
+    # the menu is the point of the button, not a caller the migration missed.
     await render(callback, t.MSG_MENU_PICK,
-                 main_menu_inline_kb(t, config.website_url))
+                 main_menu_inline_kb(t, config.website_url), plain_ok=True)
 
 
 @router.callback_query(MenuAction.filter(F.action == "info"))
@@ -288,7 +290,7 @@ async def show_info_menu(callback: CallbackQuery, t: Texts) -> None:
     """Back from an info page to the list of pages — edited in place, since
     both belong to the same screen."""
     await callback.answer()
-    await render(callback, t.MSG_INFO_MENU, info_menu_kb(t))
+    await render(callback, t.MSG_INFO_MENU, info_menu_kb(t), plain_ok=True)
 
 
 @router.callback_query(MenuAction.filter(F.action == "support"))
@@ -299,11 +301,11 @@ async def support_from_screen(
     await callback.answer()
     track(callback.from_user.id, "support_opened")
     await state.set_state(SupportStates.waiting_message)
-    await render(callback, t.MSG_SUPPORT_PROMPT, menu_kb(t))
+    await render(callback, t.MSG_SUPPORT_PROMPT, menu_kb(t), plain_ok=True)
 
 
 @router.callback_query(InfoAction.filter(F.page == "back"))
 async def info_back(callback: CallbackQuery, t: Texts) -> None:
     """Older messages may still carry this button; keep it working."""
     await callback.answer()
-    await render(callback, t.MSG_INFO_MENU, info_menu_kb(t))
+    await render(callback, t.MSG_INFO_MENU, info_menu_kb(t), plain_ok=True)
