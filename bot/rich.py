@@ -182,18 +182,44 @@ def count_blocks(blocks: Sequence[object]) -> int:
                if node.get("type") in _BLOCK_TYPES)
 
 
+# Keys whose string value is structure rather than something anybody reads:
+# the discriminator, cell alignment, a button's style and where it leads, and
+# the language tag on a code block.
+_NOT_TEXT = frozenset({"type", "align", "valign", "style", "callback_data",
+                       "url", "language"})
+
+
 def text_bytes(blocks: Sequence[object]) -> int:
     """The text as Telegram counts it, near enough: UTF-8 bytes of every string.
 
     Bytes rather than characters on purpose. The limit is quoted in characters
     and Ukrainian is two bytes a letter, so counting bytes is the conservative
     reading, and being conservative costs nothing at these sizes.
+
+    It walks values rather than reusing `_walk`, which yields only mappings.
+    That cost the first version both halves of its accuracy: a bare string in a
+    mixed rich text — `["Статус: ", Bold("Прибув")]`, which is how every line of
+    the orders screen is built — was never reached at all, while "paragraph"
+    and "bold" were counted as if somebody read them. On the orders screen the
+    two errors happened to lean opposite ways and nearly cancel, which is worse
+    than being wrong: a screen made mostly of such lines would undercount and
+    sail past the real ceiling with the budget still saying yes.
     """
     total = 0
-    for node, _d in _walk(_dumped(blocks)):
-        for value in node.values():
-            if isinstance(value, str):
+
+    def walk(value, key=None) -> None:
+        nonlocal total
+        if isinstance(value, str):
+            if key not in _NOT_TEXT:
                 total += len(value.encode("utf-8"))
+        elif isinstance(value, dict):
+            for k, item in value.items():
+                walk(item, k)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                walk(item, key)
+
+    walk(_dumped(blocks))
     return total
 
 
