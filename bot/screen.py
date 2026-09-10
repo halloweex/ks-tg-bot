@@ -177,6 +177,17 @@ async def render(
     # complaint below is for — so the two entrances to a screen cannot end up
     # showing different things depending on which message they edit.
     anchor_is_rich = getattr(message, "rich_message", None) is not None
+
+    # A screen keeps the shape it was born with, and this line is what makes
+    # the admin gate in `orders_screen` mean anything. The redraw handlers —
+    # show_order, track_parcel, _fill_in_parcel — build their blocks straight
+    # from `rich_orders_blocks` and never go through `orders_screen`, so they
+    # never see the gate. Without this, a customer whose screen was sent plain
+    # got it silently converted to rich by her first tap, which is exactly the
+    # audience the gate exists to keep away from it.
+    if not anchor_is_rich:
+        blocks = None
+
     if anchor_is_rich and blocks is None:
         logger.error(
             "Plain text written over a rich screen (chat {}, message {}): the "

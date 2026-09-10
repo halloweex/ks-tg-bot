@@ -313,3 +313,29 @@ def test_a_plain_anchor_says_nothing(monkeypatch):
     said = _said(lambda: asyncio.run(screen.render(callback, "плоский текст")))
     assert done == [("plain", "плоский текст")]
     assert "rich screen" not in said
+
+
+def test_a_plain_screen_is_never_converted_to_rich(monkeypatch):
+    """The hole the admin gate had. show_order and track_parcel build blocks
+    straight from rich_orders_blocks and never pass through orders_screen, so
+    they never see `rich_ok` — a customer's first tap turned her plain screen
+    rich. The anchor decides, and only the anchor."""
+    from bot import rich as R
+
+    msg, _done = _anchor(monkeypatch, rich=False)
+    captured = {}
+
+    async def spy(self, text=None, reply_markup=None, **kw):
+        captured["rich"] = kw.get("rich_message")
+        captured["text"] = text
+        return self
+
+    from aiogram.types import Message as _M
+    monkeypatch.setattr(_M, "edit_text", spy)
+
+    callback = SimpleNamespace(message=msg, bot=None)
+    asyncio.run(screen.render(callback, "плоский текст", None,
+                              blocks=[R.para("блоки, которых она видеть не должна")]))
+
+    assert captured["rich"] is None, "a plain screen must stay plain"
+    assert captured["text"] == "плоский текст"
