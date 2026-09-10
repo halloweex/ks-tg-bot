@@ -83,6 +83,12 @@ _ON_SCREEN = 5
 # characters, so ten of them fit where three blocks did not.
 _ORDERS_PER_PAGE = 10
 
+# How many cancelled orders the tail carries before it says "and N more". They
+# are one line each and nobody scrolls a hundred of them; the number is small
+# because the tail is weighed against the budget on every candidate order, so
+# a long tail costs real orders their place on the screen.
+_CANCELLED_IN_TAIL = 10
+
 
 # ---------------------------------------------------------------------------
 # Formatting helpers
@@ -1371,8 +1377,18 @@ def rich_orders_blocks(orders: list[dict], t: Texts, *,
     # bites, which is the one case where the reservation matters.
     tail: list = [rich.para(t.MSG_ORDERS_PAGE.format(first=1, last=1, total=1))]
     if cancelled_rows:
+        # Capped, because it is not a footnote: a customer with a few hundred
+        # cancelled orders had a tail of six hundred blocks, which crowded out
+        # every real order — the screen came back with nought sections, a line
+        # reading "Показано 1–0 з 10", and 694 blocks against a ceiling of 500,
+        # so Telegram refused it and she got the plain screen anyway. Every
+        # failure the budget exists to prevent, in one screen.
+        shown_cancelled = cancelled_rows[:_CANCELLED_IN_TAIL]
         tail += [rich.divider(), rich.heading(t.MSG_CANCELLED_HEADER, size=3)]
-        tail += [rich.para(_digest_line(row, t)) for row in cancelled_rows]
+        tail += [rich.para(_digest_line(row, t)) for row in shown_cancelled]
+        if len(cancelled_rows) > len(shown_cancelled):
+            tail.append(rich.para(t.MSG_ORDER_MORE_ITEMS.format(
+                count=len(cancelled_rows) - len(shown_cancelled))))
     tail.append(rich.buttons(rich.button(
         t.BTN_MENU, callback_data=MenuAction(action="menu").pack())))
 
@@ -1387,6 +1403,17 @@ def rich_orders_blocks(orders: list[dict], t: Texts, *,
             break
         blocks.append(section)
         shown += 1
+
+    if not shown and active:
+        # The budget must never eat the whole screen: a list of orders with no
+        # orders on it is not a smaller screen, it is a broken one. One section
+        # always goes out, even if that puts the message over — better a
+        # refusal we fall back from than a screen that says nothing.
+        blocks.append(rich.details(
+            _order_summary(active[0], t),
+            _order_details(active[0], t, parcel=parcels.get(active[0].get("id", 0))),
+            is_open=True))
+        shown = 1
 
     if shown < len(active):
         tail[0] = rich.para(t.MSG_ORDERS_PAGE.format(

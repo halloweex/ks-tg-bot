@@ -324,3 +324,48 @@ def test_the_background_parcel_fill_in_keeps_the_keyboard():
     src = inspect.getsource(mod._fill_in_parcel)
     rich_branch = src.split("rich.edit(")[1].split("else:")[0]
     assert "reply_markup" in rich_branch
+
+
+# --- the tail must not eat the screen ----------------------------------------
+#
+# Found by finishing a review that had been cut short: fourteen of its findings
+# never reached a verifier, and this was among them. The cancelled tail was
+# built before the loop and weighed against the budget on every candidate, but
+# was never itself capped.
+
+
+def _many(active: int, cancelled: int) -> list[dict]:
+    return ([_order(i) for i in range(1, active + 1)]
+            + [_order(i, status_group_id=6, status_name="canceled")
+               for i in range(active + 1, active + cancelled + 1)])
+
+
+def test_a_long_cancelled_tail_does_not_crowd_out_the_real_orders():
+    """Measured before the fix: ten active orders and 689 cancelled produced a
+    screen with nought sections, "Показано 1–0 з 10", and 694 blocks against a
+    ceiling of 500 — so Telegram refused it and the plain screen came back."""
+    blocks = rich_orders_blocks(_many(10, 689), T, cancelled=True)
+    assert len(_sections(blocks)) == 10, "every active order still has its place"
+    assert rich.fits(blocks), "and the screen is one Telegram will take"
+
+
+def test_the_tail_says_how_many_it_left_out():
+    blocks = rich_orders_blocks(_many(2, 400), T, cancelled=True)
+    said = " ".join(str(getattr(b, "text", "")) for b in blocks)
+    assert "…та інші" in said or "та інші" in said
+
+
+def test_the_screen_never_says_it_is_showing_one_to_nought():
+    """A range that starts after it ends is not a smaller screen, it is a
+    broken one."""
+    for cancelled_count in (0, 5, 400, 689):
+        blocks = rich_orders_blocks(_many(10, cancelled_count), T, cancelled=True)
+        said = " ".join(str(getattr(b, "text", "")) for b in blocks)
+        assert "1–0" not in said, f"with {cancelled_count} cancelled"
+
+
+def test_at_least_one_order_survives_any_budget():
+    """A list of orders with no orders on it says nothing at all; a refusal we
+    fall back from is the better failure."""
+    blocks = rich_orders_blocks(_many(1, 2000), T, cancelled=True)
+    assert len(_sections(blocks)) >= 1
