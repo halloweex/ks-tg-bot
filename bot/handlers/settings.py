@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from aiogram import F, Router
+from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
@@ -55,6 +56,45 @@ async def process_new_contact(
     await save_user(message.chat.id, phone.e164)
     await state.clear()
     # Sending the menu keyboard replaces the share-phone one it is answering.
+    await send_main_menu(message, t, config, t.MSG_PHONE_CHANGED)
+
+
+@router.message(StateFilter(None), F.contact)
+async def contact_with_nobody_waiting_for_it(
+    message: Message,
+    config: AppConfig,
+    t: Texts,
+) -> None:
+    """A number shared when no flow asked for one.
+
+    **How she gets here.** «⚙️ Налаштування» → «📱 Змінити номер» sends a NEW
+    message carrying the share-phone reply keyboard, and the settings screen
+    stays live above it. She taps «📋 Меню» there — which clears the state —
+    and the reply keyboard is still under her input field, because a keyboard
+    under the input field cannot be taken away by editing a message. Then she
+    taps the button the bot drew for her, and until now nothing happened at
+    all: both `F.contact` handlers are behind a state filter, and no route
+    existed for a contact outside one. She proved her number and got silence.
+
+    **What it does instead.** The same thing the flow would have: saves it and
+    puts the menu back. `send_main_menu` carries a ReplyKeyboardRemove when
+    `bottom_menu` is off, which is what finally clears the stray keyboard —
+    the one thing an edit could never do.
+
+    **Ownership is not re-checked here, and that is deliberate.**
+    `own_contact_phone` returns None unless the contact's `user_id` is the
+    sender's own (core.domain.phone), so a forwarded card cannot become
+    somebody's verified number by arriving on this route. A second check
+    written out here would be a second place to get it wrong. Silence is the
+    right answer for that case: a contact card sent for any other reason is
+    not addressed to us, and answering it would be the bot butting in.
+    """
+    phone = own_contact_phone(message)
+    if not phone:
+        return
+
+    await save_user(message.chat.id, phone.e164)
+    track(message.chat.id, "phone_shared", source="stray_keyboard")
     await send_main_menu(message, t, config, t.MSG_PHONE_CHANGED)
 
 
