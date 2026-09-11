@@ -24,7 +24,7 @@ from core.repos.events import last_seen
 from core.repos.schema import init_db
 from bot.analytics import track
 from bot.fsm_storage import SQLiteStorage
-from bot.alerts import check_support_chat
+from bot.alerts import check_support_chat, tell_admins_once
 from bot.errors import on_error
 from bot.logs import setup_logging
 from bot.handlers.broadcast import router as broadcast_router
@@ -192,6 +192,22 @@ async def main() -> None:
                         sample_dir=(Path(config.env.bot_db_path).parent
                                     / "rivo-samples"),
                         arrived=lambda: track(None, webhooks.ARRIVED),
+                        # One message per never-seen shape. Rivo is the only
+                        # service here with no recorded payload, and that gap
+                        # is how a null in a field nobody had seen cost a
+                        # customer her award notice.
+                        kept=lambda path: spawn(
+                            tell_admins_once(
+                                bot, config.env.admin_ids,
+                                f"rivo-sample:{path}",
+                                "🧪 <b>A Rivo body we could not fully read</b>\n\n"
+                                f"Kept, redacted, at <code>{path}</code> in the "
+                                "bot container.\n\nCopy it into "
+                                "<code>tests/fixtures/rivo/</code> — it is the "
+                                "first recording this adapter has ever had, and "
+                                "the tests have been running on bodies "
+                                "assembled from the documentation."),
+                            name="rivo_sample_alert"),
                     ),
                     webhooks.PORT,
                 ),

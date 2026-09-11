@@ -99,7 +99,7 @@ def _redacted(payload: object) -> object:
     return out
 
 
-def _keep_a_sample(directory: Path, payload: object) -> None:
+def _keep_a_sample(directory: Path, payload: object) -> Path | None:
     """Write one redacted body per event type, and never let it cost a delivery.
 
     The directory is an argument, like everything else this module needs. It
@@ -122,17 +122,19 @@ def _keep_a_sample(directory: Path, payload: object) -> None:
         directory.mkdir(parents=True, exist_ok=True)
         target = directory / f"{name}.json"
         if target.exists():
-            return
+            return None
         if len(list(directory.glob("*.json"))) >= MAX_SAMPLES:
-            return
+            return None
         target.write_text(json.dumps(_redacted(payload), ensure_ascii=False,
                                      indent=2, sort_keys=True) + "\n",
                           encoding="utf-8")
         logger.info("Kept a redacted Rivo sample at {} — copy it into "
                     "tests/fixtures/rivo/ and the parser finally has a real "
                     "body to run on", target)
+        return target
     except Exception as exc:  # noqa: BLE001 — a sampler may never cost a message
         logger.debug("Could not keep a Rivo sample: {}", exc)
+    return None
 
 
 # Inside the container only. Nothing publishes it; nginx on the host is what
@@ -165,6 +167,7 @@ def build_app(
     account_url: str = "",
     sample_dir: Path | None = None,
     arrived: Callable[[], None] | None = None,
+    kept: Callable[[str], None] | None = None,
 ) -> web.Application:
     """The aiohttp app with one route on it.
 
@@ -180,6 +183,10 @@ def build_app(
     watchdog below can tell "nobody is calling" from "somebody is calling and
     being refused". A callable rather than a repository, for the reason at the
     top of this file: this module knows nothing about databases.
+
+    `kept` is called with the path of a sample that was just written, once per
+    shape. It exists because a file on a server that nobody is told about is
+    not a fixture, and collecting it is the entire point.
     """
 
     async def handle(request: web.Request) -> web.Response:
@@ -212,7 +219,13 @@ def build_app(
         # and a sampler watching only for None would never see it. The parser
         # says which bodies are unexplained; this asks.
         if sample_dir is not None and is_unexplained(payload):
-            _keep_a_sample(sample_dir, payload)
+            written = _keep_a_sample(sample_dir, payload)
+            # Said out loud, because a file nobody knows about is not a
+            # fixture. The whole point of the sampler is that somebody copies
+            # what it caught into tests/fixtures/rivo/, and a log line on a
+            # server is not how that happens.
+            if written is not None and kept is not None:
+                kept(str(written))
 
         event = parse_event(payload)
         if event is None:

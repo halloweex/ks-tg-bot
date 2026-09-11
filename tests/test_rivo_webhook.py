@@ -546,3 +546,44 @@ def test_a_request_with_a_wrong_signature_still_counts_as_an_arrival():
     assert asyncio.run(go()) == 401
     assert arrivals == [1], (
         "a refused request is still proof the path reaches this process")
+
+
+def test_a_kept_sample_is_announced_once_and_only_when_new(tmp_path):
+    """A file on a server nobody is told about is not a fixture.
+
+    The sampler wrote a log line and stopped there, which meant the body it
+    caught would sit on disk until somebody happened to look. Collecting it is
+    the entire point, so the path goes out to whoever can act on it — once per
+    shape, because the second copy of a known shape teaches nothing."""
+    announced: list[str] = []
+    app = build_app(path=PATH, secret=SECRET, chats=_Chats(),
+                    languages=_Languages(), queue=_Queue(),
+                    sample_dir=tmp_path, kept=announced.append)
+    body = _raw({"event_type": "order/refunded", "customer": {"email": KNOWN}})
+
+    async def go() -> None:
+        async with TestClient(TestServer(app)) as client:
+            for _ in range(3):
+                await client.post(PATH, data=body,
+                                  headers={"rivo-signature": _sign(body)})
+
+    asyncio.run(go())
+
+    assert len(announced) == 1, f"announced {len(announced)} times"
+    assert announced[0].endswith("order_refunded.json")
+
+
+def test_a_shape_we_understood_is_not_announced(tmp_path):
+    announced: list[str] = []
+    app = build_app(path=PATH, secret=SECRET, chats=_Chats(),
+                    languages=_Languages(), queue=_Queue(),
+                    sample_dir=tmp_path, kept=announced.append)
+    body = _points_body(points_diff=22)
+
+    async def go() -> None:
+        async with TestClient(TestServer(app)) as client:
+            await client.post(PATH, data=body,
+                              headers={"rivo-signature": _sign(body)})
+
+    asyncio.run(go())
+    assert announced == []
