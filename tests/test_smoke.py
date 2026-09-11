@@ -182,6 +182,14 @@ def test_the_database_path_still_comes_from_the_environment(monkeypatch):
     """
     from core.config import EnvSettings
 
+    # The two required secrets, supplied here rather than borrowed from a .env
+    # that happens to be lying beside the checkout. Without them this test
+    # passed on the machine it was written on and raised everywhere else — CI
+    # found that the first time it ran the suite, and it is the same shape as
+    # the failure it is itself guarding against.
+    monkeypatch.setenv("BOT_TOKEN", "1:test")
+    monkeypatch.setenv("KEYCRM_API_KEY", "test")
+
     monkeypatch.setenv("BOT_DB_PATH", "/app/data/bot_data.db")
     assert EnvSettings().bot_db_path == "/app/data/bot_data.db"
 

@@ -12,6 +12,7 @@ not implemented after the data moved.
 from __future__ import annotations
 
 import subprocess
+import sys
 
 import pytest
 
@@ -19,8 +20,15 @@ from tests.conftest import REPO_ROOT
 
 
 def _render(*args: str) -> str:
+    """Alembic through the interpreter running the tests, not through a path.
+
+    It used to be `.venv/bin/alembic`, which is a fact about one laptop. The
+    suite was green for months and had never run anywhere else; the first CI
+    that tried it got FileNotFoundError. `sys.executable -m alembic` is the
+    same program wherever the tests are.
+    """
     result = subprocess.run(
-        [".venv/bin/alembic", *args, "--sql"],
+        [sys.executable, "-m", "alembic", *args, "--sql"],
         cwd=REPO_ROOT, capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stderr
