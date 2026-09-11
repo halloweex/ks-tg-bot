@@ -39,9 +39,16 @@ def _time_passes(hours: int) -> None:
 
     The tests here run two sweeps a millisecond apart, which in production
     cannot happen and which would otherwise make every prune test pass for the
-    wrong reason. `hours` is therefore load-bearing: 1 is a product missed by
-    ONE sweep, which must survive; 3 is one the sweeps have stopped seeing,
-    which must go."""
+    wrong reason. `hours` is therefore load-bearing, and both values are the
+    real ones rather than comfortable margins: the watcher runs hourly, so 1 is
+    a product missed by ONE sweep and must survive, and 2 is one missed by TWO
+    in a row and must go.
+
+    Using 3 here would pass with either the right threshold or the wrong one.
+    The first version of the constant was `-2 hours`, which at exactly two
+    missed sweeps makes the row exactly two hours old — and the comparison is
+    strict, so deletion slipped silently to the third sweep while the comment
+    above it said two."""
     async def go() -> None:
         from core.repos.base import connect
         async with connect() as db:
@@ -82,7 +89,7 @@ def test_the_row_is_written_under_the_offer_s_own_sku(db):
 def test_a_product_the_shop_stopped_listing_is_dropped(db):
     asyncio.run(refresh_once(
         FakeStorefront({"1": _offer("1"), "2": _offer("2")}), SqliteOfferCache()))
-    _time_passes(3)
+    _time_passes(2)
     asyncio.run(refresh_once(
         FakeStorefront({"1": _offer("1")}), SqliteOfferCache()))
 
@@ -109,7 +116,7 @@ def test_the_sweep_says_how_many_it_removed(db):
     asyncio.run(refresh_once(
         FakeStorefront({s: _offer(s) for s in ("1", "2", "3")}),
         SqliteOfferCache()))
-    _time_passes(3)
+    _time_passes(2)
     removed = asyncio.run(SqliteOfferCache().replace({"1": _offer("1")}))
     assert removed == 2, "a silent prune is the thing this change must not be"
 
@@ -196,7 +203,7 @@ def test_a_plausible_shrink_still_prunes(db):
     asyncio.run(refresh_once(
         FakeStorefront({s: _offer(s) for s in ("1", "2", "3", "4")}),
         SqliteOfferCache()))
-    _time_passes(3)
+    _time_passes(2)
     asyncio.run(refresh_once(
         FakeStorefront({s: _offer(s) for s in ("1", "2", "3")}),
         SqliteOfferCache()))

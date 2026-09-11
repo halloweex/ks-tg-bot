@@ -57,8 +57,16 @@ async def save_offers(offers: dict[str, Offer]) -> None:
 
 
 # A row is deleted only after the sweeps have stopped seeing it for this long.
-# The watcher runs hourly (`bot/catalogue.py`), so two hours means "missed by at
-# least two sweeps in a row" — and that is the whole point.
+# The watcher runs hourly (`bot/catalogue.py`), so this has to sit strictly
+# BETWEEN one interval and two: above 60 minutes so a row missed by one sweep
+# survives, below 120 so a row missed by two goes. Ninety is the middle, which
+# leaves half an hour of scheduling slack on either side.
+#
+# It was two hours first, and that was wrong in a way worth recording: at
+# exactly two intervals the row is exactly two hours old, the comparison is
+# strict, and deletion slipped to the third sweep. One hour later than intended
+# is harmless; a constant that does not do what the comment above it says is
+# not, and this file has spent the day proving that.
 #
 # **One observation is not enough to delete on**, because the thing being
 # observed is a paginated feed that can be wrong in ways nothing downstream can
@@ -75,7 +83,7 @@ async def save_offers(offers: dict[str, Offer]) -> None:
 # button. Not waiting costs a listed one its buy button on a coin flip nobody
 # can see. `checked_at` has been written on every sweep since the table existed
 # and read by nothing; this is what it was for.
-_MISSED_SWEEPS_BEFORE_DELETING = "-2 hours"
+_MISSED_SWEEPS_BEFORE_DELETING = "-90 minutes"
 
 
 async def replace_offers(offers: dict[str, Offer]) -> int:
