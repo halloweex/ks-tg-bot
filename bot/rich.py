@@ -293,7 +293,19 @@ async def send(bot: Bot, chat_id: int, blocks: Sequence[object], *,
     reason: quiet hours and the 🎉 on a restock are properties of the message,
     not of its shape, and a screen that loses them on the way to rich is a
     regression nobody asked for.
+    A screen with no blocks is a plain screen, and this says so rather than
+    asking Telegram. Four callers reach here as `rich.send(..., screen.blocks
+    or [], ...)`, and the screens that deliberately have no rich form — no
+    phone stored, no orders, no favourites — arrive as an empty list. Sending
+    that is a refusal waiting to happen, and the refusal branch below tells the
+    admins the migration may be dead. Burning that alert on the empty screens,
+    every ten minutes, is how the one detector the migration has gets muted.
     """
+    if not list(blocks):
+        return await bot.send_message(
+            chat_id, plain, reply_markup=reply_markup,
+            disable_notification=disable_notification,
+            message_effect_id=message_effect_id)
     try:
         return await bot.send_rich_message(
             chat_id=chat_id,

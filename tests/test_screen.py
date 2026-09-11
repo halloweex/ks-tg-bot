@@ -360,3 +360,50 @@ def test_a_deliberate_move_to_a_plain_screen_says_nothing(monkeypatch):
         screen.render(callback, "меню", plain_ok=True)))
     assert done == [("plain", "меню")], "the move still happens"
     assert "rich screen" not in said
+
+
+def test_an_unreachable_anchor_still_gets_its_blocks(monkeypatch):
+    """The third exit. There is nothing to edit, so render sends — and for as
+    long as blocks existed it sent the plain screen and dropped them, with the
+    rich screen's slab still attached. The same defect as the anchor rule
+    removed above, in the branch written before blocks existed."""
+    from aiogram.types import InaccessibleMessage
+    from bot import rich as R
+
+    msg = InaccessibleMessage.model_validate(
+        {"message_id": 12, "date": 0, "chat": {"id": 5, "type": "private"}})
+    calls: list = []
+
+    class _Bot:
+        async def send_message(self, chat_id, text, reply_markup=None, **kw):
+            calls.append(("plain", text))
+            return "new"
+
+        async def send_rich_message(self, chat_id, rich_message=None,
+                                    reply_markup=None, **kw):
+            calls.append(("rich", len(rich_message.blocks)))
+            return "new"
+
+    callback = SimpleNamespace(message=msg, bot=_Bot())
+    asyncio.run(screen.render(callback, "плоский текст", None,
+                              blocks=[R.para("один"), R.para("два")]))
+
+    assert calls == [("rich", 2)], (
+        f"blocks were built and dropped on the way out: {calls}")
+
+
+def test_an_unreachable_anchor_with_no_blocks_still_sends_the_plain_screen(monkeypatch):
+    from aiogram.types import InaccessibleMessage
+
+    msg = InaccessibleMessage.model_validate(
+        {"message_id": 12, "date": 0, "chat": {"id": 5, "type": "private"}})
+    calls: list = []
+
+    class _Bot:
+        async def send_message(self, chat_id, text, reply_markup=None, **kw):
+            calls.append(text)
+            return "new"
+
+    callback = SimpleNamespace(message=msg, bot=_Bot())
+    asyncio.run(screen.render(callback, "плоский текст"))
+    assert calls == ["плоский текст"]

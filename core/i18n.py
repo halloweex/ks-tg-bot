@@ -166,6 +166,10 @@ EN: dict[str, str] = {
                               "What you order most often. Tap to order it again 👇"),
     "MSG_FAVOURITES_HEADER_ONCE": ("<b>🛍 You have bought these before</b>\n"
                                    "Tap to order again 👇"),
+    "MSG_FAVOURITES_TITLE": "⭐ Your regulars",
+    "MSG_FAVOURITES_TITLE_ONCE": "🛍 You have bought these before",
+    "MSG_FAVOURITES_LEAD": "What you order most often. Tap to order it again 👇",
+    "MSG_FAVOURITES_LEAD_ONCE": "Tap to order again 👇",
     "MSG_FAVOURITE_LINE": "orders: {orders} · {qty} pcs · last {date}",
     "MSG_NO_FAVOURITES": (
         "Nothing to base favourites on yet. The products you order most often "

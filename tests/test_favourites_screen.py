@@ -98,8 +98,17 @@ def _cards(blocks) -> list[dict]:
             continue
         if kind == "paragraph":
             said = block.text
+            # A card's name is the one paragraph built as rich text rather than
+            # a plain string — it is bold, which is what this helper's docstring
+            # means by "the name is above the button, in bold". The screen also
+            # carries prose that belongs to no card (the lead under the
+            # heading), and starting a card on it invented a product called
+            # "Натисни, щоб замовити ще раз 👇".
+            is_name = isinstance(said, list)
             if isinstance(said, list):
                 said = "".join(getattr(x, "text", str(x)) for x in said)
+            if current is None and not is_name:
+                continue
             current = current or {"name": "", "lines": [], "buttons": []}
             if not current["name"]:
                 current["name"] = said

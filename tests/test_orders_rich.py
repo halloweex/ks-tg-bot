@@ -514,3 +514,144 @@ def test_the_menu_opens_the_orders_screen_rich(monkeypatch, db_with_orders):
         "the orders screen arrived plain: render threw the blocks away because "
         "the menu it replaced was plain")
     assert sent[0]["text"] is None
+
+
+# --- the slab must describe the screen it sits under -------------------------
+#
+# Found by auditing the fix above rather than the code it fixed. Once blocks
+# won everywhere, `rich=_anchor_is_rich(callback)` in show_order and
+# track_parcel was asking a question nobody answers any more: the blocks went
+# out unconditionally, the keyboard was chosen by the anchor, and a tap from a
+# plain menu produced a rich screen wearing the plain screen's slab — every
+# per-order date button drawn twice, once in the slab and once in its own
+# section.
+
+
+def test_a_redraw_from_a_plain_anchor_wears_the_rich_slab(monkeypatch, db_with_orders):
+    from bot.callbacks import OrderAction
+    from bot.handlers import orders as mod
+
+    msg, sent = _plain_anchor(monkeypatch)
+    asyncio.run(mod.show_order(
+        _callback(msg, "ord:show:2:0:"),
+        OrderAction(action="show", order_id=2, page=0, state=""),
+        None, T))
+
+    assert sent[0]["rich_message"] is not None, "the screen went out as blocks"
+    labels = [b.text for row in sent[0]["reply_markup"].inline_keyboard
+              for b in row]
+    dated = [x for x in labels if "." in x and any(c.isdigit() for c in x)]
+    assert not dated, (
+        "the slab carries per-order buttons that the blocks already carry: "
+        f"{dated} — the keyboard was picked for a screen that did not arrive")
+
+
+def test_asking_where_the_parcel_is_from_a_plain_anchor_wears_the_rich_slab(
+        monkeypatch, db_with_orders):
+    from bot.callbacks import OrderAction
+    from bot.handlers import orders as mod
+
+    msg, sent = _plain_anchor(monkeypatch)
+    asyncio.run(mod.track_parcel(
+        _callback(msg, "ord:track:1:0:"),
+        OrderAction(action="track", order_id=1, page=0, state=""),
+        None, T))
+
+    assert sent[0]["rich_message"] is not None
+    labels = [b.text for row in sent[0]["reply_markup"].inline_keyboard
+              for b in row]
+    dated = [x for x in labels if "." in x and any(c.isdigit() for c in x)]
+    assert not dated, f"plain slab under a rich screen: {dated}"
+
+
+# --- a trimmed screen says so, whichever thing trimmed it --------------------
+
+
+def _plain_history(n: int) -> list[dict]:
+    return [{"id": i, "order_name": f"#{i}", "status_name": "Прибув",
+             "status_group_id": 4, "grand_total": 100, "currency": "грн",
+             "ordered_at": f"2026-08-{(i % 28) + 1:02d}T10:00:00",
+             "products_json": "[]", "tracking_code": "",
+             "delivery_city": "", "receive_point": ""} for i in range(1, n + 1)]
+
+
+def _paragraphs(blocks) -> list[str]:
+    said = []
+    for b in blocks:
+        text = getattr(b, "text", None)
+        if isinstance(text, str):
+            said.append(text)
+    return said
+
+
+def test_a_later_page_says_which_orders_it_is_showing():
+    """`active` was sliced before the count that decides this line, so `shown`
+    always equalled the total and the line never appeared: page 1 showed ten of
+    twenty-five orders and claimed nothing about the other fifteen."""
+    rows = _plain_history(25)
+    said = " ".join(_paragraphs(rich_orders_blocks(rows, T, page=1)))
+    assert "11" in said and "20" in said and "25" in said, (
+        f"a paged screen must say what it is showing, got: {said[:200]}")
+
+
+def test_the_first_page_of_a_short_history_says_nothing():
+    """The line is for a trimmed screen. Saying "1–3 з 3" on a complete one is
+    noise, and the reservation for it must be given back."""
+    said = " ".join(_paragraphs(rich_orders_blocks(_plain_history(3), T)))
+    assert "з 3" not in said and "of 3" not in said
+
+
+# --- the stalled-sync warning survives a redraw ------------------------------
+#
+# §5.5 exists for the window where the cache is hours old. It was computed once
+# at the entrance and erased by the next redraw — including `_fill_in_parcel`,
+# which fires a second later on its own, so the warning could vanish from a
+# screen the customer never touched.
+
+
+def test_a_redraw_keeps_the_stalled_sync_warning(monkeypatch, db_with_orders):
+    from bot.callbacks import OrderAction
+    from bot.handlers import orders as mod
+
+    async def stale(chat_id, t, **kw):
+        return "⏳ Дані застаріли"
+
+    monkeypatch.setattr(mod, "stale_notice", stale)
+    msg, sent = _rich_anchor(monkeypatch)
+    asyncio.run(mod.show_order(
+        _callback(msg, "ord:show:2:0:"),
+        OrderAction(action="show", order_id=2, page=0, state=""),
+        None, T))
+
+    said = " ".join(_paragraphs(sent[0]["rich_message"].blocks))
+    assert "застаріли" in said, (
+        "the redraw dropped the warning the entrance had put there")
+
+
+# --- a heading is a heading, on every screen ---------------------------------
+
+
+def test_the_favourites_screen_opens_with_a_real_heading():
+    """The orders screen has had this test since it was migrated. Favourites
+    did not, and shipped `<b>` to the customer as four characters: block text
+    is structured, not parsed."""
+    from bot.handlers.orders import rich_favourites_blocks
+
+    blocks = rich_favourites_blocks([], {}, {}, set(), T, "https://shop.example")
+    head = blocks[0].text
+    assert "<b>" not in str(head) and "</b>" not in str(head), (
+        f"markup in a block heading reaches the customer literally: {head!r}")
+
+
+def test_a_screen_with_no_blocks_never_asks_telegram_for_a_rich_one():
+    """`rich.send(..., screen.blocks or [], ...)` is how four call sites spell
+    "send this screen", and the screens with no rich form — no phone, no
+    orders, no favourites — arrive as an empty list. An empty rich message is a
+    refusal, and the refusal branch alerts the admins that the migration may be
+    dead. Burning that alert on the empty screens mutes the only detector the
+    migration has."""
+    bot = _Bot()
+    asyncio.run(rich.send(bot, CHAT, [], plain="Поки що нема замовлень"))
+
+    assert not bot.rich, "an empty screen must not be sent as a rich message"
+    assert bot.plain == [(CHAT, "Поки що нема замовлень", None)]

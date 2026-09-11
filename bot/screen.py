@@ -175,6 +175,17 @@ async def render(
         # was deleted. It has an id and a chat and nothing else — calling
         # edit_text on it raised AttributeError, which reached the customer as
         # silence instead of as the new screen this exists to draw.
+        #
+        # There is nothing to edit, so this sends — and it must send the same
+        # screen the other two exits would. It did not: `blocks` went
+        # unmentioned here, so a tap on an anchor Telegram no longer keeps
+        # built the whole rich screen and delivered the plain one, with the
+        # rich screen's slab still attached. That is the same defect as the
+        # rule removed above, in the one branch that was written before blocks
+        # existed and never revisited.
+        if blocks is not None:
+            return await rich.send(callback.bot, message.chat.id, blocks,
+                                   plain=text, reply_markup=reply_markup)
         return await callback.bot.send_message(message.chat.id, text,
                                                reply_markup=reply_markup)
     # **The screen decides its shape, not the message it lands on.** Blocks win

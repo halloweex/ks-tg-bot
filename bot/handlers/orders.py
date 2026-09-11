@@ -463,17 +463,6 @@ def _no_phone_kb(t: Texts) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def _anchor_is_rich(callback: CallbackQuery) -> bool:
-    """Whether the screen this tap came from is drawn in blocks.
-
-    The redraw handlers build one keyboard and hand it to `render`, which picks
-    the shape by the anchor — so without asking the same question here the slab
-    under a rich screen stays the plain screen's, and most of its buttons
-    describe a state the message does not have.
-    """
-    return getattr(callback.message, "rich_message", None) is not None
-
-
 def _no_orders_kb(t: Texts, config: AppConfig | None = None) -> InlineKeyboardMarkup:
     """The first-order discount, support, and the way back.
 
@@ -784,6 +773,7 @@ async def _fill_in_parcel(
                 sent,
                 rich_orders_blocks(
                     cached, t, cancelled=cancelled, page=page,
+                    notice=await stale_notice(chat_id, t),
                     parcels={card.get("id", 0): parcel_lines(card, info, t,
                                                              as_html=False)}),
                 # Without this the edit goes out with no reply_markup at all,
@@ -959,9 +949,17 @@ def rich_favourites_blocks(favourites, offers, levels, subscribed, t: Texts,
     owner looked at it against the alternatives on 2026-09-10 and chose this,
     with the picture asked of the storefront at _RICH_PHOTO_WIDTH.
     """
-    blocks: list = [rich.heading(
-        t.MSG_FAVOURITES_HEADER if repeated else t.MSG_FAVOURITES_HEADER_ONCE,
-        size=2)]
+    # A heading is a heading, and the plain header is two lines of HTML. Block
+    # text is not parsed, so passing the plain string here put "<b>" on the
+    # customer's screen as four characters and folded the second line into the
+    # title. The orders screen has had `MSG_ORDERS_TITLE` and a test forbidding
+    # "<b>" in its heading since the day it was migrated; this had neither.
+    blocks: list = [
+        rich.heading(t.MSG_FAVOURITES_TITLE if repeated
+                     else t.MSG_FAVOURITES_TITLE_ONCE, size=2),
+        rich.para(t.MSG_FAVOURITES_LEAD if repeated
+                  else t.MSG_FAVOURITES_LEAD_ONCE),
+    ]
 
     for item in favourites:
         offer = _buyable(item, offers)
@@ -1351,13 +1349,22 @@ async def show_order(
                    page=callback_data.page,
                    cancelled="c" in callback_data.state,
                    expanded="x" in callback_data.state,
-                   rich=_anchor_is_rich(callback)),
+                   # Unconditional, because the `blocks=` below is
+                   # unconditional. These two arguments describe one screen and
+                   # must agree: `render` now draws blocks wherever they are
+                   # offered, so asking the anchor here — as this did until the
+                   # day it was caught — put the plain screen's slab under a
+                   # rich screen. Every per-order date button appeared twice,
+                   # once in the slab and once inside its own section.
+                   rich=True),
         # The entrance the first attempt missed. Every button in the slab under
         # a rich screen is one of these, so without blocks here the first tap
         # on any neighbouring order wrote plain text over the blocks and
         # destroyed them — the exact failure the six-at-once move exists to
         # prevent, left in by claiming six and delivering five.
         blocks=rich_orders_blocks(cached, t, page=callback_data.page,
+                                  notice=await stale_notice(
+                                      callback.from_user.id, t),
                                   cancelled="c" in callback_data.state),
     )
     # Whichever order became the card, its parcel is looked up the same way.
@@ -1413,10 +1420,18 @@ async def track_parcel(
                    page=callback_data.page,
                    cancelled="c" in callback_data.state,
                    expanded="x" in callback_data.state, parcel=True,
-                   rich=_anchor_is_rich(callback)),
+                   # Unconditional, because the `blocks=` below is
+                   # unconditional. These two arguments describe one screen and
+                   # must agree: `render` now draws blocks wherever they are
+                   # offered, so asking the anchor here — as this did until the
+                   # day it was caught — put the plain screen's slab under a
+                   # rich screen. Every per-order date button appeared twice,
+                   # once in the slab and once inside its own section.
+                   rich=True),
         # Unescaped for the blocks: their text is structured, not parsed.
         blocks=rich_orders_blocks(
             cached, t, page=callback_data.page,
+            notice=await stale_notice(chat_id, t),
             cancelled="c" in callback_data.state,
             parcels={callback_data.order_id: parcel_lines(row, info, t,
                                                           as_html=False)}),
@@ -1502,9 +1517,13 @@ def rich_orders_blocks(orders: list[dict], t: Texts, *,
     # the caller's contract and why it is written down.
     """The orders screen as blocks: every order, folded, newest open.
 
-    No paging and no card: the budget that forced both is gone. What survives
-    is a cap — three of them, `rich.fits` — and it says how many orders it left
-    out rather than trimming in silence.
+    No card: the budget that forced it is gone. Paging survives, because the
+    slab still carries its buttons and the plain screen still has it — and what
+    survives with it is a cap, three of them in `rich.fits`. Both of them trim,
+    and both say so on the "showing N of M" line rather than trimming in
+    silence. That line was measured against the already-paged list for as long
+    as paging existed here, so it never appeared: page 1 showed ten of
+    twenty-five orders and claimed nothing.
 
     The tail of the screen is reserved before the loop rather than measured
     after it: the "showing N of M" line, the cancelled heading and its orders
@@ -1521,8 +1540,16 @@ def rich_orders_blocks(orders: list[dict], t: Texts, *,
     # is not modified" and the tap reads as broken.
     if not cancelled:
         cancelled_rows = []
+    # What the customer has, before the page is cut out of it. Both numbers on
+    # the "showing N of M" line are measured against this — the line used to be
+    # measured against the *sliced* list, so `shown` always equalled the total
+    # and the line never appeared. A customer on page 1 saw ten of her
+    # twenty-five orders and was told nothing about the other fifteen.
+    total_active = len(active)
+    first_shown = 1
     if page:
-        active, _ = _page_slice(active, page)
+        active, page = _page_slice(active, page)
+        first_shown = page * _ORDERS_PER_PAGE + 1
     blocks: list = [rich.heading(t.MSG_ORDERS_TITLE, size=2)]
     # §5.5, the customer-facing half of the stalled-sync alert. The plain
     # screen has carried it since it was written; the rich one dropped it on
@@ -1584,10 +1611,14 @@ def rich_orders_blocks(orders: list[dict], t: Texts, *,
             is_open=True))
         shown = 1
 
-    if shown < len(active):
+    # Two reasons the line appears, and it must say the same thing for both:
+    # the budget trimmed the list, or the customer is on a later page. Either
+    # way she is looking at part of her history and is owed the numbers.
+    showing_all = first_shown == 1 and shown >= total_active
+    if not showing_all:
         tail[0] = rich.para(t.MSG_ORDERS_PAGE.format(
-            first=1, last=shown, total=len(active)))
+            first=first_shown, last=first_shown + shown - 1, total=total_active))
 
     # The tail, minus the reservation for a page line that was not needed.
-    blocks += tail[1:] if shown >= len(active) else tail
+    blocks += tail[1:] if showing_all else tail
     return blocks

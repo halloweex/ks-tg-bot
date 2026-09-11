@@ -478,6 +478,15 @@ MSG_FAVOURITES_HEADER_ONCE = (
     "<b>🛍 Ти це вже купувала</b>\n"
     "Натисни, щоб замовити ще раз 👇"
 )
+# The same two lines for the rich screen, split and without markup. A block's
+# text is structured, not parsed, so the <b> above arrives at the customer as
+# the literal characters — the orders screen has had a plain MSG_ORDERS_TITLE
+# for exactly this reason, and a test that asserts no "<b>" reaches its
+# heading. Favourites had neither, and shipped the tags.
+MSG_FAVOURITES_TITLE = "⭐ Твої постійні засоби"
+MSG_FAVOURITES_TITLE_ONCE = "🛍 Ти це вже купувала"
+MSG_FAVOURITES_LEAD = "Те, що ти замовляєш найчастіше. Натисни, щоб замовити ще раз 👇"
+MSG_FAVOURITES_LEAD_ONCE = "Натисни, щоб замовити ще раз 👇"
 # Counts rather than "N разів" to sidestep Ukrainian plural agreement.
 MSG_FAVOURITE_LINE = "замовлень: {orders} · {qty} шт · востаннє {date}"
 MSG_NO_FAVOURITES = (
