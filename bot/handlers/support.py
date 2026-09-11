@@ -27,17 +27,63 @@ from bot.states import SupportStates
 router = Router()
 
 
+def support_prompt(t: Texts, config: AppConfig,
+                   now: datetime | None = None) -> tuple[str, bool]:
+    """What to show when support opens, and whether it named the hour.
+
+    The pair to `forwarded_confirmation`, and deliberately shaped the same way:
+    the two are one decision made twice, and letting them drift is how a
+    customer gets told about opening hours once, twice, or never depending on
+    which door she came through.
+
+    The bool is what stops the second telling. If the prompt already said
+    «будемо на зв'язку з 09:00», the confirmation a minute later says the
+    ordinary line instead — two "nobody is here" messages in one minute is
+    worse than one.
+    """
+    window = config.support_window
+    if window is None or within_hours(*window, now=now):
+        return t.MSG_SUPPORT_PROMPT, False
+    return (t.MSG_SUPPORT_PROMPT_OFF_HOURS.format(
+        time=window[0].strftime("%H:%M")), True)
+
+
+async def begin_support(state: FSMContext, t: Texts, config: AppConfig) -> str:
+    """Put her in the support state and return what she should read.
+
+    One function because there are **five** doors into this screen — the key
+    under the input field, the ⚙ in the message menu, the button on the "no
+    orders found" screen, and the two escapes from a phone that would not
+    parse. A screen whose entrances disagree is the defect this bot has now
+    paid for three times, most recently when two of seven screens were rich and
+    the plain ones silently destroyed them.
+
+    `hours_named` is written on every pass, never only when true: a stale flag
+    from an earlier conversation would silence the hour for a customer who was
+    never told it.
+    """
+    text, named = support_prompt(t, config)
+    await state.set_state(SupportStates.waiting_message)
+    await state.update_data(hours_named=named)
+    return text
+
+
 def forwarded_confirmation(t: Texts, config: AppConfig,
-                           now: datetime | None = None) -> str:
+                           now: datetime | None = None,
+                           hours_named: bool = False) -> str:
     """What the customer is told once their message is on its way.
 
     Inside working hours the old line stands — «відповімо тут» is true and
     soon. Outside them it is a promise nobody is awake to keep, so the message
     names the hour instead. Configuring no hours keeps the old behaviour: the
     bot would rather say nothing about timing than invent a time.
+
+    `hours_named` says the prompt already told her, in which case this does not
+    tell her again. It defaults to False so every existing caller and every
+    existing test keeps the behaviour it had.
     """
     window = config.support_window
-    if window is None or within_hours(*window, now=now):
+    if hours_named or window is None or within_hours(*window, now=now):
         return t.MSG_SUPPORT_FORWARDED
     return t.MSG_SUPPORT_FORWARDED_OFF_HOURS.format(
         time=window[0].strftime("%H:%M"))
@@ -133,7 +179,12 @@ async def forward_to_support(
         # A later part of an album: already confirmed, state already cleared.
         return
 
-    # Confirm to user and return to main menu
+    # Confirm to user and return to main menu.
+    #
+    # Read BEFORE the clear, which takes the FSM data with it. Whether the
+    # prompt already named the opening hour decides what the confirmation says,
+    # and one line later that fact is gone.
+    hours_named = bool((await state.get_data()).get("hours_named"))
     await state.clear()
     track(message.chat.id, "support_message_sent")
     # The durable half of the confirmation is the reaction on their own
@@ -142,7 +193,8 @@ async def forward_to_support(
     # and is noise a day later, so it takes itself back.
     await seen(message)
     # No keyboard to attach: the menu is already under the input field.
-    await ephemeral(message, forwarded_confirmation(t, config))
+    await ephemeral(message,
+                    forwarded_confirmation(t, config, hours_named=hours_named))
 
 
 @router.message(StateFilter(None), F.media_group_id)

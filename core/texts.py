@@ -415,13 +415,36 @@ MSG_LOYALTY_REFERRAL = (
 )
 BTN_LOYALTY_ACCOUNT = "💛 Мій кабінет"
 
+# Two constants and not one with a placeholder standing in for the number:
+# substituting «ще немає» would put it in a <code> frame, which is a frame for
+# data around something that is not data, and the line under it would become
+# untrue. Two states of one screen, two strings.
 MSG_SETTINGS_MENU = (
     "<b>⚙️ Налаштування</b>\n\n"
-    "Номер телефону, за яким ми знаходимо твої замовлення, і мова бота."
+    "Твій номер: <code>{phone}</code>\n"
+    "За ним ми знаходимо твої замовлення.\n\n"
+    "Мова: {language}"
+)
+MSG_SETTINGS_NO_PHONE = (
+    "<b>⚙️ Налаштування</b>\n\n"
+    "Твого номера в нас ще немає.\n"
+    "Поділись ним кнопкою нижче, і ми знайдемо твої замовлення.\n\n"
+    "Мова: {language}"
 )
 
 # Menu content
 MSG_SUPPORT_PROMPT = "Розкажи, що турбує, і розберемось разом."
+# Said BEFORE she starts typing, not after she has sent it. The hour was
+# already known and already spoken, but only on the confirmation: she opened
+# support at 23:40, read "розкажи", wrote out the whole problem, and learnt
+# only on send that nobody would read it until morning.
+#
+# It must not talk her out of writing. Leaving a message at midnight is exactly
+# right; she just should not think somebody is reading it live.
+MSG_SUPPORT_PROMPT_OFF_HOURS = (
+    "Будемо на зв'язку з {time}. "
+    "Розкажи зараз, що турбує, і розберемось разом."
+)
 MSG_NEW_PHONE_PROMPT = "Щоб оновити номер, поділись ним через кнопку нижче 👇"
 MSG_PHONE_CHANGED = "Номер телефону змінено! \u2705"
 

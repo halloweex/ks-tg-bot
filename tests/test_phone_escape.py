@@ -9,6 +9,7 @@ shared. These tests are about that loop staying closed.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, time, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -16,6 +17,7 @@ import pytest
 from bot.handlers import onboarding, settings
 from bot.keyboards import share_phone_kb
 from bot.states import OnboardingStates, SettingsStates, SupportStates
+from core.domain.quiet import SHOP_TZ
 from core.i18n import SUPPORTED, Texts
 
 SENDER_ID = 555000111
@@ -55,12 +57,43 @@ class _Recorder:
 class _State:
     def __init__(self):
         self.state = None
+        self.data: dict = {}
 
     async def set_state(self, state):
         self.state = state
 
     async def clear(self):
         self.state = None
+        self.data = {}
+
+    async def update_data(self, **kwargs):
+        self.data.update(kwargs)
+        return dict(self.data)
+
+    async def get_data(self) -> dict:
+        return dict(self.data)
+
+
+def _config(start: time, end: time) -> SimpleNamespace:
+    return SimpleNamespace(
+        support_hours_from=start.strftime("%H:%M"),
+        support_hours_to=end.strftime("%H:%M"),
+        support_window=(start, end),
+    )
+
+
+def _window_open_now() -> SimpleNamespace:
+    """A window around this very moment, on the shop's own clock."""
+    here = datetime.now(timezone.utc).astimezone(SHOP_TZ)
+    return _config((here - timedelta(hours=1)).time(),
+                   (here + timedelta(hours=1)).time())
+
+
+def _window_shut_now() -> SimpleNamespace:
+    """A window that opens two hours from now, so this moment is outside it."""
+    here = datetime.now(timezone.utc).astimezone(SHOP_TZ)
+    return _config((here + timedelta(hours=2)).time(),
+                   (here + timedelta(hours=3)).time())
 
 
 def _labels(markup) -> list[str]:
@@ -118,7 +151,7 @@ def test_the_manager_key_is_answered_before_the_catch_all(module, state_group):
 def test_pressing_the_manager_key_hands_over_to_support(module):
     message = _Recorder(text=T.BTN_SUPPORT)
     state = _State()
-    asyncio.run(module.escape_to_support(message, state, t=T))
+    asyncio.run(module.escape_to_support(message, state, _window_open_now(), t=T))
 
     assert state.state == SupportStates.waiting_message
     assert message.answers[-1][0] == T.MSG_SUPPORT_PROMPT
@@ -126,10 +159,35 @@ def test_pressing_the_manager_key_hands_over_to_support(module):
 
 @pytest.mark.parametrize(
     "module", [onboarding, settings], ids=["onboarding", "settings"])
+def test_the_escape_names_the_hour_when_nobody_is_there(module):
+    """The escape is a door into support like any other, and at 23:40 it has to
+    say what the other four doors say. It was the likeliest one to be forgotten:
+    a number that would not parse is already a bad moment, and «розберемось
+    разом» with nobody awake to read it makes it worse.
+
+    The windows are built from the clock the code itself reads rather than from
+    a frozen hour, because `escape_to_support` takes no `now` — so the test says
+    "a window that is open right now" and "one that is not", and runs the same
+    at any hour of any day."""
+    shut = _window_shut_now()
+    said_at_night = _Recorder(text=T.BTN_SUPPORT)
+    asyncio.run(module.escape_to_support(said_at_night, _State(), shut, t=T))
+
+    said_by_day = _Recorder(text=T.BTN_SUPPORT)
+    asyncio.run(module.escape_to_support(
+        said_by_day, _State(), _window_open_now(), t=T))
+
+    assert said_by_day.answers[-1][0] == T.MSG_SUPPORT_PROMPT
+    assert shut.support_window[0].strftime("%H:%M") in said_at_night.answers[-1][0]
+
+
+@pytest.mark.parametrize(
+    "module", [onboarding, settings], ids=["onboarding", "settings"])
 def test_the_escape_is_attributed(module, events):
     """Support opened from here is not support opened from the menu: this one
     counts numbers Telegram gave us and we could not read."""
-    asyncio.run(module.escape_to_support(_Recorder(text=T.BTN_SUPPORT), _State(), t=T))
+    asyncio.run(module.escape_to_support(
+        _Recorder(text=T.BTN_SUPPORT), _State(), _window_open_now(), t=T))
     assert ("support_opened", {"source": "share_phone"}) in events
 
 

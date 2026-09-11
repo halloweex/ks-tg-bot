@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from bot.handlers.support import forwarded_confirmation
+from bot.handlers.support import forwarded_confirmation, support_prompt
 from core.config import AppConfig
 from core.domain.quiet import within_hours
 from core.i18n import SUPPORTED, Texts
@@ -84,3 +84,53 @@ def test_half_a_window_is_no_window():
 
 def test_nonsense_hours_do_not_reach_a_customer():
     assert _config("завтра", "ніколи").support_window is None
+
+
+# --- the hour is named once, before she types --------------------------------
+
+
+def test_the_prompt_names_the_hour_so_she_learns_it_before_writing():
+    """The defect was the order, not the words. She opened support at 23:40,
+    read «розкажи, що турбує», wrote out the whole problem, and learnt only on
+    send that nobody would read it until morning."""
+    said, named = support_prompt(T, _config(), now=_utc(23))
+    assert "09:00" in said
+    assert named is True
+
+
+def test_inside_working_hours_the_prompt_is_the_short_one():
+    said, named = support_prompt(T, _config(), now=_utc(12))
+    assert said == T.MSG_SUPPORT_PROMPT
+    assert named is False
+
+
+def test_with_no_hours_configured_the_prompt_invents_nothing():
+    """The same rule the confirmation already follows: the bot would rather say
+    nothing about timing than make a time up."""
+    said, named = support_prompt(T, _config("", ""), now=_utc(23))
+    assert said == T.MSG_SUPPORT_PROMPT
+    assert named is False
+
+
+def test_the_hour_is_not_named_twice_in_one_minute():
+    """If the prompt said «будемо на зв'язку з 09:00», the confirmation a minute
+    later says the ordinary line. Two "nobody is here" messages in one minute is
+    worse than one."""
+    assert forwarded_confirmation(
+        T, _config(), now=_utc(23), hours_named=True) == T.MSG_SUPPORT_FORWARDED
+
+
+def test_a_customer_who_was_never_told_still_gets_told():
+    """The flag defaults to False, which is what keeps every existing caller and
+    every test above behaving as it did."""
+    assert "09:00" in forwarded_confirmation(T, _config(), now=_utc(23))
+
+
+@pytest.mark.parametrize("lang", sorted(SUPPORTED))
+def test_both_languages_have_the_off_hours_prompt(lang):
+    """Texts falls through to the Ukrainian module for a missing key, so a
+    forgotten English entry hands an English-speaking customer a Ukrainian
+    screen instead of raising."""
+    said, _named = support_prompt(Texts(lang), _config(), now=_utc(23))
+    assert said != Texts("uk").MSG_SUPPORT_PROMPT_OFF_HOURS.format(time="09:00") or lang == "uk"
+    assert "09:00" in said

@@ -10,6 +10,7 @@ from core.i18n import Texts, variants
 from bot.analytics import track
 from core.config import AppConfig
 from core.effects import CONFETTI
+from bot.handlers.support import begin_support
 from bot.keyboards import menu_kb, share_phone_kb
 from bot.handlers.orders import first_order_kb, first_order_offer
 from bot.screen import send_main_menu, typing
@@ -116,7 +117,8 @@ async def process_contact(
 
 
 @router.message(OnboardingStates.waiting_phone, F.text.in_(variants("BTN_SUPPORT")))
-async def escape_to_support(message: Message, state: FSMContext, t: Texts) -> None:
+async def escape_to_support(message: Message, state: FSMContext,
+                            config: AppConfig, t: Texts) -> None:
     """The exit from the share-phone flow, and the only one it has.
 
     Menu keys are filtered out while a number is being shared (see menu.py):
@@ -128,8 +130,8 @@ async def escape_to_support(message: Message, state: FSMContext, t: Texts) -> No
     "the number cannot be typed" to a button the bot drew.
     """
     track(message.chat.id, "support_opened", source="share_phone")
-    await state.set_state(SupportStates.waiting_message)
-    await message.answer(t.MSG_SUPPORT_PROMPT, reply_markup=menu_kb(t))
+    await message.answer(await begin_support(state, t, config),
+                         reply_markup=menu_kb(t))
 
 
 @router.message(OnboardingStates.waiting_phone)

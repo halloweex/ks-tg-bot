@@ -4,19 +4,48 @@ from __future__ import annotations
 from aiogram import F, Router
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
-from core.i18n import Texts, normalize, variants
+from core.i18n import LANGUAGE_NAMES, Texts, normalize, variants
 from bot.callbacks import SettingsAction
 from bot.analytics import track
 from core.config import AppConfig
-from core.repos.users import save_user, set_user_language
+from core.repos.users import get_user_phone, save_user, set_user_language
 from bot.handlers.onboarding import own_contact_phone
-from bot.keyboards import language_kb, menu_kb, share_phone_kb
+from bot.handlers.support import begin_support
+from bot.keyboards import (language_kb, menu_kb, settings_menu_kb,
+                           share_phone_kb)
 from bot.screen import render, send_main_menu
 from bot.states import SettingsStates, SupportStates
 
 router = Router()
+
+
+async def settings_screen(chat_id: int, t: Texts) -> tuple[str, InlineKeyboardMarkup]:
+    """The settings screen, ready to be sent or edited into place.
+
+    It used to name two settings and show the value of neither: "номер
+    телефону, за яким ми знаходимо твої замовлення, і мова бота", under two
+    buttons. So the one question this screen exists to answer — which number
+    does the shop have for me — could only be answered by changing it.
+
+    The number is shown whole. It is her own, in her own private chat, and
+    masking it would hide exactly the digits the question is about.
+
+    The language is not read from the database. `LanguageMiddleware` has already
+    resolved it, and `t.lang` is the resolved value rather than the raw column,
+    which is what keeps a stray value out of the LANGUAGE_NAMES lookup.
+    """
+    phone = await get_user_phone(chat_id)
+    if not phone:
+        # `not phone` and not `is None`: the column is NOT NULL, so the empty
+        # string is the shape "no number" actually takes. `registered_phones`
+        # filters it the same way.
+        return (t.MSG_SETTINGS_NO_PHONE.format(language=LANGUAGE_NAMES[t.lang]),
+                settings_menu_kb(t, has_phone=False))
+    return (t.MSG_SETTINGS_MENU.format(phone=phone,
+                                       language=LANGUAGE_NAMES[t.lang]),
+            settings_menu_kb(t))
 
 
 @router.callback_query(SettingsAction.filter(F.action == "phone"))
@@ -99,15 +128,16 @@ async def contact_with_nobody_waiting_for_it(
 
 
 @router.message(SettingsStates.waiting_new_phone, F.text.in_(variants("BTN_SUPPORT")))
-async def escape_to_support(message: Message, state: FSMContext, t: Texts) -> None:
+async def escape_to_support(message: Message, state: FSMContext,
+                            config: AppConfig, t: Texts) -> None:
     """The same exit as in onboarding, for the same unreadable number.
 
     Changing a phone hits the identical wall: the contact parses or it does
     not, and the customer cannot type their way around it.
     """
     track(message.chat.id, "support_opened", source="share_phone")
-    await state.set_state(SupportStates.waiting_message)
-    await message.answer(t.MSG_SUPPORT_PROMPT, reply_markup=menu_kb(t))
+    await message.answer(await begin_support(state, t, config),
+                         reply_markup=menu_kb(t))
 
 
 @router.message(SettingsStates.waiting_new_phone)

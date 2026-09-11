@@ -137,11 +137,26 @@ EN: dict[str, str] = {
         "Your reward is already in your account. Thank you for the recommendation."
     ),
     "BTN_LOYALTY_ACCOUNT": "💛 My account",
+    # Both keys are required, not optional: Texts.__getattr__ falls through to
+    # the Ukrainian module when a key is missing, so forgetting the second one
+    # hands an English-speaking customer a Ukrainian screen.
     "MSG_SETTINGS_MENU": (
         "<b>⚙️ Settings</b>\n\n"
-        "The phone number we find your orders by, and the bot's language."
+        "Your number: <code>{phone}</code>\n"
+        "This is how we find your orders.\n\n"
+        "Language: {language}"
+    ),
+    "MSG_SETTINGS_NO_PHONE": (
+        "<b>⚙️ Settings</b>\n\n"
+        "We don't have your number yet.\n"
+        "Share it with the button below and we'll find your orders.\n\n"
+        "Language: {language}"
     ),
     "MSG_SUPPORT_PROMPT": "Tell us what's bothering you, and we'll work it out together.",
+    "MSG_SUPPORT_PROMPT_OFF_HOURS": (
+        "We're back at {time}. "
+        "Tell us now what's bothering you, and we'll work it out together."
+    ),
     "MSG_NEW_PHONE_PROMPT": "To update your number, share it using the button below 👇",
     "MSG_PHONE_CHANGED": "Phone number updated! ✅",
     "MSG_WELCOME_BACK": "Welcome back! 🌸",

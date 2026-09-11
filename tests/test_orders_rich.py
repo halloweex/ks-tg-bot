@@ -518,6 +518,15 @@ class _NoState:
     async def clear(self) -> None:
         return None
 
+    async def get_data(self) -> dict:
+        return {}
+
+    async def update_data(self, **kwargs) -> dict:
+        return dict(kwargs)
+
+    async def set_state(self, state) -> None:
+        return None
+
 
 def test_the_menu_opens_the_orders_screen_rich(monkeypatch, db_with_orders):
     """Tapping 📦 in the menu must draw blocks over the plain menu message.

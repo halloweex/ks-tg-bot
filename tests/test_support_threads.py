@@ -286,7 +286,20 @@ def _customer_message(bot, *, message_id, media_group_id=None):
 
 
 class _NoState:
+    """As much of an FSMContext as the handler touches, which now includes the
+    data: forward_to_support reads `hours_named` before clearing, to know
+    whether the prompt already named the opening hour."""
+
     async def clear(self):
+        return None
+
+    async def get_data(self) -> dict:
+        return {}
+
+    async def update_data(self, **kwargs) -> dict:
+        return dict(kwargs)
+
+    async def set_state(self, state) -> None:
         return None
 
 
@@ -521,3 +534,76 @@ def test_a_reachable_support_chat_says_nothing_to_anybody(db):
     bot = _FakeBot()
     assert asyncio.run(alerts.check_support_chat(bot, SUPPORT_CHAT, [ADMIN])) is True
     assert bot.sent == []
+
+
+# --- the hour is named once, and the order is what makes that work ------------
+
+
+class _StateThatRemembers:
+    """An FSMContext that loses its data on clear, exactly as the real one does.
+
+    `_NoState` cannot show the defect this guards: it answers {} whether it has
+    been cleared or not, so reading `hours_named` after the clear looks
+    identical to reading it before. That mutation survived a full suite."""
+
+    def __init__(self, **data) -> None:
+        self.data = dict(data)
+        self.cleared = False
+
+    async def clear(self) -> None:
+        self.data = {}
+        self.cleared = True
+
+    async def get_data(self) -> dict:
+        return dict(self.data)
+
+    async def update_data(self, **kwargs) -> dict:
+        self.data.update(kwargs)
+        return dict(self.data)
+
+    async def set_state(self, state) -> None:
+        return None
+
+
+def _shut_window(config):
+    """The same config with support closed at this very moment.
+
+    Built from the clock the code reads rather than a frozen hour, because
+    `forward_to_support` passes no `now` — so this runs the same at any hour of
+    any day."""
+    from datetime import datetime, timedelta, timezone
+
+    from core.domain.quiet import SHOP_TZ
+
+    here = datetime.now(timezone.utc).astimezone(SHOP_TZ)
+    opens = (here + timedelta(hours=2)).time()
+    shuts = (here + timedelta(hours=3)).time()
+    return SimpleNamespace(**{**vars(config), "support_window": (opens, shuts)})
+
+
+def test_a_customer_already_told_the_hour_is_not_told_it_again(db, config):
+    """She opened support at 23:40 and the prompt said «будемо на зв'язку з
+    09:00». A minute later the confirmation must not say it a second time."""
+    texts = SimpleNamespace(MSG_SUPPORT_FORWARDED="ok",
+                            MSG_SUPPORT_FORWARDED_OFF_HOURS="back at {time}")
+    incoming = _customer_message(_ForwardingBot(), message_id=91)
+
+    asyncio.run(support.forward_to_support(
+        incoming, _StateThatRemembers(hours_named=True),
+        _shut_window(config), texts))
+
+    assert incoming.answered[-1] == "ok", (
+        "the hour was named in the prompt and named again on send")
+
+
+def test_a_customer_who_was_never_told_the_hour_is_told_it_on_send(db, config):
+    """The other half, and the one that proves the flag is read rather than
+    assumed: same closed window, no flag, and the hour appears."""
+    texts = SimpleNamespace(MSG_SUPPORT_FORWARDED="ok",
+                            MSG_SUPPORT_FORWARDED_OFF_HOURS="back at {time}")
+    incoming = _customer_message(_ForwardingBot(), message_id=92)
+
+    asyncio.run(support.forward_to_support(
+        incoming, _StateThatRemembers(), _shut_window(config), texts))
+
+    assert incoming.answered[-1].startswith("back at "), incoming.answered

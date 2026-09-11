@@ -40,6 +40,8 @@ from bot.handlers.orders import (favourites_screen, follow_up_parcel,
 from bot.keyboards import (info_menu_kb, main_menu_inline_kb, menu_kb,
                            settings_menu_kb, website_kb)
 from bot import rich
+from bot.handlers.settings import settings_screen
+from bot.handlers.support import begin_support
 from bot.screen import render, send_main_menu
 from core.adapters.keycrm.client import KeyCRMClient
 from core.adapters.novaposhta.client import NovaPoshtaClient
@@ -113,11 +115,13 @@ async def open_favourites(
 
 
 @_menu("BTN_SUPPORT")
-async def open_support(message: Message, state: FSMContext, t: Texts) -> None:
+async def open_support(message: Message, state: FSMContext, config: AppConfig,
+                       t: Texts) -> None:
     """💬 — hand the conversation to a person."""
     track(message.chat.id, "support_opened")
     await state.set_state(SupportStates.waiting_message)
-    await message.answer(t.MSG_SUPPORT_PROMPT, reply_markup=menu_kb(t))
+    await message.answer(await begin_support(state, t, config),
+                         reply_markup=menu_kb(t))
 
 
 @_menu("BTN_INFO")
@@ -131,7 +135,8 @@ async def open_info(message: Message, state: FSMContext, t: Texts) -> None:
 async def open_settings(message: Message, state: FSMContext, t: Texts) -> None:
     """⚙️ — phone number and language."""
     await state.clear()
-    await message.answer(t.MSG_SETTINGS_MENU, reply_markup=settings_menu_kb(t))
+    text, markup = await settings_screen(message.chat.id, t)
+    await message.answer(text, reply_markup=markup)
 
 
 # Same guard as every key below: mid-onboarding the menu would replace the
@@ -247,7 +252,8 @@ async def settings_from_menu(
     """⚙️ from the menu in the message."""
     await callback.answer()
     await state.clear()
-    await render(callback, t.MSG_SETTINGS_MENU, settings_menu_kb(t))
+    text, markup = await settings_screen(callback.from_user.id, t)
+    await render(callback, text, markup)
 
 
 @router.callback_query(MenuAction.filter(F.action == "open_info"))
@@ -260,13 +266,12 @@ async def info_from_menu(callback: CallbackQuery, state: FSMContext, t: Texts) -
 
 @router.callback_query(MenuAction.filter(F.action == "open_support"))
 async def support_from_menu(
-    callback: CallbackQuery, state: FSMContext, t: Texts
+    callback: CallbackQuery, state: FSMContext, config: AppConfig, t: Texts
 ) -> None:
     """💬 from the menu in the message."""
     await callback.answer()
     track(callback.from_user.id, "support_opened")
-    await state.set_state(SupportStates.waiting_message)
-    await render(callback, t.MSG_SUPPORT_PROMPT, menu_kb(t))
+    await render(callback, await begin_support(state, t, config), menu_kb(t))
 
 
 @router.callback_query(MenuAction.filter(F.action == "menu"))
@@ -297,13 +302,12 @@ async def show_info_menu(callback: CallbackQuery, t: Texts) -> None:
 
 @router.callback_query(MenuAction.filter(F.action == "support"))
 async def support_from_screen(
-    callback: CallbackQuery, state: FSMContext, t: Texts
+    callback: CallbackQuery, state: FSMContext, config: AppConfig, t: Texts
 ) -> None:
     """The support button offered on the "we found no orders" screen."""
     await callback.answer()
     track(callback.from_user.id, "support_opened")
-    await state.set_state(SupportStates.waiting_message)
-    await render(callback, t.MSG_SUPPORT_PROMPT, menu_kb(t))
+    await render(callback, await begin_support(state, t, config), menu_kb(t))
 
 
 @router.callback_query(InfoAction.filter(F.page == "back"))

@@ -276,7 +276,7 @@ def broadcast_confirm_kb(t: Texts) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def settings_menu_kb(t: Texts) -> InlineKeyboardMarkup:
+def settings_menu_kb(t: Texts, *, has_phone: bool = True) -> InlineKeyboardMarkup:
     """Build the settings submenu inline keyboard (2 items, 1 per row).
 
     One per row because "Налаштування:" is a short message and an inline
@@ -284,7 +284,11 @@ def settings_menu_kb(t: Texts) -> InlineKeyboardMarkup:
     does not survive being squeezed into half of it.
     """
     builder = InlineKeyboardBuilder()
-    builder.button(text=t.BTN_CHANGE_PHONE, callback_data=SettingsAction(action="phone"))
+    # «Змінити» when there is one, «Поділитися» when there is not. The screen
+    # above says «поділись ним кнопкою нижче», and a button offering to change
+    # a number she has never given contradicts the sentence pointing at it.
+    builder.button(text=t.BTN_CHANGE_PHONE if has_phone else t.BTN_SHARE_PHONE,
+                   callback_data=SettingsAction(action="phone"))
     builder.button(text=t.BTN_LANGUAGE, callback_data=SettingsAction(action="language"))
     builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="menu"))
     builder.adjust(1)
