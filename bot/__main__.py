@@ -30,6 +30,7 @@ from bot.logs import setup_logging
 from bot.handlers.broadcast import router as broadcast_router
 from bot.handlers.common import router as common_router
 from bot.handlers.demo import router as demo_router
+from bot.handlers.emojiprobe import router as emojiprobe_router
 from bot.handlers.info import router as info_router
 from bot.handlers.inline import router as inline_router
 from bot.handlers.menu import router as menu_router
@@ -263,6 +264,10 @@ async def main() -> None:
     dp.include_router(common_router)
     dp.include_router(broadcast_router)
     dp.include_router(demo_router)
+    # Temporary: /emojiprobe asks Telegram whether a custom emoji may live
+    # inside a block, and how it refuses if not. Goes away with the answers
+    # — see bot/handlers/emojiprobe.py.
+    dp.include_router(emojiprobe_router)
     dp.include_router(menu_router)
     dp.include_router(orders_router)
     dp.include_router(info_router)
