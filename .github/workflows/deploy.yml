@@ -115,9 +115,17 @@ jobs:
       #
       # Inside the image and not on the runner, because that is where the file
       # will actually be read, by that Python and those dependencies.
+      #
+      # The two dummy secrets are not laziness. `load_config` builds
+      # `EnvSettings` as well as reading the YAML, and BOT_TOKEN and
+      # KEYCRM_API_KEY are required fields — without them this step fails on the
+      # secrets instead of on the file it is here to check, which is exactly
+      # what it did on its first run. Nothing here connects to anything; the
+      # values only have to exist.
       - name: The config the owner edits actually loads
         run: |
           docker run --rm --entrypoint python \
+            -e BOT_TOKEN=ci -e KEYCRM_API_KEY=ci \
             "${{ env.IMAGE }}:${{ steps.meta.outputs.tag }}" \
             -c "from core.config import load_config; load_config(); print('config loads')"
 
