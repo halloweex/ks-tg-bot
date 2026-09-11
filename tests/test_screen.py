@@ -407,3 +407,50 @@ def test_an_unreachable_anchor_with_no_blocks_still_sends_the_plain_screen(monke
     callback = SimpleNamespace(message=msg, bot=_Bot())
     asyncio.run(screen.render(callback, "плоский текст"))
     assert calls == ["плоский текст"]
+
+
+# --- the detector must not be muted in advance -------------------------------
+
+
+def test_plain_ok_is_earned_in_exactly_one_place():
+    """`plain_ok=True` tells render() that landing plain text on a rich screen
+    is meant here rather than a caller the migration missed. It is earned only
+    where the anchor can ACTUALLY be rich.
+
+    It stood in twelve places and was earned in one. The other eleven were
+    reachable only from plain anchors, where the warning could never have
+    fired — so the flag bought nothing and silenced the detector in advance, on
+    exactly the paths any future migration would travel.
+
+    Which anchors can be rich is not a matter of opinion: enumerate the
+    callbacks the two rich screens actually carry. Today that is `menu:menu`
+    and `disc:ask:` and nothing else, so `back_to_menu` is the one caller that
+    can meet a rich screen.
+
+    A new `plain_ok=True` should fail this test. That is the point: adding one
+    is a claim about which screens are rich, and the claim belongs here."""
+    import re
+    import subprocess
+
+    from tests.conftest import REPO_ROOT
+
+    found = subprocess.run(
+        ["grep", "-rn", "--include=*.py", "plain_ok=True", "bot"],
+        capture_output=True, text=True, cwd=REPO_ROOT,
+    ).stdout.splitlines()
+
+    callers = set()
+    for line in found:
+        path, lineno, _rest = line.split(":", 2)
+        source = (REPO_ROOT / path).read_text().splitlines()
+        for above in reversed(source[:int(lineno)]):
+            match = re.match(r"\s*(?:async )?def ([a-z_]+)", above)
+            if match:
+                callers.add(match.group(1))
+                break
+
+    assert callers == {"back_to_menu"}, (
+        f"plain_ok=True is used by {sorted(callers)}. Leaving the rich orders "
+        f"or favourites screen for the menu is the one place it is earned; "
+        f"everywhere else the anchor is always plain and the flag only turns "
+        f"the detector off ahead of time.")

@@ -125,8 +125,7 @@ async def show_language(
 ) -> None:
     """Offer the supported languages, ticking the active one."""
     await callback.answer()
-    await render(callback, t.MSG_LANGUAGE_CHOOSE, language_kb(lang, t),
-                 plain_ok=True)
+    await render(callback, t.MSG_LANGUAGE_CHOOSE, language_kb(lang, t))
 
 
 @router.callback_query(SettingsAction.filter(F.action == "lang"))
@@ -149,5 +148,5 @@ async def set_language(
     # again — an edit cannot touch the keyboard under the input field, and the
     # menu in the message is the one this callback just overwrote.
     t = Texts(chosen)
-    await render(callback, t.MSG_LANGUAGE_SET, plain_ok=True)
+    await render(callback, t.MSG_LANGUAGE_SET)
     await send_main_menu(callback.message, t, config)

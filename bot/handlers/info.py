@@ -37,8 +37,7 @@ async def _show_info_page(callback: CallbackQuery, text: str, t: Texts,
     """Turn the screen into an info page with a Back button."""
     await callback.answer()
     track(callback.from_user.id, "info_viewed", page=page)
-    await render(callback, text, _back_to_info_kb(t, instagram_url),
-                 plain_ok=True)
+    await render(callback, text, _back_to_info_kb(t, instagram_url))
 
 
 @router.callback_query(InfoAction.filter(F.page == "about"))
