@@ -85,7 +85,8 @@ async def show_language(
 ) -> None:
     """Offer the supported languages, ticking the active one."""
     await callback.answer()
-    await render(callback, t.MSG_LANGUAGE_CHOOSE, language_kb(lang), plain_ok=True)
+    await render(callback, t.MSG_LANGUAGE_CHOOSE, language_kb(lang, t),
+                 plain_ok=True)
 
 
 @router.callback_query(SettingsAction.filter(F.action == "lang"))

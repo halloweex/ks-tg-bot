@@ -434,8 +434,15 @@ def _orders_kb(
     # Last row, and on every screen the menu opens: a menu entry replaces the
     # menu message with the section, so without this the only way back is the
     # keyboard below the input field — which answers with a new message.
-    builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="menu"))
-    layout.append(1)
+    #
+    # Not on the rich screen, where the blocks carry their own — the tail of
+    # `rich_orders_blocks` ends with exactly this button. Left in, the customer
+    # saw «📋 Меню» twice on one screen, once in the slab and once at the end of
+    # the blocks. The same defect as the per-order date buttons two screens
+    # above, closed there by this same flag; the menu key was simply missed.
+    if not rich:
+        builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="menu"))
+        layout.append(1)
 
     builder.adjust(*layout)
     return builder.as_markup()

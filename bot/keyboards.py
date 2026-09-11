@@ -291,11 +291,38 @@ def settings_menu_kb(t: Texts) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def language_kb(current: str) -> InlineKeyboardMarkup:
-    """One button per supported language, ticking the active one."""
+def language_kb(current: str, t: Texts | None = None) -> InlineKeyboardMarkup:
+    """One button per supported language, ticking the active one.
+
+    **`t` is what adds the way out, and both call sites need different things.**
+
+    From Налаштування this replaces the live screen, so without a way back the
+    only exits are changing the language — which she may have come only to
+    look at — or typing /menu. Production runs `bottom_menu: false`, so there is
+    no keyboard under the input field to fall back on either. It was the one
+    inline keyboard in the bot with no route out of it, and the guard test in
+    tests/test_main_menu.py did not catch it for the plainest of reasons: this
+    function was not in the list it checks.
+
+    The offer in `bot/handlers/common.py` passes no `t` and must not: it is a
+    standalone message rather than the live screen, sent once when Telegram's
+    language differs from ours. Ignoring it costs nothing and leaves her exactly
+    where she was, so "back" there would point at a screen she never left.
+
+    Back to Налаштування rather than to the main menu, which is the same shape
+    the Довідка pages use (`bot/handlers/info.py::_back_to_info_kb`): a
+    sub-screen returns to its parent, and the parent carries the menu.
+    """
     builder = InlineKeyboardBuilder()
     for code, name in LANGUAGE_NAMES.items():
         mark = " ✅" if code == current else ""
         builder.button(text=f"{name}{mark}", callback_data=SettingsAction(action="lang", value=code))
+    if t is not None:
+        builder.button(text=t.BTN_BACK,
+                       callback_data=MenuAction(action="open_settings"))
+        # The languages share one row; the way out gets its own, so it is not
+        # read as a third language.
+        builder.adjust(len(SUPPORTED), 1)
+        return builder.as_markup()
     builder.adjust(len(SUPPORTED))
     return builder.as_markup()

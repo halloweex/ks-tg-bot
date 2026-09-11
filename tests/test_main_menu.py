@@ -203,6 +203,54 @@ def test_every_screen_the_menu_opens_can_bring_it_back():
         assert "menu" in actions
 
 
+# A screen may also lead out through its parent rather than straight to the
+# menu — the Довідка pages do, and so does the language screen. What it may not
+# do is lead nowhere.
+LEADS_SOMEWHERE = {"menu", "info", "open_settings"}
+
+
+def test_the_language_screen_has_a_way_out():
+    """It did not, and the list above is why nobody noticed: `language_kb` was
+    simply not in it.
+
+    From Налаштування this replaces the live screen, so the only exits were
+    changing the language — which she may have opened it only to look at — or
+    typing /menu. Production runs bottom_menu: false, so there is no keyboard
+    under the input field either."""
+    from bot.keyboards import language_kb
+
+    keyboard = language_kb("uk", T)
+    actions = {MenuAction.unpack(b.callback_data).action
+               for row in keyboard.inline_keyboard for b in row
+               if b.callback_data and b.callback_data.startswith("menu:")}
+    assert actions & LEADS_SOMEWHERE, (
+        "the one inline keyboard in the bot with no route out of it")
+
+
+def test_the_language_offer_deliberately_has_none():
+    """The other call site, and the asymmetry is the point rather than an
+    oversight. The offer is a standalone message sent once when Telegram's
+    language differs from ours; ignoring it leaves her exactly where she was, so
+    a "back" there would point at a screen she never left."""
+    from bot.keyboards import language_kb
+
+    rows = language_kb("uk").inline_keyboard
+    assert [b.text for row in rows for b in row] == ["Українська ✅", "English"]
+
+
+def test_every_page_of_the_dovidka_leads_out_through_its_parent():
+    """The precedent the language screen follows. Not in the tuple above
+    because its way out is «◀️ Назад» to the page list rather than the menu —
+    which is a route, and a dead end is the absence of one."""
+    from bot.handlers.info import _back_to_info_kb
+
+    for markup in (_back_to_info_kb(T), _back_to_info_kb(T, "https://insta")):
+        actions = {MenuAction.unpack(b.callback_data).action
+                   for row in markup.inline_keyboard for b in row
+                   if b.callback_data and b.callback_data.startswith("menu:")}
+        assert actions & LEADS_SOMEWHERE
+
+
 def test_the_way_back_is_handled():
     assert "menu" in _handled_actions()
 

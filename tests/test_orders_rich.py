@@ -655,3 +655,58 @@ def test_a_screen_with_no_blocks_never_asks_telegram_for_a_rich_one():
 
     assert not bot.rich, "an empty screen must not be sent as a rich message"
     assert bot.plain == [(CHAT, "Поки що нема замовлень", None)]
+
+
+# --- one screen, one of each button ------------------------------------------
+
+
+def _slab_and_blocks(rows, **kw):
+    from bot.handlers.orders import _orders_kb
+    slab = [b.text for row in _orders_kb(rows, T, rich=True, **kw).inline_keyboard
+            for b in row]
+    blocks = [btn.text for b in rich_orders_blocks(rows, T, **kw)
+              for btn in (getattr(b, "buttons", None) or [])]
+    return slab, blocks
+
+
+def test_no_button_appears_both_in_the_slab_and_in_the_blocks(db_with_orders):
+    """«📋 Меню» was on the rich screen twice — once under the message and once
+    at the end of the blocks.
+
+    Written as the general rule rather than about that one button, because it
+    is the third time this class has shown up: the per-order date buttons were
+    drawn twice for the same reason and were closed with the same flag, and the
+    menu key was simply missed. The slab under a rich screen carries what the
+    blocks cannot, and nothing else."""
+    rows = [{"id": i, "order_name": f"#{i}", "status_name": "Прибув",
+             "status_group_id": 4, "grand_total": 100, "currency": "грн",
+             "ordered_at": f"2026-08-{i + 1:02d}T10:00:00", "products_json": "[]",
+             "tracking_code": "", "delivery_city": "", "receive_point": ""}
+            for i in (1, 2, 3)]
+    slab, blocks = _slab_and_blocks(rows)
+
+    both = set(slab) & set(blocks)
+    assert not both, f"drawn twice on one screen: {sorted(both)}"
+
+
+def test_the_rich_screen_still_has_a_way_out(db_with_orders):
+    """Dropping the duplicate must not drop the only one. On the rich screen
+    the way out lives in the blocks, which is why the slab may lose it."""
+    rows = [{"id": 1, "order_name": "#1", "status_name": "Прибув",
+             "status_group_id": 4, "grand_total": 100, "currency": "грн",
+             "ordered_at": "2026-08-02T10:00:00", "products_json": "[]",
+             "tracking_code": "", "delivery_city": "", "receive_point": ""}]
+    slab, blocks = _slab_and_blocks(rows)
+    assert T.BTN_MENU in slab + blocks, "the rich screen lost its way out"
+
+
+def test_the_plain_screen_keeps_its_own(db_with_orders):
+    """It has no blocks to carry one, so the slab must."""
+    from bot.handlers.orders import _orders_kb
+
+    rows = [{"id": 1, "order_name": "#1", "status_name": "Прибув",
+             "status_group_id": 4, "grand_total": 100, "currency": "грн",
+             "ordered_at": "2026-08-02T10:00:00", "products_json": "[]",
+             "tracking_code": "", "delivery_city": "", "receive_point": ""}]
+    slab = [b.text for row in _orders_kb(rows, T).inline_keyboard for b in row]
+    assert T.BTN_MENU in slab
