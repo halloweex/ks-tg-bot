@@ -1,25 +1,37 @@
-"""What a proactive message was sent for, in a form that survives the round trip.
+"""What a proactive message was sent for, in a form that survives being stored.
 
-§6.4 asks for a campaign key that is mandatory when queueing a message *and*
-present in the `callback_data` of the button on it. That pairing is the whole
-point: the outbox header records what was sent, the callback records what was
-pressed, and `events` joins them into sent → clicked → bought. Without the key
-in both places the funnel has a hole in the middle and only ever answers "sent"
-and "bought", which is the question nobody is stuck on.
+§6.4 asked for a campaign key that is mandatory when queueing a message *and*
+present in the `callback_data` of the button on it, so that the outbox header
+would record what was sent, the callback would record what was pressed, and
+`events` would join them into sent → clicked → bought.
 
-It cannot be bolted on afterwards — a message already delivered carries whatever
-callback_data it was built with — so the type exists before the first sender
-moves onto the outbox rather than after.
+**Half of that was never buildable, and saying so here is the point of this
+paragraph.** No proactive message this bot sends carries a callback button:
+three of the six kinds carry no keyboard at all, two carry a `url` button —
+Telegram tells a bot nothing when one is tapped — and the sixth opens the inline
+panel with a query the customer can see in her own input field. There was
+nothing to stamp the key into, which is why `parse()` below sat with no callers
+for as long as it did. The middle of that funnel can only be bought by putting a
+button on a message that has none, aimed back into the bot rather than at the
+shop, and that is a product change made to obtain a number.
 
-**Why a type and not a string.** The same value has to be produced in the job
-that queues, matched in the handler that receives, and grouped in the query that
-reports. Three places, three chances to spell it differently, and a typo is
-invisible: the funnel simply reports fewer clicks. A parsed type turns that into
-an error at the boundary.
+So the key does the half it can, and it does it well: written once onto the
+outbox row, kept there for a year — `prune()` clears the payload and leaves the
+header — and read by `core/usecases/analytics.py::campaign_report`, which joins
+it to the orders the CRM sync records without the customer touching the bot.
+Sent → bought, honestly, with the click left out rather than inferred.
 
-**Why `.` separates the parts.** aiogram packs `callback_data` with `:`, and a
-value containing one is rejected or silently split — so the separator here is
-the one character that cannot be used there.
+**Why a type and not a string.** The same value is produced in the job that
+queues and grouped in the report that reads. Two places, two chances to spell it
+differently, and a typo is invisible: the campaign simply splits into two rows
+that each look like a smaller campaign. A parsed type turns that into an error
+at the boundary — which is also why `parse` raises rather than shrugging.
+
+**Why `.` separates the parts.** It was chosen because aiogram packs
+`callback_data` with `:`, and a value containing one is rejected or silently
+split. That reason is now historical, since the key never reaches a
+`callback_data`; the separator stays because keys are already written in the
+outbox with it and a change would make every stored row unreadable for nothing.
 """
 from __future__ import annotations
 
@@ -79,7 +91,11 @@ def daily(kind: str, day: date | None = None) -> CampaignKey:
 
 
 def parse(raw: str) -> CampaignKey:
-    """A key back out of a callback or a database row.
+    """A key back out of a database row.
+
+    It said "out of a callback or a database row" and only the second half was
+    ever reachable — see the note at the top of this file. Its one caller is
+    the campaign report, which reads the keys the senders wrote.
 
     Raises on anything that is not one, rather than returning a blank: a
     malformed key means a message built by code that no longer exists, and

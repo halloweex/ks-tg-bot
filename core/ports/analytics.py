@@ -119,3 +119,52 @@ class UsageStats(Protocol):
         the same fact as forty people opening it once.
         """
         ...
+
+
+@runtime_checkable
+class CampaignOutcomes(Protocol):
+    """What the proactive messages did, for the campaign section of the readout.
+
+    Separate from `UsageStats` above rather than a fifth method on it, because
+    they are two readouts over two different things. `UsageStats` counts what
+    people did in the bot; this counts what the bot sent and what happened
+    afterwards, and it reads the outbox and the order cache rather than the
+    event log. One port promising both would force an implementer to have both.
+
+    **It returns tuples, not objects.** The same rule `UsageStats` follows, and
+    for the reason `ports-are-only-signatures` exists: the shapes the report
+    renders live in `core.usecases`, and a port that returned them would make
+    `core.ports` import the layer above it.
+
+    **There is no click, and there will not be one.** Three of the six kinds of
+    proactive message carry no keyboard, two carry a `url` button — which
+    Telegram never reports a tap on, as `/stats` has said about the Website
+    button since before this existed — and the sixth opens the inline panel with
+    a query the customer sees in her own input field. The middle of the funnel
+    §6.4 asked for cannot be observed without putting a button on a message that
+    has none, aimed back at the bot instead of at the shop. This port is the
+    shape of the honest half: sent, delivered, and what happened next.
+    """
+
+    async def outcomes(
+        self, *, days: int, window_days: int, exclude_types: Sequence[str],
+    ) -> list[tuple[str, str, int, int, int, int, int, str]]:
+        """One row per (campaign key, message type), newest send first.
+
+        `(campaign_key, type, people, delivered, failed, bought,
+        bought_before, last_sent)`.
+
+        `bought` is the people who ordered within `window_days` of the message
+        reaching them; `bought_before` is the same people over a window of the
+        same length ending where the message starts. Both windows are required
+        keyword arguments for the reason every window on `UsageStats` is: a
+        default here is a second place the number is decided, and the caller
+        that forgot to pass one is the caller whose caption says seven days over
+        a thirty-day count.
+
+        `exclude_types` is the caller's, not the implementation's. What counts
+        as "not a campaign" is a judgement about the product — a support reply
+        is a person's work, an admin's completion summary is not addressed to a
+        customer — and judgements belong above the SQL.
+        """
+        ...

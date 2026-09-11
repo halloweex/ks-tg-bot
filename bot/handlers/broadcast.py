@@ -18,7 +18,8 @@ from core.i18n import Texts, admin_texts
 from bot.callbacks import BroadcastAction
 from bot.analytics import track
 from core.config import AppConfig
-from core.usecases.analytics import usage_report
+from core.repos.campaigns import SqliteCampaignOutcomes
+from core.usecases.analytics import campaign_report, usage_report
 from core.usecases.broadcast import start_broadcast
 from core.repos.broadcast import SqliteBroadcastJournal
 from core.repos.events import SqliteUsageStats
@@ -241,7 +242,35 @@ async def cmd_stats(message: Message, config: AppConfig) -> None:
     else:
         lines.append("  no events yet")
 
+    campaigns = await campaign_report(SqliteCampaignOutcomes())
+    lines += ["", f"<b>Proactive, last {campaigns.days} days</b>"]
+    if campaigns.rows:
+        lines.append(f"  <i>ordered within {campaigns.window_days}d of the "
+                     f"message, against the same window before it</i>")
+        for row in campaigns.rows:
+            after = (f"{row.bought}/{row.people}"
+                     + (f" ({row.share:.0f}%)" if row.share is not None else ""))
+            if row.bought_before is None:
+                before = "—"
+            else:
+                before = str(row.bought_before) + (
+                    f" ({row.share_before:.0f}%)"
+                    if row.share_before is not None else "")
+            failed = f", {row.failed} undelivered" if row.failed else ""
+            lines.append(f"  {row.key} ({row.type}): {after} after, "
+                         f"{before} before{failed}")
+        if campaigns.unreadable:
+            lines.append(f"  {campaigns.unreadable} row(s) carried something "
+                         f"that is not a campaign key — see the log")
+    else:
+        lines.append("  nothing sent yet")
+
     lines += ["", "Taps on the Website button are not reported by Telegram — "
-              "look for utm_source=telegram in the shop's analytics."]
+              "look for utm_source=telegram in the shop's analytics.",
+              "The same is true of every button above: no proactive message "
+              "carries one this bot can see a tap on, so there is no click "
+              "column and a \"—\" means unmeasurable, never zero.",
+              "\"before\" is the ordinary rate for the same people, not a "
+              "control group: they were chosen by the campaign, not at random."]
 
     await message.answer("\n".join(lines), parse_mode="HTML")

@@ -171,15 +171,21 @@ async def deliver_once(
 def _payload(message: QueuedMessage) -> dict:
     """The message as the transport needs it.
 
-    A copy, not the stored mapping: the campaign key is added for the
-    transport's benefit and the message is supposed to be a record of what was
-    queued, not of what was handed to Telegram afterwards.
+    A copy, not the stored mapping, so what is handed to Telegram cannot alter
+    the record of what was queued.
+
+    **The campaign key used to be added here and is not any more.** It was put
+    in for a reader that never existed: `bot/outbox.py::TelegramNotifier.send`
+    reads `typing`, `text`, `copy`, `effect_id`, `photo` and `keyboard`, and has
+    never looked at it. §6.4 meant it to be stamped into the `callback_data` of
+    the button on the message — but no proactive message carries a callback
+    button, so there was nothing to stamp it into and nothing to read it back
+    out of. The key is on the outbox row, where it is written once and now
+    finally read: `core/usecases/analytics.py::campaign_report`.
 
     The tolerance that used to live here — a payload that will not decode
     becomes {} rather than taking the whole pass down — moved into the queue
     with the decoding itself. It is still true, and it is now true for anybody
     reading the queue rather than only for this function.
     """
-    payload = dict(message.payload)
-    payload.setdefault("campaign_key", message.campaign_key)
-    return payload
+    return dict(message.payload)

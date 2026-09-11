@@ -88,14 +88,24 @@ def test_a_due_message_is_sent_and_marked(db):
     assert _row(message_id)["sent_at"] is not None
 
 
-def test_the_campaign_key_travels_with_the_payload(db):
-    """§6.4: the button on the message has to carry it, so the transport has to
-    be handed it — the row knows it, the payload did not."""
+def test_the_campaign_key_is_not_handed_to_the_transport(db):
+    """It used to be, for a reader that never existed.
+
+    §6.4 wanted the key stamped into the `callback_data` of the button on the
+    message, so the transport had to be handed it. No proactive message carries
+    a callback button — three kinds carry no keyboard, two carry a `url`
+    Telegram reports no tap on, and the sixth opens the inline panel — so there
+    was nothing to stamp it into. `TelegramNotifier.send` reads typing, text,
+    copy, effect_id, photo and keyboard, and never looked at it.
+
+    The key is read where it was always written: the outbox row, by
+    `core/usecases/analytics.py::campaign_report`."""
     _put(payload={"text": "back in stock"})
     notifier = FakeNotifier()
     asyncio.run(_deliver(notifier, now=NOON))
 
-    assert notifier.sent[0][1]["campaign_key"] == "stock.260819"
+    assert notifier.sent[0][1] == {"text": "back in stock"}, (
+        "the transport is handed what was queued and nothing else")
 
 
 def test_nothing_due_is_a_quiet_pass(db):
@@ -246,7 +256,7 @@ def test_a_pruned_payload_does_not_take_the_pass_down(db):
     result = asyncio.run(_deliver(notifier, now=NOON))
 
     assert result.sent == 1
-    assert notifier.sent[0][1] == {"campaign_key": "stock.260819"}
+    assert notifier.sent[0][1] == {}
 
 
 def test_the_pass_reports_what_it_did(db):
