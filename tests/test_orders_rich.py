@@ -448,7 +448,30 @@ def test_the_parcel_answer_lands_in_a_section_she_can_see():
     answered = [b for b in rich_orders_blocks(
         rows, T, parcels={3: ["Статус: В дорозі"]}) if b.type == "details"]
     assert answered[2].is_open, "the one being answered about"
-    assert not answered[0].is_open
+
+
+def test_asking_about_one_parcel_does_not_fold_what_she_was_reading():
+    """The half the test above used to assert the wrong way round.
+
+    It ended with `assert not answered[0].is_open` — pinning the newest order
+    shut the moment another was asked about, because one expression did two
+    jobs: `in parcels if parcels else row is active[0]` chose who got carrier
+    lines AND closed everything else. Measured on three orders: tap «Де
+    посилка?» on the third and the first, open until that moment, folded. She
+    got her answer and lost her place, and the more orders she had the more it
+    cost.
+
+    The two reasons a section is open add up. They do not replace each other."""
+    rows = [_order(1), _order(2), _order(3)]
+
+    answered = [b for b in rich_orders_blocks(
+        rows, T, parcels={3: ["Статус: В дорозі"]}) if b.type == "details"]
+
+    assert answered[2].is_open, "the one being answered about"
+    assert answered[0].is_open, (
+        "the newest folded when another order was asked about")
+    assert not answered[1].is_open, (
+        "and nothing else opened: two reasons, not a free-for-all")
 
 
 def test_the_stale_warning_reaches_the_rich_screen_too():

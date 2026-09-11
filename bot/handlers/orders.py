@@ -1601,13 +1601,18 @@ def rich_orders_blocks(orders: list[dict], t: Texts, *,
         section = rich.details(
             _order_summary(row, t),
             _order_details(row, t, parcel=parcels.get(row.get("id", 0))),
-            # Open the one being answered about, else the newest. The parcel
-            # lookup redraws the whole screen with one section's lines filled
-            # in, and pinning this to active[0] delivered that answer into a
-            # folded section: she tapped "Де посилка?", the screen redrew, and
-            # nothing she could see had changed.
-            is_open=(row.get("id", 0) in parcels if parcels
-                     else row is active[0]),
+            # **Two reasons a section is open, and they add up rather than
+            # replace each other.** The one being answered about, so a parcel
+            # answer does not land inside a folded section; and the newest,
+            # which is where she was reading.
+            #
+            # This used to be `in parcels if parcels else row is active[0]` —
+            # one expression doing two jobs, so a single-entry `parcels` both
+            # chose who got carrier lines AND closed everything else. Measured:
+            # three orders, tap «Де посилка?» on the third, and the first —
+            # open until that moment — folded. She got her answer and lost her
+            # place, every time, and the more orders she had the more it cost.
+            is_open=(row.get("id", 0) in parcels or row is active[0]),
         )
         if not rich.fits(blocks + [section] + tail):
             break
