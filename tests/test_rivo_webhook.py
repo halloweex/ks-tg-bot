@@ -293,3 +293,121 @@ def test_an_event_type_we_do_not_know_is_logged_once():
     lines = [line for line in said if "order/refunded" in line]
     assert len(lines) == 1, (
         f"expected exactly one line for a new event type, got {len(lines)}")
+
+
+# --- the first real body records itself --------------------------------------
+#
+# Rivo is the only service this repo talks to with no saved payload: keycrm,
+# novaposhta and shopify all have recordings under tests/fixtures and their
+# parsers run on what the service actually sends. That gap is exactly how
+# `points_diff: null` went unnoticed — nobody had ever seen a real body. Fetching
+# them by hand means somebody logged into Rivo at the right moment, so instead
+# the bodies we cannot fully act on write themselves down.
+
+
+def _with_samples(tmp_path, body: bytes, signature: str | None = None):
+    """Drive the real server with sampling switched on, and return the files."""
+    queue = _Queue()
+    app = build_app(path=PATH, secret=SECRET, chats=_Chats(),
+                    languages=_Languages(), queue=queue,
+                    account_url="https://koreanstory.com.ua/account",
+                    sample_dir=tmp_path)
+
+    async def go() -> int:
+        async with TestClient(TestServer(app)) as client:
+            headers = {"rivo-signature": signature or _sign(body)}
+            response = await client.post(PATH, data=body, headers=headers)
+            return response.status
+
+    status = asyncio.run(go())
+    return status, sorted(p.name for p in tmp_path.glob("*.json"))
+
+
+def test_an_unknown_event_type_writes_itself_down(tmp_path):
+    body = _raw({"event_type": "order/refunded", "amount": 120,
+                 "customer": {"email": KNOWN}})
+    status, files = _with_samples(tmp_path, body)
+
+    assert status == 200
+    assert files == ["order_refunded.json"], (
+        "a body we could not act on is the one worth keeping")
+
+
+def test_the_shape_that_cost_a_customer_her_award_is_kept(tmp_path):
+    """The important one, and the one a naive sampler misses: a points event
+    with no signed amount parses into a perfectly good event that `announce`
+    then drops. Watching only for a None from `parse_event` would never see
+    it — which is why the parser is asked instead."""
+    body = _points_body(points_diff=None, points_amount=22)
+    status, files = _with_samples(tmp_path, body)
+
+    assert status == 200
+    assert files == ["points_event_created.json"]
+
+
+def test_a_body_we_understood_is_not_kept(tmp_path):
+    """A sampler, not a log. Once the shape is known there is nothing to learn
+    from another copy of it, and a directory that grows on every award is a
+    directory nobody will read."""
+    body = _points_body(points_diff=22)
+    status, files = _with_samples(tmp_path, body)
+
+    assert status == 200 and files == []
+
+
+def test_the_second_one_of_a_kind_does_not_overwrite_the_first(tmp_path):
+    body = _raw({"event_type": "order/refunded", "customer": {"email": KNOWN}})
+    _with_samples(tmp_path, body)
+    first = (tmp_path / "order_refunded.json").read_text()
+
+    other = _raw({"event_type": "order/refunded", "extra": "later",
+                  "customer": {"email": KNOWN}})
+    _with_samples(tmp_path, other)
+
+    assert (tmp_path / "order_refunded.json").read_text() == first
+
+
+def test_nothing_a_customer_could_be_identified_by_reaches_the_disk(tmp_path):
+    """A fixture is meant to be committed, and a body with somebody's address
+    in it could not be. `customer` is rebuilt from the fields the parser reads
+    rather than filtered, because a denylist only protects against the fields we
+    thought of and Rivo is free to add one we did not."""
+    import json as _json
+
+    body = _raw({
+        "event_type": "order/refunded",
+        "customer": {"email": "olya@example.com", "first_name": "Оля",
+                     "phone": "+380670000000", "address": "вул. Хрещатик, 1",
+                     "points_tally": 527, "loyalty_status": "VIP"},
+    })
+    _with_samples(tmp_path, body)
+    written = (tmp_path / "order_refunded.json").read_text()
+
+    for secret in ("olya@example.com", "Оля", "380670000000", "Хрещатик"):
+        assert secret not in written, f"{secret!r} was written to disk"
+
+    kept = _json.loads(written)["customer"]
+    assert kept["points_tally"] == 527 and kept["loyalty_status"] == "VIP", (
+        "the fields the parser reads are the point of the fixture")
+    assert kept["_redacted_keys"] == ["address", "first_name", "phone"], (
+        "what was dropped is named, so a shape change is still visible")
+
+
+def test_a_body_with_a_bad_signature_is_never_sampled(tmp_path):
+    """Anything reaching the sampler has already passed the HMAC, so nothing
+    written there came from anywhere but Rivo. Without this, the endpoint is a
+    way for a stranger to put files on the disk."""
+    body = _raw({"event_type": "order/refunded", "customer": {"email": KNOWN}})
+    status, files = _with_samples(tmp_path, body, signature="not-the-signature")
+
+    assert status == 401 and files == []
+
+
+def test_sampling_off_is_the_default(tmp_path):
+    """A module that starts writing files because somebody imported it is a
+    module nobody can test twice."""
+    body = _raw({"event_type": "order/refunded", "customer": {"email": KNOWN}})
+    status, sent = call(body, _sign(body))
+
+    assert status == 200 and not sent
+    assert list(tmp_path.glob("*.json")) == []

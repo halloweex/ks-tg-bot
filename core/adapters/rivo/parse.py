@@ -64,6 +64,32 @@ def _as_int(value: object) -> int:
         return 0
 
 
+def is_unexplained(payload: object) -> bool:
+    """Whether this body is one we could not fully act on.
+
+    Two cases, and they are the two the log already speaks about: an event type
+    `_KINDS` does not name, and a points event that arrived with no signed
+    amount so an award could not be told from a redemption.
+
+    Here rather than in the transport because both conditions are this module's
+    knowledge, and a copy of them in `bot/webhooks.py` would be a second place
+    to keep in step. The transport asks; it does not re-derive.
+
+    It exists so the bodies worth having can record themselves. Rivo is the only
+    service this repo talks to with no saved payload, and that is exactly how
+    `points_diff: null` went unnoticed — `parse_event` returns an *event* for
+    it, so a sampler watching only for None would miss the one shape most worth
+    seeing.
+    """
+    if not isinstance(payload, dict):
+        return True
+    event_type = str(payload.get("event_type") or "")
+    kind = _KINDS.get(event_type)
+    if kind is None:
+        return True
+    return kind is Kind.POINTS and payload.get("points_diff") is None
+
+
 def parse_event(payload: dict) -> LoyaltyEvent | None:
     """One webhook body as an event, or None if it is not ours to announce."""
     if not isinstance(payload, dict):

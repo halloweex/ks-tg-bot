@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -179,6 +180,15 @@ async def main() -> None:
                         languages=SqliteLanguageChoice(),
                         queue=SqliteMessageQueue(),
                         account_url=config.loyalty_account_url,
+                        # Beside the database, which is the volume that
+                        # survives a deploy. Rivo is the one service this repo
+                        # talks to with no recorded payload, and that is how a
+                        # null in a field nobody had seen cost a customer her
+                        # award notice. The first body we cannot fully act on
+                        # records itself here, redacted, ready to become a
+                        # fixture.
+                        sample_dir=(Path(config.env.bot_db_path).parent
+                                    / "rivo-samples"),
                     ),
                     webhooks.PORT,
                 ),
