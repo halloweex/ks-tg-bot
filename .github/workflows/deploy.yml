@@ -56,6 +56,22 @@ jobs:
             exit 1
           fi
 
+      # CLAUDE.md requires both of these before a commit, and until now that
+      # was the whole of the enforcement: a push where somebody skipped the
+      # local run deployed untested. Ten seconds here against a bot that is
+      # down until somebody notices.
+      #
+      # Before the build rather than after, so a red suite costs a minute of
+      # CI rather than a pushed image nobody wants.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Tests and the layering contracts
+        run: |
+          python -m pip install --quiet -r requirements-dev.txt
+          python -m pytest -q
+          lint-imports --config .importlinter
+
       - id: meta
         run: echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
@@ -89,6 +105,21 @@ jobs:
           docker run --rm --entrypoint python \
             "${{ env.IMAGE }}:${{ steps.meta.outputs.tag }}" \
             -c "import bot.__main__; print('entrypoint imports')"
+
+      # The step above does NOT read config.yaml: load_config() is called
+      # inside main(), so importing the entrypoint never opens the file. A
+      # broken indent in the one file the owner edits by hand therefore passed
+      # every check here and took the bot down at the next restart — which can
+      # be hours later, on somebody else's deploy, with nothing pointing back
+      # at the edit that caused it.
+      #
+      # Inside the image and not on the runner, because that is where the file
+      # will actually be read, by that Python and those dependencies.
+      - name: The config the owner edits actually loads
+        run: |
+          docker run --rm --entrypoint python \
+            "${{ env.IMAGE }}:${{ steps.meta.outputs.tag }}" \
+            -c "from core.config import load_config; load_config(); print('config loads')"
 
   deploy:
     needs: build
