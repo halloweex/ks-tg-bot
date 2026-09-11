@@ -29,20 +29,33 @@ async def refresh_once(storefront: Storefront, catalogue: OfferCache) -> int:
     if not offers:
         logger.warning("Catalogue sweep read nothing; keeping the previous offers")
         return 0
-    removed = await catalogue.replace(offers)
     sellable = sum(1 for offer in offers.values() if offer.available)
+    known = await catalogue.count()
+    if known and len(offers) * 2 < known:
+        # **One sweep may not unpublish the shop.** A shop does not lose half
+        # its catalogue in an hour, so a read this much shorter than the table
+        # is a feed fault until a human says otherwise — and a feed can produce
+        # one without erroring: an empty page mid-catalogue is how this feed
+        # says "that was the last one". The adapter retries such a page, which
+        # catches a transient answer and not a persistent one.
+        #
+        # The offers are still written. Prices and availability are worth
+        # having, and refusing the whole sweep would throw away good data to
+        # avoid a bad delete.
+        #
+        # If the shop really did halve, this keeps refusing and the line below
+        # keeps appearing, which is the intended way for it to end: somebody
+        # reads it and decides, rather than an hourly job deciding by itself.
+        await catalogue.update(offers)
+        logger.error(
+            "Catalogue sweep read {} offers against {} already cached and did "
+            "NOT prune. A shop does not halve in an hour, so this is a short "
+            "feed until proven otherwise; if the catalogue really did shrink, "
+            "clear the offers table by hand and the next sweep will settle.",
+            len(offers), known)
+        return len(offers)
+
+    removed = await catalogue.replace(offers)
     logger.info("Catalogue refreshed: {} offers, {} sellable, {} delisted",
                 len(offers), sellable, removed)
-    if removed > len(offers):
-        # Said out loud rather than guarded against. A sweep that deletes more
-        # than it writes is either the first one after months of a cache that
-        # never pruned — which is the point of this change and happens once — or
-        # a feed that answered with a fraction of the shop and no error. The
-        # second is recoverable by the next hour's sweep, because this table is
-        # rebuilt from the shop and holds nothing of its own; what is not
-        # recoverable is nobody noticing.
-        logger.warning(
-            "Catalogue sweep removed more rows ({}) than it wrote ({}). Expected "
-            "once, on the first sweep after pruning was introduced; twice means "
-            "the feed is answering short without erroring.", removed, len(offers))
     return len(offers)

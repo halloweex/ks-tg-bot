@@ -34,6 +34,19 @@ _PAGE_SIZE = 250
 _MAX_PAGES = 20
 _PAGE_PAUSE = 0.3
 
+# An empty page is how this feed says "that was the last one", which means a
+# page that answers 200 with nothing in it *mid-catalogue* is indistinguishable
+# from the end by construction — and since the cache started pruning, that
+# reads as "the shop unpublished everything after page one". Measured: with
+# page 2 of 3 answering 200 and an empty list, 350 of 600 rows were deleted.
+#
+# So an empty page is asked for a second time before it is believed. One extra
+# request per sweep at most, and it separates a transient answer from a real
+# end of feed. It does not separate a *persistent* wrong empty page from one —
+# nothing here can — which is why `refresh_once` also refuses to prune on a
+# scale no shop reaches in an hour.
+_EMPTY_PAGE_RETRY_PAUSE = 1.0
+
 
 class ShopifyStorefront:
     """Reads the shop's public product feed. Implements the Storefront port."""
@@ -65,11 +78,22 @@ class ShopifyStorefront:
                     response.raise_for_status()
                     body = response.json()
                     if not body.get("products"):
-                        # The only honest end: a page with nothing on it means
-                        # the feed is exhausted, and everything before it is all
-                        # there is.
-                        complete = True
-                        break
+                        # Ask once more before believing it — see the note on
+                        # _EMPTY_PAGE_RETRY_PAUSE. Only a page that is empty
+                        # twice is the end of the feed.
+                        await asyncio.sleep(_EMPTY_PAGE_RETRY_PAUSE)
+                        response = await client.get(
+                            self._url, params={"limit": _PAGE_SIZE, "page": page}
+                        )
+                        response.raise_for_status()
+                        body = response.json()
+                        if not body.get("products"):
+                            complete = True
+                            break
+                        logger.warning(
+                            "Storefront page {} was empty once and not twice; "
+                            "the first answer would have been read as the end "
+                            "of the feed", page)
                     offers.update(parse_offers_page(body))
                     page += 1
                     await asyncio.sleep(_PAGE_PAUSE)

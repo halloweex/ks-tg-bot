@@ -226,9 +226,49 @@ class OfferCache(Protocol):
         mapping to rename an offer and a caller doing that while nothing
         happens.
 
-        Returns nothing, deliberately. What the sweep logs is what it read, not
-        what the table now holds; reading a count back would answer a question
-        nobody asked, at the price of a full scan every hour.
+        **It returns how many rows it removed**, which it did not use to. That
+        number is the only place the scenario can see what pruning actually did,
+        and a delete nobody counts is a delete nobody can notice going wrong.
+
+        **It is not the only write.** `update` below does the same upsert and
+        deletes nothing, and the scenario chooses between them. Two names rather
+        than one flag, because the difference is the difference between a cache
+        refresh and unpublishing the shop, and that is not something a caller
+        should be able to get wrong by mistyping a keyword.
+        """
+        ...
+
+    async def count(self) -> int:
+        """How many offers the table holds right now.
+
+        Here so the scenario can weigh a sweep against what it already has
+        without importing a repository. It is read once an hour, immediately
+        before a decision that can delete rows, and that decision is the only
+        reason it exists.
+        """
+        ...
+
+    async def update(self, offers: dict[str, Offer]) -> None:
+        """The same upsert, deleting nothing.
+
+        For a sweep the scenario is not willing to treat as the whole shop.
+        The feed answers an empty page to mean "that was the last one", so a
+        page that answers 200 with nothing in it *mid-catalogue* is
+        indistinguishable from the end by construction. Measured: page 2 of 3
+        answering empty deleted 350 of 600 rows. The adapter now asks such a
+        page a second time, which separates a transient empty answer from a real
+        end of feed — and cannot separate a persistent one, because nothing
+        there can.
+
+        So the scenario keeps a second signal that does not come from the feed
+        at all: a shop does not lose half its catalogue in an hour. When a sweep
+        claims it has, the offers are still written — prices and availability
+        are worth having — and the rows are left standing, with an error in the
+        log.
+
+        The asymmetry is the whole argument. Being wrong this way costs one hour
+        of the defect this change removed, in the open. Being wrong the other
+        way takes the buy button off the entire shop, silently, on a schedule.
         """
         ...
 

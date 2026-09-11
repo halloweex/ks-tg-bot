@@ -121,8 +121,39 @@ def test_every_page_is_read_until_the_feed_runs_out(transport):
 
     transport(handler)
     offers = asyncio.run(ShopifyStorefront(SHOP).get_offers())
-    assert seen == ["1", "2", "3"]
+    assert seen == ["1", "2", "3", "3"], (
+        "the empty page is asked for twice before it is believed")
     assert set(offers) == {"a", "b"}
+
+
+def test_a_page_that_is_empty_once_is_not_the_end_of_the_feed(transport):
+    """An empty page is how this feed says "that was the last one", so a page
+    answering 200 with nothing in it mid-catalogue is indistinguishable from the
+    end — and since the cache started pruning, that reads as "the shop
+    unpublished everything after page one".
+
+    Measured before this guard: page 2 of 3 answering 200 and an empty list
+    deleted 350 of 600 rows. The read is now retried once, which separates a
+    transient empty answer from a real end of feed."""
+    pages = {
+        "1": _page(_variant("a", 1)),
+        "2": _page(_variant("b", 2)),
+        "3": {"products": []},
+    }
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        page = dict(request.url.params).get("page", "1")
+        seen.append(page)
+        # Page 2 is empty the first time it is asked and right the second.
+        if page == "2" and seen.count("2") == 1:
+            return httpx.Response(200, json={"products": []})
+        return httpx.Response(200, json=pages[page])
+
+    transport(handler)
+    offers = asyncio.run(ShopifyStorefront(SHOP).get_offers())
+    assert set(offers) == {"a", "b"}, (
+        f"a single empty answer truncated the catalogue: got {sorted(offers)}")
 
 
 def test_a_failed_page_throws_the_whole_read_away(transport):

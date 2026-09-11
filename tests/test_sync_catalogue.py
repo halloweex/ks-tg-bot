@@ -122,6 +122,51 @@ def test_a_sweep_that_dies_halfway_changes_nothing(db):
     assert set(asyncio.run(get_offers(["1", "2", "3"]))) == {"1", "2", "3"}
 
 
+# --- one sweep may not unpublish the shop ------------------------------------
+#
+# The adapter retries an empty page, which separates a transient answer from a
+# real end of feed and cannot separate a persistent one — an empty page IS how
+# this feed says "that was the last one". So the scenario keeps a signal that
+# does not come from the feed at all. Measured before it existed: page 2 of 3
+# answering 200 with an empty list deleted 350 of 600 rows.
+
+
+def test_a_sweep_that_lost_half_the_shop_writes_but_does_not_prune(db):
+    asyncio.run(refresh_once(
+        FakeStorefront({s: _offer(s) for s in ("1", "2", "3", "4")}),
+        SqliteOfferCache()))
+
+    asyncio.run(refresh_once(
+        FakeStorefront({"1": _offer("1", available=False)}), SqliteOfferCache()))
+
+    assert asyncio.run(count_offers()) == 4, (
+        "a short feed took three quarters of the catalogue with it")
+    assert asyncio.run(get_offers(["1"]))["1"].available is False, (
+        "the offers it did read are still worth writing")
+
+
+def test_a_plausible_shrink_still_prunes(db):
+    """The guard is against a catalogue halving in an hour, not against the
+    ordinary business of a shop delisting things."""
+    asyncio.run(refresh_once(
+        FakeStorefront({s: _offer(s) for s in ("1", "2", "3", "4")}),
+        SqliteOfferCache()))
+    asyncio.run(refresh_once(
+        FakeStorefront({s: _offer(s) for s in ("1", "2", "3")}),
+        SqliteOfferCache()))
+
+    assert asyncio.run(count_offers()) == 3
+    assert list(asyncio.run(get_offers(["4"]))) == []
+
+
+def test_the_first_sweep_into_an_empty_table_prunes_nothing_and_is_not_refused(db):
+    """Nothing cached means nothing to compare against, and the guard must not
+    read that as a collapse."""
+    assert asyncio.run(refresh_once(
+        FakeStorefront({"1": _offer("1")}), SqliteOfferCache())) == 1
+    assert asyncio.run(count_offers()) == 1
+
+
 def test_a_failed_read_leaves_yesterday_standing(db):
     """The adapter says {} when it could not read the shop. Writing that through
     would take the buy button off every product until the next round — an hour

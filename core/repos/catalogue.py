@@ -144,3 +144,9 @@ class SqliteOfferCache:
 
     async def replace(self, offers: dict[str, Offer]) -> int:
         return await replace_offers(offers)
+
+    async def update(self, offers: dict[str, Offer]) -> None:
+        await save_offers(offers)
+
+    async def count(self) -> int:
+        return await count_offers()
