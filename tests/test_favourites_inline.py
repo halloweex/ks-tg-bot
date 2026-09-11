@@ -464,3 +464,71 @@ def test_a_sku_this_customer_never_bought_asks_nothing(db):
     forged sku a request for nothing rather than for somebody else's product."""
     _registered_customer(_order("1"), offers={"1": _offer("1")})
     assert "text" not in _ask_for_discount("999")
+
+
+# --- the panel must search the whole history, not the first page of it -------
+#
+# Every fixture in this file builds at most eight products, so the state every
+# long-standing repeat buyer is in — and repeat buyers are 80% of revenue — was
+# structurally untestable and the suite was green. Both list builders ranked or
+# sliced to fifty and only then applied what was typed, so the needle searched
+# a list the customer could not see the rest of.
+#
+# The history has to be MANY ORDERS, not one order with many products: ranking
+# is by (orders, qty, recency), so a single order leaves every product tied and
+# the cut falls in insertion order, where it happens to be harmless. The first
+# attempt at these tests did exactly that and passed against the bug.
+
+
+def _long_history(n: int) -> list[dict]:
+    """n orders, one product each, oldest first — so the ranking really does
+    reorder and the cut really does fall somewhere that matters."""
+    return [_order(str(i), order_id=i,
+                   at=f"2026-{1 + (i - 1) // 28:02d}-{((i - 1) % 28) + 1:02d}T10:00:00")
+            for i in range(1, n + 1)]
+
+
+def test_typing_searches_past_the_fiftieth_product(db):
+    """Eighty products bought, "product 1" matches eleven of them — and the
+    eleven are spread across the ranking, so cutting to fifty first hides the
+    older ones. She is shown a short list, or told the bot cannot find a
+    product she ordered herself."""
+    skus = [str(i) for i in range(1, 81)]
+    _registered_customer(*_long_history(80),
+                         offers={s: _offer(s) for s in skus})
+
+    query = _ask(_Query(text="product 1"))
+    found = {r.title for r in query.results if getattr(r, "title", None)}
+    expected = {f"Product {i}" for i in
+                [1] + list(range(10, 20)) if i <= 80}
+    missing = expected - found
+    assert not missing, (
+        f"bought and matching, but cut before the search ran: {sorted(missing)}")
+
+
+def test_a_product_beyond_the_fiftieth_can_still_be_subscribed_to(db):
+    """`toggle_stock_from_card` proves the customer bought the sku by looking
+    it up in her own history. Capped at fifty, a tap on an older product found
+    no name and the handler returned — a button that does nothing, silently."""
+    from bot.callbacks import StockAction
+    from bot.handlers.inline import toggle_stock_from_card
+    from core.repos.stock import get_subscribed_skus
+
+    _registered_customer(*_long_history(80))
+
+    class _Bot:
+        async def edit_message_reply_markup(self, **kw):
+            return None
+
+    async def _answer(*a, **kw):
+        return None
+
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=CHAT, language_code="uk"),
+        inline_message_id="inline-1", bot=_Bot(), answer=_answer)
+
+    asyncio.run(toggle_stock_from_card(
+        callback, StockAction(action="sub", sku="1"), _config(), Texts("uk")))
+
+    assert "1" in asyncio.run(get_subscribed_skus(CHAT)), (
+        "the tap did nothing: the sku lookup could not see the whole history")

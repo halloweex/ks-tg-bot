@@ -68,6 +68,11 @@ router = Router()
 # which is the way past fifty. Defined in bot/handlers/orders.py, which ranks
 # them, and which a card's discount button asks the same question of.
 _MAX_RESULTS = INLINE_LIMIT
+# What a list is ranked to before the typing narrows it. Telegram caps an
+# inline answer at fifty results and `_MAX_RESULTS` is that cap; this is the
+# other number, and it is not a cap at all — the search has to see everything
+# the customer ever bought or it answers "nothing found" about her own order.
+_UNLIMITED = 10_000
 
 # The panel has room for more of a product name than a button does: the row is
 # as wide as the screen and the price sits on its own line underneath.
@@ -199,10 +204,17 @@ async def _favourite_results(chat_id: int, needle: str, t: Texts,
     seconds, every keystroke arrives as its own query, and the screen the
     button sits on is what fills a cold cache.
     """
+    # Filter first, cut second. The other order — rank to fifty, then search
+    # inside those fifty — made the needle useless for exactly the customers
+    # the panel is for: with eighty products bought, typing "крем" found two of
+    # the eleven that matched and the rest were gone before the search ran. The
+    # comment on `_MAX_RESULTS` says "typing filters the list, which is the way
+    # past fifty", and that was only true while nobody had bought fifty things.
     ranked = favourite_products(await get_cached_orders(chat_id),
-                                limit=_MAX_RESULTS)
+                                limit=_UNLIMITED)
     favourites = [item for item in ranked
-                  if not needle or needle in str(item["name"]).casefold()]
+                  if not needle or needle in str(item["name"]).casefold()
+                  ][:_MAX_RESULTS]
 
     offers = await get_offers(str(item.get("sku") or "") for item in favourites)
     # The CRM's unit count, for the products the storefront lists no offer for
@@ -380,8 +392,13 @@ async def _order_results(chat_id: int, needle: str, t: Texts,
     it — the needle is matched against the order's number and against every
     product in it, so a product name finds every order that ever held it.
     """
-    cached = (await get_cached_orders(chat_id))[:_MAX_RESULTS]
-    orders = [row for row in cached if _order_matches(row, needle)]
+    # Filter first, cut second — see the note in the favourites branch. The
+    # docstring above promises "a product name finds every order that ever held
+    # it", and slicing to fifty before the match made that false for anyone
+    # with a longer history.
+    cached = await get_cached_orders(chat_id)
+    orders = [row for row in cached
+              if _order_matches(row, needle)][:_MAX_RESULTS]
 
     # One lookup for every product on the page: the pictures come from it, and
     # so do the variant ids the "order this again" basket is addressed to.
@@ -649,8 +666,11 @@ async def toggle_stock_from_card(
     chat_id = callback.from_user.id
     sku = callback_data.sku
     name = next(
+        # The whole history, not the top fifty: this is a lookup for one sku
+        # the customer just tapped, and a cap here means the tap does nothing
+        # at all for a product ranked fifty-first.
         (item["name"] for item in favourite_products(
-            await get_cached_orders(chat_id), limit=_MAX_RESULTS)
+            await get_cached_orders(chat_id), limit=_UNLIMITED)
          if str(item.get("sku") or "") == sku),
         "",
     )
