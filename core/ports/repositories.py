@@ -177,20 +177,41 @@ class OfferCache(Protocol):
     to be atomic with, so there is nothing for a factory to hold.
     """
 
-    async def record(self, offers: dict[str, Offer]) -> None:
-        """Write these offers down, one row per sku, leaving the rest standing.
+    async def replace(self, offers: dict[str, Offer]) -> int:
+        """Make the table say exactly this. Returns how many rows it removed.
 
-        **Per sku, never the whole table.** Skus absent from `offers` keep the
-        values they had. The feed is paginated, and a short read is
-        indistinguishable from a shrunken catalogue — a method that deleted what
-        it had not seen would give one truncated page the power to unpublish
-        products. It is the same reason `Storefront.get_offers` is documented to
-        answer {} for a failure rather than a partial picture.
+        **The whole table, and this is a reversal.** It was `record`, and it was
+        documented to write per sku and never delete, with a reason that was
+        sound at the time: the feed is paginated, and a short read was
+        indistinguishable from a shrunken catalogue, so deleting what it had not
+        seen would give one truncated page the power to unpublish products.
 
-        **An empty mapping writes nothing.** The scenario already refuses to
-        call this with {}; this line says the implementation must refuse too.
-        The rule protects the whole catalogue from a single 500, and one guard
-        for it is one more than can be deleted by a refactor that looks correct.
+        What changed is the indistinguishability, not the appetite for risk.
+        `Storefront.get_offers` already answered {} for a transport failure;
+        it now answers {} for a read that stopped at the page cap too, which was
+        the one remaining way a partial feed could arrive looking whole. A
+        non-empty mapping is therefore the entire catalogue, and absence from it
+        means the storefront no longer lists the product.
+
+        **Why the old rule had to go rather than be lived with.** Never deleting
+        made the cache monotonic: a product unpublished in the shop kept its row
+        forever with `available = 1`, its last price and its last variant id.
+        `_is_missing` in the favourites screen says "the storefront wins where it
+        has an opinion" — and a row that outlives the listing turns that opinion
+        into a permanent yes. The customer was shown «Купити» and a price for
+        something the shop does not sell, on a cart link that *replaces* her
+        basket, and the same row let a discontinued product be recommended into
+        a friend's chat. Reading `checked_at` instead was the alternative and is
+        worse: it leaves the wrong row in place and asks every present and
+        future reader to remember to distrust it.
+
+        **An empty mapping writes nothing and deletes nothing.** Doubly
+        important now: under the old rule {} was merely useless, and under this
+        one it would empty the shop.
+
+        The scenario already refuses to call this with {}; the rule above says
+        the implementation must refuse too. One guard for it is one more than
+        can be deleted by a refactor that looks correct.
 
         **A mapping is taken, and the key is not read.** The parameter is what
         `Storefront.get_offers` returns rather than an iterable, because the

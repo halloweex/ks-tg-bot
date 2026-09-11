@@ -23,6 +23,13 @@ from core.domain.offer import Offer
 # pages. The cap on pages is a guard against a feed that never returns an empty
 # page, not an expected limit — at 250 a page it allows for eight times the
 # current catalogue.
+#
+# **Reaching the cap is a failed read, not a short one.** It used to end the
+# loop and hand back whatever had accumulated, which looked from the outside
+# exactly like a complete catalogue that had shrunk to 5000 skus. Nothing
+# downstream could tell the two apart, and that indistinguishability is the
+# stated reason `OfferCache` refused to delete what it had not seen. Answering
+# {} here is what lets it start.
 _PAGE_SIZE = 250
 _MAX_PAGES = 20
 _PAGE_PAUSE = 0.3
@@ -35,14 +42,20 @@ class ShopifyStorefront:
         self._url = f"{website_url.rstrip('/')}/products.json"
 
     async def get_offers(self) -> dict[str, Offer]:
-        """Every sellable variant with a sku, or {} if the read failed.
+        """Every variant with a sku, or {} if the read was not complete.
 
         Partial results are thrown away deliberately — see the port. A page that
         errors out halfway would otherwise take the buy button off whatever
         products happened to sit on the pages after it.
+
+        Not only sellable ones: an unpublished product leaves the feed
+        altogether, while one that is merely sold out stays in it with
+        `available: false`. That difference is what makes absence meaningful,
+        and it is what the cache prunes on.
         """
         offers: dict[str, Offer] = {}
         page = 1
+        complete = False
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 while page <= _MAX_PAGES:
@@ -52,12 +65,22 @@ class ShopifyStorefront:
                     response.raise_for_status()
                     body = response.json()
                     if not body.get("products"):
+                        # The only honest end: a page with nothing on it means
+                        # the feed is exhausted, and everything before it is all
+                        # there is.
+                        complete = True
                         break
                     offers.update(parse_offers_page(body))
                     page += 1
                     await asyncio.sleep(_PAGE_PAUSE)
         except (httpx.HTTPError, ValueError) as exc:
             logger.error("Storefront catalogue fetch failed on page {}: {}", page, exc)
+            return {}
+        if not complete:
+            logger.error(
+                "Storefront catalogue still had pages at the {}-page cap; "
+                "treating {} offers as a failed read rather than as the whole "
+                "shop", _MAX_PAGES, len(offers))
             return {}
         logger.info("Storefront catalogue: {} offers over {} pages", len(offers), page - 1)
         return offers

@@ -137,5 +137,23 @@ def test_a_failed_page_throws_the_whole_read_away(transport):
     assert asyncio.run(ShopifyStorefront(SHOP).get_offers()) == {}
 
 
+def test_a_feed_that_never_runs_out_is_a_failed_read(transport):
+    """The page cap is a guard against a feed that keeps answering, not an
+    expected end. It used to end the loop and hand back what had accumulated —
+    five thousand offers that read exactly like a complete catalogue which had
+    shrunk, and nothing downstream could tell the difference.
+
+    That indistinguishability is the reason the cache was forbidden to delete
+    what it had not seen. Removing it is what lets the cache prune, so this test
+    guards the foundation rather than a corner case: with it broken, one endless
+    feed unpublishes the shop."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        page = int(dict(request.url.params).get("page", "1"))
+        return httpx.Response(200, json=_page(_variant(f"s{page}", page)))
+
+    transport(handler)
+    assert asyncio.run(ShopifyStorefront(SHOP).get_offers()) == {}
+
+
 def test_the_adapter_satisfies_the_port():
     assert isinstance(ShopifyStorefront(SHOP), Storefront)

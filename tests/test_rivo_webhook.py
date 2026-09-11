@@ -170,3 +170,126 @@ def test_one_message_per_kind_per_day():
     body = _body("balance_transaction/created")
     _status, sent = call(body, _sign(body))
     assert sent[0]["dedup_key"].endswith(":points:777")
+
+
+# --- the number, and the ways it can fail to arrive --------------------------
+#
+# `_body` above always writes `points_diff` itself, so every test in this file
+# ran on the one shape that could not go wrong. There is no tests/fixtures/rivo
+# directory — the only adapter in the repo with no saved real payload — so the
+# `points_amount` branch the parser's own comment says exists had never once
+# been exercised. The two bodies below are constructed from Rivo's documented
+# shape, not recorded from the wire, and that is still the open half of this:
+# real bodies are wanted, see docs/found-during-move.md §18.
+
+
+def _raw(payload: dict) -> bytes:
+    import json as _json
+    return _json.dumps(payload).encode("utf-8")
+
+
+def _points_body(**fields) -> bytes:
+    payload = {
+        "event_type": "points_event/created",
+        "customer": {"email": KNOWN, "points_tally": 527, "loyalty_status": "VIP"},
+    }
+    payload.update(fields)
+    return _raw(payload)
+
+
+def _said(fn) -> str:
+    """What loguru wrote while fn ran. caplog cannot see it: loguru does not go
+    through the standard logging module."""
+    from loguru import logger
+    lines: list[str] = []
+    sink = logger.add(lambda m: lines.append(str(m)), level="WARNING")
+    try:
+        fn()
+    finally:
+        logger.remove(sink)
+    return "\n".join(lines)
+
+
+def test_an_unsigned_points_event_is_not_announced_but_is_said_out_loud():
+    """The first repair of this was worse than the bug, and this test is the
+    reason it did not ship.
+
+    `points_diff: null` used to fall through to `points_amount` — but that field
+    is the same number WITHOUT a sign, and `balance_transaction/created` carries
+    redemptions as well as awards. So forty points spent came back as forty
+    points won, «Тобі нараховано 40 балів» about points she had just spent, and
+    `announce`'s one-a-day dedup then ate her real award an hour later.
+
+    No signed field, no claim. The half of this that had teeth was never the
+    missed message; it was that nothing anywhere said a word."""
+    from core.adapters.rivo import parse as mod
+
+    mod._UNSIGNED_SEEN.discard("points_event/created")
+    body = _points_body(points_diff=None, points_amount=22)
+    out: list = []
+    said = _said(lambda: out.append(call(body, _sign(body))))
+    status, sent = out[0]
+
+    assert status == 200
+    assert not sent, "a number with no sign was announced as an award"
+    assert "points_amount=22" in said, (
+        "a shape we cannot act on must be visible, or nobody can go and fetch "
+        "the real payload")
+
+
+def test_a_redemption_with_no_signed_field_is_never_called_an_award():
+    """The direction that made the first repair dangerous, and the one its own
+    tests missed: they built the spend with `points_diff` PRESENT."""
+    body = _points_body(points_diff=None, points_amount=40)
+    status, sent = call(body, _sign(body))
+
+    assert status == 200
+    assert not sent, (
+        "40 points spent were announced as 40 points awarded — and the dedup "
+        "key then blocks her real award for the rest of the day")
+
+
+def test_a_signed_zero_is_not_read_as_a_missing_field():
+    """The obvious repair — `points_diff or points_amount` — is wrong here. An
+    event that changed nothing carries a real zero, and falling through to the
+    unsigned field would announce it as an award."""
+    body = _points_body(points_diff=0, points_amount=22)
+    status, sent = call(body, _sign(body))
+
+    assert status == 200
+    assert not sent, "a zero change was announced as though 22 were awarded"
+
+
+def test_a_spend_is_still_not_announced():
+    """The reason the signed field is preferred at all: she spent them herself,
+    on purpose, and does not need telling."""
+    body = _points_body(points_diff=-40, points_amount=40)
+    status, sent = call(body, _sign(body))
+    assert status == 200 and not sent
+
+
+def test_an_event_type_we_do_not_know_is_logged_once():
+    """A name we do not know is the ordinary case — `_KINDS` covers eight of
+    about thirty. It is also exactly what a rename on Rivo's side looks like,
+    and a rename kills the whole loyalty channel while the endpoint goes on
+    answering 200. One line per type is what makes that visible without
+    drowning the log in the ordinary case."""
+    from loguru import logger
+
+    from core.adapters.rivo import parse as mod
+
+    mod._UNANNOUNCED_SEEN.discard("order/refunded")
+    said: list[str] = []
+    sink = logger.add(lambda m: said.append(str(m)), level="INFO")
+    try:
+        for _ in range(3):
+            body = _raw({"event_type": "order/refunded",
+                         "customer": {"email": KNOWN}})
+            status, sent = call(body, _sign(body))
+            assert status == 200 and not sent
+    finally:
+        logger.remove(sink)
+
+    lines = [line for line in said if "order/refunded" in line]
+    assert len(lines) == 1, (
+        f"expected exactly one line for a new event type, got {len(lines)}")
