@@ -28,7 +28,6 @@ from aiogram import F, Router
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
-from loguru import logger
 
 from core.i18n import Texts, variants
 from bot.callbacks import InfoAction, MenuAction
@@ -74,15 +73,6 @@ async def open_orders(
     """📦 — the order history, newest first."""
     await state.clear()
     screen = await orders_screen(message.chat.id, t, keycrm, message, config)
-    # TEMPORARY (2026-09-11): the screen arrives plain in production while the
-    # same code builds blocks locally, and nothing in the log says why —
-    # rich.send only speaks when Telegram refuses, and it has not. One line to
-    # tell "no blocks were built" from "blocks were built and something ate
-    # them". Remove once the answer is in hand.
-    logger.info("orders screen for {}: {} block(s), {} slab button(s)",
-                message.chat.id, len(screen.blocks or []),
-                sum(len(r) for r in screen.markup.inline_keyboard)
-                if screen.markup else 0)
     sent = await rich.send(message.bot, message.chat.id, screen.blocks or [],
                            plain=screen.text, reply_markup=screen.markup,
                            admins=config.env.admin_ids)

@@ -460,3 +460,57 @@ def test_the_stale_warning_reaches_the_rich_screen_too():
     assert any("застаріли" in line for line in said)
     # Above the list: a long history must not bury it.
     assert said.index(next(l for l in said if "застаріли" in l)) <= 1
+
+
+# --- the entrance the migration never tested ---------------------------------
+#
+# Every test above starts from a rich anchor, and that is precisely how the
+# defect survived them. The menu message is plain; with the bottom keyboard off
+# it is the *only* way into the orders screen — and `render` dropped the blocks
+# whenever the anchor was plain, a rule left behind by an admin gate that had
+# already been removed. Six blocks built, six thrown away, nothing logged, and
+# the owner looking at the same screen as a week before.
+
+
+def _plain_anchor(monkeypatch):
+    """The menu message: a real Message with no `rich_message`."""
+    from aiogram.types import Message as _M
+
+    sent: list[dict] = []
+    msg = _M.model_validate({
+        "message_id": 11, "date": 0, "chat": {"id": CHAT, "type": "private"},
+        "text": "Обери, що цікавить",
+    })
+
+    async def fake_edit(self, text=None, reply_markup=None, **kw):
+        sent.append({"text": text, "rich_message": kw.get("rich_message"),
+                     "reply_markup": reply_markup})
+        return self
+
+    monkeypatch.setattr(_M, "edit_text", fake_edit)
+    return msg, sent
+
+
+class _NoState:
+    async def clear(self) -> None:
+        return None
+
+
+def test_the_menu_opens_the_orders_screen_rich(monkeypatch, db_with_orders):
+    """Tapping 📦 in the menu must draw blocks over the plain menu message.
+
+    Editing a plain message into a rich one is allowed — verified against the
+    live API, `docs/rich-messages.md`. Refusing to do it is what made the whole
+    migration invisible in production.
+    """
+    from bot.handlers import menu as mod
+
+    msg, sent = _plain_anchor(monkeypatch)
+    asyncio.run(mod.orders_from_menu(
+        _callback(msg, "menu:open_orders"), _NoState(), None, None, None, T))
+
+    assert sent, "the menu message was redrawn"
+    assert sent[0]["rich_message"] is not None, (
+        "the orders screen arrived plain: render threw the blocks away because "
+        "the menu it replaced was plain")
+    assert sent[0]["text"] is None

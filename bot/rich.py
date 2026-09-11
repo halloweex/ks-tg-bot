@@ -294,7 +294,6 @@ async def send(bot: Bot, chat_id: int, blocks: Sequence[object], *,
     not of its shape, and a screen that loses them on the way to rich is a
     regression nobody asked for.
     """
-    logger.info("rich.send: {} block(s) going to {}", len(list(blocks)), chat_id)
     try:
         return await bot.send_rich_message(
             chat_id=chat_id,

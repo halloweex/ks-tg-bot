@@ -177,22 +177,23 @@ async def render(
         # silence instead of as the new screen this exists to draw.
         return await callback.bot.send_message(message.chat.id, text,
                                                reply_markup=reply_markup)
-    # Blocks win wherever they are offered, including over a plain anchor:
-    # editing a plain message into a rich one is allowed and was verified
-    # against the live API. Only the reverse is dangerous, and that is what the
-    # complaint below is for — so the two entrances to a screen cannot end up
-    # showing different things depending on which message they edit.
+    # **The screen decides its shape, not the message it lands on.** Blocks win
+    # wherever they are offered, a plain anchor included: editing a plain
+    # message into a rich one is allowed and was verified against the live API.
+    # Only the reverse is dangerous, and that is what the complaint below is
+    # for.
+    #
+    # This used to read `if not anchor_is_rich: blocks = None`, and that line
+    # cost a day. It existed to give the admin gate in `orders_screen` teeth —
+    # the redraw handlers build blocks straight from `rich_orders_blocks` and
+    # never pass through the gate, so without it a customer's first tap turned
+    # her plain screen rich. The gate was removed on 2026-09-10 with the "assume
+    # a current Telegram" decision; the line outlived it, and every entrance
+    # through the menu — which is plain, and is the only entrance when the
+    # bottom keyboard is off — silently threw the blocks away and drew the old
+    # screen. No exception, no log line, and the owner rightly reported that
+    # nothing had changed.
     anchor_is_rich = getattr(message, "rich_message", None) is not None
-
-    # A screen keeps the shape it was born with, and this line is what makes
-    # the admin gate in `orders_screen` mean anything. The redraw handlers —
-    # show_order, track_parcel, _fill_in_parcel — build their blocks straight
-    # from `rich_orders_blocks` and never go through `orders_screen`, so they
-    # never see the gate. Without this, a customer whose screen was sent plain
-    # got it silently converted to rich by her first tap, which is exactly the
-    # audience the gate exists to keep away from it.
-    if not anchor_is_rich:
-        blocks = None
 
     if anchor_is_rich and blocks is None and not plain_ok:
         logger.error(

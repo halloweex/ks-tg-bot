@@ -315,11 +315,16 @@ def test_a_plain_anchor_says_nothing(monkeypatch):
     assert "rich screen" not in said
 
 
-def test_a_plain_screen_is_never_converted_to_rich(monkeypatch):
-    """The hole the admin gate had. show_order and track_parcel build blocks
-    straight from rich_orders_blocks and never pass through orders_screen, so
-    they never see `rich_ok` — a customer's first tap turned her plain screen
-    rich. The anchor decides, and only the anchor."""
+def test_blocks_reach_a_plain_anchor(monkeypatch):
+    """This is the regression that cost a day, so it is asserted from the
+    outside: blocks offered, plain anchor, and the edit must carry them.
+
+    `render` used to drop the blocks whenever the anchor was plain. That gave
+    the admin gate in `orders_screen` teeth while the gate existed; it was
+    removed on 2026-09-10 and the line outlived it. The menu message is plain,
+    the menu is the only entrance to the orders screen when the bottom keyboard
+    is off — so every tap rebuilt six blocks and drew the old plain screen, with
+    nothing in the log to say so."""
     from bot import rich as R
 
     msg, _done = _anchor(monkeypatch, rich=False)
@@ -335,10 +340,14 @@ def test_a_plain_screen_is_never_converted_to_rich(monkeypatch):
 
     callback = SimpleNamespace(message=msg, bot=None)
     asyncio.run(screen.render(callback, "плоский текст", None,
-                              blocks=[R.para("блоки, которых она видеть не должна")]))
+                              blocks=[R.para("то, ради чего всё затевалось")]))
 
-    assert captured["rich"] is None, "a plain screen must stay plain"
-    assert captured["text"] == "плоский текст"
+    assert captured["rich"] is not None, (
+        "blocks were built and render threw them away — the screen the "
+        "customer sees is decided by the screen, not by the message it "
+        "replaces"
+    )
+    assert captured["text"] is None, "a rich edit carries no text field"
 
 
 def test_a_deliberate_move_to_a_plain_screen_says_nothing(monkeypatch):
