@@ -56,6 +56,28 @@ async def save_offers(offers: dict[str, Offer]) -> None:
         await db.commit()
 
 
+# A row is deleted only after the sweeps have stopped seeing it for this long.
+# The watcher runs hourly (`bot/catalogue.py`), so two hours means "missed by at
+# least two sweeps in a row" — and that is the whole point.
+#
+# **One observation is not enough to delete on**, because the thing being
+# observed is a paginated feed that can be wrong in ways nothing downstream can
+# detect. Two have already been found: a read that stopped at the page cap, and
+# a page answering 200 with an empty list. A third needs no fault at all —
+# `/products.json` pages by offset and recomputes the slice per request, so a
+# product unpublished between two page reads shifts the window and the product
+# on the boundary is returned by no page. It was present, it is absent, and
+# nothing distinguishes that from delisted. Measured against the live feed:
+# 638 products over three pages, ~2-3s between boundary reads, and the row that
+# gets deleted is the wrong one — the count is right and the identity is not.
+#
+# Waiting a second sweep costs a delisted product one extra hour of a buy
+# button. Not waiting costs a listed one its buy button on a coin flip nobody
+# can see. `checked_at` has been written on every sweep since the table existed
+# and read by nothing; this is what it was for.
+_MISSED_SWEEPS_BEFORE_DELETING = "-2 hours"
+
+
 async def replace_offers(offers: dict[str, Offer]) -> int:
     """Make the table say exactly this, and return how many rows it removed.
 
@@ -73,6 +95,10 @@ async def replace_offers(offers: dict[str, Offer]) -> int:
     Write first, delete second, one transaction: the two halves are one
     statement about what the shop sells, and a reader between them would see a
     catalogue that never existed.
+
+    Absence is necessary and not sufficient: a row goes only when the sweeps
+    have also stopped touching it for `_MISSED_SWEEPS_BEFORE_DELETING`. The note
+    on that constant says why, and it is the reason `checked_at` exists.
     """
     if not offers:
         # The one line standing between a failed read and an empty shop.
@@ -98,7 +124,9 @@ async def replace_offers(offers: dict[str, Offer]) -> int:
              for o in offers.values()],
         )
         cursor = await db.execute(
-            "DELETE FROM offers WHERE sku NOT IN (SELECT sku FROM listed)")
+            "DELETE FROM offers "
+            " WHERE sku NOT IN (SELECT sku FROM listed) "
+            f"   AND checked_at < datetime('now', '{_MISSED_SWEEPS_BEFORE_DELETING}')")
         removed = cursor.rowcount or 0
         await db.commit()
     return removed

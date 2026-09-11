@@ -33,6 +33,25 @@ def _offer(sku, available=True) -> Offer:
                  price="100.00", available=available)
 
 
+def _time_passes(hours: int) -> None:
+    """Backdate every row, because a row is only deleted once the sweeps have
+    stopped seeing it for longer than one sweep apart.
+
+    The tests here run two sweeps a millisecond apart, which in production
+    cannot happen and which would otherwise make every prune test pass for the
+    wrong reason. `hours` is therefore load-bearing: 1 is a product missed by
+    ONE sweep, which must survive; 3 is one the sweeps have stopped seeing,
+    which must go."""
+    async def go() -> None:
+        from core.repos.base import connect
+        async with connect() as db:
+            await db.execute(
+                "UPDATE offers SET checked_at = datetime('now', ?)",
+                (f"-{hours} hours",))
+            await db.commit()
+    asyncio.run(go())
+
+
 def test_a_sweep_writes_what_the_shop_says(db):
     seen = asyncio.run(refresh_once(
         FakeStorefront({"1": _offer("1"), "2": _offer("2")}), SqliteOfferCache()))
@@ -63,6 +82,7 @@ def test_the_row_is_written_under_the_offer_s_own_sku(db):
 def test_a_product_the_shop_stopped_listing_is_dropped(db):
     asyncio.run(refresh_once(
         FakeStorefront({"1": _offer("1"), "2": _offer("2")}), SqliteOfferCache()))
+    _time_passes(3)
     asyncio.run(refresh_once(
         FakeStorefront({"1": _offer("1")}), SqliteOfferCache()))
 
@@ -89,8 +109,33 @@ def test_the_sweep_says_how_many_it_removed(db):
     asyncio.run(refresh_once(
         FakeStorefront({s: _offer(s) for s in ("1", "2", "3")}),
         SqliteOfferCache()))
+    _time_passes(3)
     removed = asyncio.run(SqliteOfferCache().replace({"1": _offer("1")}))
     assert removed == 2, "a silent prune is the thing this change must not be"
+
+
+def test_one_missed_sweep_never_deletes_anything(db):
+    """The rule the whole prune now rests on: absence is necessary and not
+    sufficient.
+
+    `/products.json` pages by offset and recomputes the slice per request, so a
+    product unpublished between two page reads shifts the window and the one on
+    the boundary is returned by no page. It was there, it is not, and nothing
+    tells that apart from delisted — measured against the live feed, the row
+    that gets deleted is the wrong one, with a log line saying `1 delisted` that
+    reads exactly like a correct prune. Two sweeps have to agree, and a product
+    skipped by one of them is back in the next."""
+    asyncio.run(refresh_once(
+        FakeStorefront({"1": _offer("1"), "2": _offer("2")}), SqliteOfferCache()))
+
+    # One sweep later, and that sweep does not return it. In production this is
+    # the boundary product of an offset page read: present an hour ago, absent
+    # now, back again next time.
+    _time_passes(1)
+    removed = asyncio.run(SqliteOfferCache().replace({"1": _offer("1")}))
+
+    assert removed == 0, "one sweep deleted a product the shop still lists"
+    assert asyncio.run(count_offers()) == 2
 
 
 def test_a_sweep_that_dies_halfway_changes_nothing(db):
@@ -151,6 +196,7 @@ def test_a_plausible_shrink_still_prunes(db):
     asyncio.run(refresh_once(
         FakeStorefront({s: _offer(s) for s in ("1", "2", "3", "4")}),
         SqliteOfferCache()))
+    _time_passes(3)
     asyncio.run(refresh_once(
         FakeStorefront({s: _offer(s) for s in ("1", "2", "3")}),
         SqliteOfferCache()))
