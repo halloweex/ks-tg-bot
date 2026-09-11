@@ -411,3 +411,138 @@ def test_sampling_off_is_the_default(tmp_path):
 
     assert status == 200 and not sent
     assert list(tmp_path.glob("*.json")) == []
+
+
+# --- the watcher for the day nobody calls ------------------------------------
+#
+# The failure it exists for is the one that looks like success: in September the
+# /rivo/ route vanished from the neighbouring project's nginx and every request
+# was answered 405 by their application. Eleven days, with the endpoint up, the
+# container healthy and every deploy green. Nothing here could notice, because
+# everything it monitored was working.
+
+
+def _watch(last: str | None, *, up_for_days: float, admin_ids=(1,)):
+    """Run one poll of the watchdog and return what the admins were told."""
+    from datetime import datetime, timedelta, timezone
+
+    from bot import alerts, webhooks as mod
+
+    told: list[str] = []
+
+    class _Bot:
+        async def send_message(self, chat_id, text, **kw):
+            told.append(text)
+
+    async def last_arrival():
+        return last
+
+    async def go() -> None:
+        # One tick, then out: the loop is `sleep` then poll, so a zero sleep and
+        # a cancel on the second pass exercises exactly one poll.
+        real_sleep = asyncio.sleep
+        calls = {"n": 0}
+
+        async def fake_sleep(_seconds):
+            calls["n"] += 1
+            if calls["n"] > 1:
+                raise asyncio.CancelledError
+            await real_sleep(0)
+
+        mod.asyncio.sleep = fake_sleep
+        try:
+            await mod.watch_for_silence(
+                _Bot(), list(admin_ids), last_arrival,
+                started=datetime.now(timezone.utc) - timedelta(days=up_for_days))
+        except asyncio.CancelledError:
+            pass
+        finally:
+            mod.asyncio.sleep = real_sleep
+
+    alerts._last_told.clear()
+    asyncio.run(go())
+    return told
+
+
+def _ago(days: float) -> str:
+    from datetime import datetime, timedelta, timezone
+    moment = datetime.now(timezone.utc) - timedelta(days=days)
+    return moment.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def test_a_channel_that_went_quiet_for_days_is_reported():
+    told = _watch(_ago(5), up_for_days=10)
+    assert told, "five days of silence went unreported"
+    assert "loyalty webhook" in told[0]
+
+
+def test_a_channel_that_is_being_called_says_nothing():
+    told = _watch(_ago(0.5), up_for_days=10)
+    assert told == []
+
+
+def test_the_boundary_is_where_the_constant_says_it_is():
+    """Just inside and just outside SILENCE_AFTER, rather than a comfortable
+    middle: a test at five days passes whether the threshold is three days or
+    four, which is to say it pins nothing."""
+    from bot.webhooks import SILENCE_AFTER
+
+    days = SILENCE_AFTER.days
+    assert _watch(_ago(days - 0.1), up_for_days=30) == [], (
+        "alerted before the silence was long enough")
+    assert _watch(_ago(days + 0.1), up_for_days=30), (
+        "stayed quiet past the threshold")
+
+
+def test_a_fresh_deploy_does_not_alert_about_the_days_before_it(): 
+    """Silence is measured from whichever is later, the last arrival or the
+    moment this process came up. Without that a restart alerts immediately
+    about a week it was not running for, which is not news and is how an alert
+    gets muted."""
+    told = _watch(_ago(30), up_for_days=0.2)
+    assert told == []
+
+
+def test_a_channel_that_has_never_been_called_is_reported_as_such():
+    told = _watch(None, up_for_days=10)
+    assert told and "nothing ever has" in told[0], (
+        "never called and gone quiet are different facts")
+
+
+def test_an_unreadable_timestamp_alerts_rather_than_silencing():
+    """A stamp this cannot parse must read as "no arrival", which alerts —
+    never as "now", which would mute the watchdog on exactly the day its input
+    changed shape."""
+    told = _watch("not a timestamp", up_for_days=10)
+    assert told
+
+
+def test_with_no_admins_it_declines_to_run_rather_than_alerting_nobody():
+    assert _watch(_ago(30), up_for_days=30, admin_ids=()) == []
+
+
+def test_a_request_with_a_wrong_signature_still_counts_as_an_arrival():
+    """Load-bearing, and a mutation caught it missing: moving the mark below
+    the signature check passed every other test here.
+
+    The watchdog asks one question — does anything from the internet reach this
+    process. A forged request answers it just as well as a genuine one, and
+    counting only signed requests would make "nobody is calling" and "somebody
+    is calling and being refused" look identical. Those have different causes:
+    the first is a route or a missing webhook, the second is a rotated signing
+    key."""
+    arrivals: list[int] = []
+    app = build_app(path=PATH, secret=SECRET, chats=_Chats(),
+                    languages=_Languages(), queue=_Queue(),
+                    arrived=lambda: arrivals.append(1))
+    body = _points_body(points_diff=22)
+
+    async def go() -> int:
+        async with TestClient(TestServer(app)) as client:
+            r = await client.post(PATH, data=body,
+                                  headers={"rivo-signature": "wrong"})
+            return r.status
+
+    assert asyncio.run(go()) == 401
+    assert arrivals == [1], (
+        "a refused request is still proof the path reaches this process")

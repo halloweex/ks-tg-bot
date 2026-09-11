@@ -22,6 +22,26 @@ async def log_event(chat_id: int | None, event: str, meta: str = "{}") -> None:
         await db.commit()
 
 
+async def last_seen(event: str) -> str | None:
+    """When `event` was last recorded, or None if it never has been.
+
+    For watching a channel that is supposed to be noisy. The orders sync has
+    `sync_state.last_success_at` for the same job, but that table is built
+    around a cursor — how far a *reading* sweep has got — and a webhook is
+    pushed to rather than read from, so its row there would carry a cursor
+    column that could never mean anything.
+
+    A string, not a datetime, for the reason the rest of this module returns
+    counts: the spelling belongs to whoever stores it. The caller compares it
+    against `datetime('now')` through the same SQLite that wrote it.
+    """
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT MAX(created_at) FROM events WHERE event = ?", (event,))
+        row = await cursor.fetchone()
+        return row[0] if row else None
+
+
 async def event_counts(days: int = 7) -> list[tuple[str, int, int]]:
     """(event, occurrences, distinct users) over the last `days`."""
     async with connect() as db:

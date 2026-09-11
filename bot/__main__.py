@@ -20,7 +20,9 @@ from core.repos.sync_state import SqliteSyncJournal
 from core.repos.uow import SqliteUnitOfWork
 from core.repos.users import (SqliteChatsByEmail, SqliteCustomerDirectory,
                               SqliteKnownBirthdays, SqliteLanguageChoice)
+from core.repos.events import last_seen
 from core.repos.schema import init_db
+from bot.analytics import track
 from bot.fsm_storage import SQLiteStorage
 from bot.alerts import check_support_chat
 from bot.errors import on_error
@@ -189,10 +191,20 @@ async def main() -> None:
                         # fixture.
                         sample_dir=(Path(config.env.bot_db_path).parent
                                     / "rivo-samples"),
+                        arrived=lambda: track(None, webhooks.ARRIVED),
                     ),
                     webhooks.PORT,
                 ),
                 name="rivo_webhooks"))
+            # And the half that matters more than the endpoint: a watcher for
+            # the day nobody calls it. The route vanished from the neighbouring
+            # project's nginx in September and stayed gone for eleven days while
+            # every health check, deploy and dashboard reported success.
+            loops.append(spawn(
+                webhooks.watch_for_silence(
+                    bot, config.env.admin_ids,
+                    lambda: last_seen(webhooks.ARRIVED)),
+                name="rivo_watchdog"))
 
         loops.append(spawn(
             watch_orders(dp["keycrm"], SqliteSyncJournal(),
