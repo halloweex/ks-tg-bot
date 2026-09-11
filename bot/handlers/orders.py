@@ -538,7 +538,8 @@ def first_order_offer(t: Texts, config: AppConfig) -> str:
                     else t.MSG_FIRST_ORDER_BY_HAND)
 
 
-def favourite_products(orders: list[dict], limit: int = 5) -> list[dict]:
+def favourite_products(orders: list[dict],
+                       limit: int | None = 5) -> list[dict]:
     """The customer's most-ordered products, best first.
 
     Ranked by how many separate orders contain the product, then by total
@@ -549,6 +550,12 @@ def favourite_products(orders: list[dict], limit: int = 5) -> list[dict]:
 
     Grouped by sku where the cache has one (older rows predate it) so a product
     renamed in the CRM does not split into two entries.
+
+    `limit=None` means the whole history, and it is spelled as None rather than
+    as a large number on purpose: the inline panel needs every product the
+    customer ever bought so that typing can search it, and a big round cap
+    there would be the same silent truncation this call already caused once,
+    moved somewhere harder to notice.
     """
     agg: dict[str, dict] = {}
     for row in orders:

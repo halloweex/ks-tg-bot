@@ -68,11 +68,6 @@ router = Router()
 # which is the way past fifty. Defined in bot/handlers/orders.py, which ranks
 # them, and which a card's discount button asks the same question of.
 _MAX_RESULTS = INLINE_LIMIT
-# What a list is ranked to before the typing narrows it. Telegram caps an
-# inline answer at fifty results and `_MAX_RESULTS` is that cap; this is the
-# other number, and it is not a cap at all — the search has to see everything
-# the customer ever bought or it answers "nothing found" about her own order.
-_UNLIMITED = 10_000
 
 # The panel has room for more of a product name than a button does: the row is
 # as wide as the screen and the price sits on its own line underneath.
@@ -211,7 +206,7 @@ async def _favourite_results(chat_id: int, needle: str, t: Texts,
     # comment on `_MAX_RESULTS` says "typing filters the list, which is the way
     # past fifty", and that was only true while nobody had bought fifty things.
     ranked = favourite_products(await get_cached_orders(chat_id),
-                                limit=_UNLIMITED)
+                                limit=None)
     favourites = [item for item in ranked
                   if not needle or needle in str(item["name"]).casefold()
                   ][:_MAX_RESULTS]
@@ -670,7 +665,7 @@ async def toggle_stock_from_card(
         # the customer just tapped, and a cap here means the tap does nothing
         # at all for a product ranked fifty-first.
         (item["name"] for item in favourite_products(
-            await get_cached_orders(chat_id), limit=_UNLIMITED)
+            await get_cached_orders(chat_id), limit=None)
          if str(item.get("sku") or "") == sku),
         "",
     )
