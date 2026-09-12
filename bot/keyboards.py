@@ -306,8 +306,11 @@ def language_kb(current: str, t: Texts | None = None) -> InlineKeyboardMarkup:
 
     From Налаштування this replaces the live screen, so without a way back the
     only exits are changing the language — which she may have come only to
-    look at — or typing /menu. Production runs `bottom_menu: false`, so there is
-    no keyboard under the input field to fall back on either. It was the one
+    look at — or typing /menu. It was written when production ran
+    `bottom_menu: false` and there was no keyboard under the input field to fall
+    back on at all; the flag went back on 2026-09-12, and the way out stays
+    regardless — a screen whose only exit is a keyboard somebody may have folded
+    away is still a screen with no exit. It was the one
     inline keyboard in the bot with no route out of it, and the guard test in
     tests/test_main_menu.py did not catch it for the plainest of reasons: this
     function was not in the list it checks.

@@ -215,7 +215,8 @@ def test_the_language_screen_has_a_way_out():
 
     From Налаштування this replaces the live screen, so the only exits were
     changing the language — which she may have opened it only to look at — or
-    typing /menu. Production runs bottom_menu: false, so there is no keyboard
+    typing /menu. It was written while production ran bottom_menu: false, with no
+    keyboard
     under the input field either."""
     from bot.keyboards import language_kb
 
@@ -340,3 +341,76 @@ def test_the_menu_command_lets_go_of_the_support_state():
     assert state.state is None, (
         "she asked for the menu and is still talking to a manager")
     assert said, "and the menu itself still arrives"
+
+
+# --- the keyboard below, now that production sends it again -------------------
+
+def _keys_on_the_keyboard_below() -> set[str]:
+    """The string-table keys `main_menu_kb` puts on its keys, read from source.
+
+    By AST rather than by rendering, because the rendering is what the other
+    tests check: here the question is which *keys* the keyboard is built from, and
+    a label matched back to a key would be ambiguous the day two keys hold the
+    same words.
+    """
+    import ast
+    import pathlib
+
+    tree = ast.parse(pathlib.Path("bot/keyboards.py").read_text(encoding="utf-8"))
+    fn = next(node for node in ast.walk(tree)
+              if isinstance(node, ast.FunctionDef) and node.name == "main_menu_kb")
+    return {node.attr for node in ast.walk(fn)
+            if isinstance(node, ast.Attribute) and node.attr.startswith("BTN_")}
+
+
+def _keys_the_menu_router_answers() -> set[str]:
+    """Every key wired up with `@_menu("…")` in bot/handlers/menu.py."""
+    import ast
+    import pathlib
+
+    tree = ast.parse(pathlib.Path("bot/handlers/menu.py").read_text(encoding="utf-8"))
+    # AsyncFunctionDef, not FunctionDef: every handler here is an `async def`,
+    # and the first version of this test quietly found nothing.
+    return {decorator.args[0].value
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
+            for decorator in node.decorator_list
+            if isinstance(decorator, ast.Call)
+            and getattr(decorator.func, "id", "") == "_menu"
+            and decorator.args and isinstance(decorator.args[0], ast.Constant)}
+
+
+def test_every_key_on_the_keyboard_below_has_a_handler():
+    """Production sends this keyboard again since 2026-09-12 (`bottom_menu: true`),
+    so a key nothing answers is a customer tapping and getting silence — and a
+    reply key sends plain text, which no callback guard can catch."""
+    orphans = _keys_on_the_keyboard_below() - _keys_the_menu_router_answers()
+    assert not orphans, f"keys on the keyboard with no handler: {sorted(orphans)}"
+
+
+def test_every_key_is_matched_in_every_language_and_form():
+    """The router filters are built at import time from `variants(key)`, and the
+    label a customer sees depends on their language *and* on the grammatical form
+    they are addressed in. «🎁 Запроси подругу» is the one that changes with the
+    form, so a form missing from that set is a man holding a keyboard whose key
+    does nothing."""
+    from core.i18n import FORMS, SUPPORTED, Texts, variants
+
+    for key in _keys_on_the_keyboard_below():
+        accepted = variants(key)
+        for lang in SUPPORTED:
+            for gender in FORMS:
+                label = getattr(Texts(lang, gender), key)
+                assert label in accepted, f"{key} in {lang}/{gender} is not matched"
+
+
+def test_the_labels_below_fit_their_rows_in_every_form():
+    """Same rule as the inline menu above, over the forms: the keyboard is laid
+    out two, two and three to a row, and a long label makes the grid ragged."""
+    from core.i18n import FORMS, SUPPORTED, Texts
+
+    for lang in SUPPORTED:
+        for gender in FORMS:
+            keyboard = main_menu_kb(Texts(lang, gender))
+            longest = max(len(key.text) for row in keyboard.keyboard for key in row)
+            assert longest <= 20, f"{lang}/{gender}: a {longest}-character label"
