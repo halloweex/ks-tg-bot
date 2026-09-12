@@ -53,3 +53,5 @@ scratchpad/
 
 # Промежуточные кадры аватарки — пересобираются webapp/build_avatar.py
 webapp/avatar_frames/
+# Промежуточные кадры description-медиа — пересобираются webapp/build_description.py
+webapp/description_frames/
