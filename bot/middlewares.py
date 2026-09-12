@@ -1,8 +1,15 @@
-"""Middleware that binds each update to the right language.
+"""Middleware that binds each update to the right language and form.
 
-Precedence: an explicit choice stored in the DB wins; otherwise the language
-Telegram reports for the user's app; otherwise Ukrainian. Handlers receive the
-result as `t` and never resolve it themselves.
+Precedence for the language: an explicit choice stored in the DB wins; otherwise
+the language Telegram reports for the user's app; otherwise Ukrainian. Handlers
+receive the result as `t` and never resolve it themselves.
+
+The form — which gender the Ukrainian copy addresses the reader in — rides the
+same rail and for the same reason: a handler that had to resolve it would be a
+handler that can forget to. It comes from one column, read in the same query as
+the language, and an empty one means the feminine form every string in this
+project was written in (core/domain/gender.py says why that, and not the
+unmarked one).
 """
 from __future__ import annotations
 
@@ -18,12 +25,13 @@ from loguru import logger
 from core import texts
 from aiogram.types import TelegramObject, User
 
-from core.repos.users import get_user_language
+from core.domain.gender import form
+from core.repos.users import get_user_voice
 from core.i18n import DEFAULT_LANG, Texts, normalize
 
 
 class LanguageMiddleware(BaseMiddleware):
-    """Inject a language-bound `t` (and the resolved code as `lang`)."""
+    """Inject a language- and form-bound `t` (and the resolved code as `lang`)."""
 
     async def __call__(
         self,
@@ -34,15 +42,19 @@ class LanguageMiddleware(BaseMiddleware):
         user: User | None = data.get("event_from_user")
 
         lang = DEFAULT_LANG
+        stored_form = None
         if user is not None:
             try:
-                stored = await get_user_language(user.id)
+                stored, stored_form = await get_user_voice(user.id)
             except Exception:  # noqa: BLE001 — a DB hiccup must not eat the update
-                stored = None
+                stored, stored_form = None, None
             lang = stored or normalize(user.language_code)
 
         data["lang"] = lang
-        data["t"] = Texts(lang)
+        # `form` turns a missing value into the default rather than raising or
+        # guessing, which is what keeps a database hiccup above from changing
+        # how anybody is addressed.
+        data["t"] = Texts(lang, form(stored_form))
         # The language Telegram reports, so the "switch to your app language"
         # offer knows what to offer even after a choice has been stored.
         data["tg_lang"] = normalize(user.language_code) if user else DEFAULT_LANG
