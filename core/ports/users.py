@@ -70,6 +70,37 @@ class LanguageChoice(Protocol):
 
 
 @runtime_checkable
+class GenderForm(Protocol):
+    """Which grammatical form a customer's screens are written in.
+
+    The same shape as `LanguageChoice` and for the same reason: a loop rendering
+    one message per recipient wants the form and nothing else. Two methods
+    rather than one, because unlike the language this is not the customer's own
+    choice — nobody picks it in settings, a refresh writes it — and the loop
+    that writes it is the only caller of the second method.
+
+    `form_for` answering None means nothing has decided yet, which reads as the
+    default form rather than as the unmarked one; the values are the three
+    letters of `core.domain.gender.Gender`. An implementation that returned the
+    unmarked form in place of None would make an unconfigured source look like a
+    warehouse full of people nobody could classify.
+    """
+
+    async def form_for(self, chat_id: int) -> str | None:
+        """The stored form for this chat, or None if nothing has decided."""
+        ...
+
+    async def remember(self, chat_id: int, form: str) -> None:
+        """Store the form resolved for this chat.
+
+        Idempotent and cheap on purpose: the refresh writes the same value most
+        times it runs, and a row that does not exist is not created — a form is
+        a cache of somebody else's decision, not a reason to invent a customer.
+        """
+        ...
+
+
+@runtime_checkable
 class MailingList(Protocol):
     """Who may be written to, and the one write that changes the answer.
 

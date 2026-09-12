@@ -74,6 +74,17 @@ _LATE_COLUMNS: tuple[tuple[str, str, str], ...] = (
     # so the sweep works through the people it has never asked about instead of
     # asking the same ones every hour.
     ("users", "birthdate_checked_at", "TEXT"),
+    # Which grammatical form this person's screens are written in: 'f', 'm', or
+    # 'u' for asked-and-not-known. A cache of somebody else's table — the
+    # decision lives in `buyer_gender` in the warehouse, keyed by CRM buyer, and
+    # arrives here already resolved for the chat (core/usecases/gender.py).
+    #
+    # NULL is the fourth state and it is not the same as 'u': nothing has asked
+    # yet — no source configured, or the refresh has not run — and it reads as
+    # the feminine form the whole bot was written in. Which is what keeps a
+    # broken pipeline from quietly changing the voice for everybody; see
+    # core/domain/gender.py.
+    ("users", "gender", "TEXT"),
 )
 
 _CREATE_OPT_OUT = """
@@ -407,7 +418,7 @@ CREATE INDEX IF NOT EXISTS ix_referrals_referrer ON referrals(referrer_chat_id);
 # It could not express this change (SQLite cannot alter a UNIQUE constraint),
 # and it silently swallowed real failures — a full disk logged success.
 
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 
 
 async def _columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -736,6 +747,15 @@ async def _migration_19_support_focus(db: aiosqlite.Connection) -> None:
     await db.execute(_CREATE_SUPPORT_FOCUS)
 
 
+async def _migration_20_gender(db: aiosqlite.Connection) -> None:
+    """One column for the form a customer is addressed in.
+
+    Everyone is NULL after it, which is the state that renders exactly what this
+    database rendered before it — the migration changes no screen on its own.
+    """
+    await _add_late_columns(db)
+
+
 # (version, name, coroutine). Append only; never edit one that has shipped.
 _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (1, "late columns", _migration_1_late_columns),
@@ -758,6 +778,7 @@ _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (18, "a support thread knows which chat it is in",
      _migration_18_threads_know_their_chat),
     (19, "who the support chat is answering", _migration_19_support_focus),
+    (20, "the form a customer is addressed in", _migration_20_gender),
 )
 
 

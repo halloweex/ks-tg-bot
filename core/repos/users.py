@@ -38,22 +38,27 @@ async def save_user(
     **once**: an empty column takes the new value, a filled one keeps what it
     has. First touch is the question it answers — who brought them — and a
     later visit through somebody else's link does not change that.
+
+    `gender` is carried for the same reason as the language: changing a number
+    is not a reason to start addressing somebody differently, and the refresh
+    that would put it back runs on its own schedule.
     """
     async with connect() as db:
         await db.execute(
             "INSERT OR REPLACE INTO users "
             "(chat_id, phone, full_name, email, language, source, crm_checked_at, "
-            " birthdate, birthdate_checked_at, created_at, updated_at) "
+            " birthdate, birthdate_checked_at, gender, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, "
             "  (SELECT language FROM users WHERE chat_id = ?), "
             "  COALESCE(NULLIF((SELECT source FROM users WHERE chat_id = ?), ''), ?), "
             "  (SELECT crm_checked_at FROM users WHERE chat_id = ?), "
             "  (SELECT birthdate FROM users WHERE chat_id = ?), "
             "  (SELECT birthdate_checked_at FROM users WHERE chat_id = ?), "
+            "  (SELECT gender FROM users WHERE chat_id = ?), "
             "  COALESCE((SELECT created_at FROM users WHERE chat_id = ?), datetime('now')), "
             "  datetime('now'))",
             (chat_id, phone, full_name, email, chat_id, chat_id, source,
-             chat_id, chat_id, chat_id, chat_id),
+             chat_id, chat_id, chat_id, chat_id, chat_id),
         )
         await db.commit()
 
@@ -200,6 +205,63 @@ async def set_user_language(chat_id: int, lang: str) -> None:
             "UPDATE users SET language = ?, updated_at = datetime('now') "
             "WHERE chat_id = ?",
             (lang, chat_id),
+        )
+        await db.commit()
+
+
+async def get_user_gender(chat_id: int) -> str | None:
+    """The form this chat is addressed in, or None if nothing has decided yet.
+
+    None is meaningful and is not the same as the stored 'u': nothing has asked,
+    so the feminine form the whole bot is written in still applies. 'u' is an
+    answer — the classifier refused, or the cards behind this chat disagree —
+    and it selects the wording that marks no gender. core/domain/gender.py
+    holds that rule; this function only reads the column.
+    """
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT gender FROM users WHERE chat_id = ?",
+            (chat_id,),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row and row[0] else None
+
+
+async def get_user_voice(chat_id: int) -> tuple[str | None, str | None]:
+    """The language and the form, in one read.
+
+    Both are needed by the middleware that builds `t`, which runs on every
+    single update — and they are two columns of one row, so asking for them
+    separately would double the cost of the hottest query in the bot for
+    nothing.
+    """
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT language, gender FROM users WHERE chat_id = ?",
+            (chat_id,),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None, None
+        return (row[0] or None), (row[1] or None)
+
+
+async def set_user_gender(chat_id: int, value: str) -> None:
+    """Store the resolved form for a chat that already exists.
+
+    UPDATE and not upsert, for the same reason as set_user_language: a row in
+    `users` means a verified number, and this is a cache of somebody else's
+    decision — not a reason to invent a customer. A chat with no row keeps
+    reading the default, which is exactly what it should read.
+
+    `updated_at` is deliberately not touched. The refresh runs on a schedule and
+    writes the same value most times it runs; stamping the row would turn "when
+    did this person's profile change" into "when did a sweep last pass".
+    """
+    async with connect() as db:
+        await db.execute(
+            "UPDATE users SET gender = ? WHERE chat_id = ?",
+            (value, chat_id),
         )
         await db.commit()
 
@@ -368,6 +430,16 @@ class SqliteLanguageChoice:
 
     async def chosen_by(self, chat_id: int) -> str | None:
         return await get_user_language(chat_id)
+
+
+class SqliteGenderForm:
+    """Implements core.ports.users.GenderForm against today's column."""
+
+    async def form_for(self, chat_id: int) -> str | None:
+        return await get_user_gender(chat_id)
+
+    async def remember(self, chat_id: int, form: str) -> None:
+        await set_user_gender(chat_id, form)
 
 
 class SqliteMailingList:
