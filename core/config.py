@@ -55,6 +55,16 @@ class EnvSettings(BaseSettings):
     # machine — which is what Sentry in the plan means. Any long random string;
     # changing it renumbers every digest, so set it once.
     log_phone_salt: str = ""
+    # The warehouse's Postgres, read-only, for `app.buyer_gender` — which form of
+    # Ukrainian a customer is addressed in (core/repos/buyer_gender.py). The
+    # neighbouring project owns that database and already publishes a read-only
+    # role and a docker network for exactly this; the DSN is
+    # postgresql://ks_readonly:PASSWORD@ks-postgres:5432/ks
+    #
+    # Unset is a supported state and the one every deployment starts in: nothing
+    # asks, no form is written, and every customer keeps being addressed the way
+    # the strings in core/texts.py are written.
+    buyer_gender_dsn: str | None = None
 
     @property
     def novaposhta_keys(self) -> list[str]:

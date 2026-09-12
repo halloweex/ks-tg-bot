@@ -18,7 +18,9 @@ from core.adapters.keycrm.client import KeyCRMClient
 from core.domain.phone import VerifiedPhone, verified_phone
 from core.repos.orders import get_cached_orders
 from core.repos.uow import SqliteUnitOfWork
-from core.repos.users import SqliteCustomerDirectory
+from core.ports.gender import BuyerGenders
+from core.repos.users import SqliteCustomerDirectory, SqliteGenderForm
+from core.usecases.gender import refresh_forms
 from core.usecases.register import register_customer
 from bot.states import OnboardingStates, SupportStates
 
@@ -49,11 +51,18 @@ async def _register_user(
     config: AppConfig,
     t: Texts,
     keycrm: KeyCRMClient | None = None,
+    genders: BuyerGenders | None = None,
 ) -> None:
     """Register the customer, then show them the menu.
 
     The phone is ownership-verified before this is called — see
     own_contact_phone above, which is the whole security boundary of the flow.
+
+    This is also the moment the bot can first learn how to address them: the
+    CRM buyer cards behind their number are written one line above, and the
+    warehouse can be asked about exactly those. Doing it here rather than
+    leaving it to the hourly sweep is the difference between a man reading
+    «Красуне» on the first screen after registering and never reading it at all.
     """
     # The deep link that brought them, put aside by /start a couple of messages
     # ago. Written once, here, because this is where a chat becomes a customer.
@@ -63,6 +72,22 @@ async def _register_user(
     await register_customer(message.chat.id, phone, keycrm,
                             SqliteCustomerDirectory(), SqliteUnitOfWork,
                             source=source)
+
+    # Best-effort, like everything else registration does to somebody else's
+    # data: the warehouse is another project's database and the customer is
+    # standing in front of us. `t` is rebuilt rather than re-read, because the
+    # middleware resolved it before the row it reads from was written.
+    if genders is not None:
+        try:
+            decided = await refresh_forms(SqliteCustomerDirectory(), genders,
+                                          SqliteGenderForm(),
+                                          only={message.chat.id})
+        except Exception as exc:  # noqa: BLE001 — never costs a registration
+            logger.warning("Could not resolve how to address chat {}: {}",
+                           message.chat.id, exc)
+        else:
+            if message.chat.id in decided:
+                t = Texts(t.lang, decided[message.chat.id])
 
     await state.clear()
     track(message.chat.id, "registered")
@@ -91,6 +116,7 @@ async def process_contact(
     config: AppConfig,
     keycrm: KeyCRMClient,
     t: Texts,
+    genders: BuyerGenders | None = None,
 ) -> None:
     """Register the user from their OWN shared contact (ownership-verified)."""
     if message.contact and message.contact.user_id != (message.from_user.id if message.from_user else None):
@@ -113,7 +139,8 @@ async def process_contact(
     # "typing…" covers it without leaving a "Номер прийнято!" message behind to
     # be read minutes later as if it were news.
     await typing(message)
-    await _register_user(message, state, phone, config, t, keycrm=keycrm)
+    await _register_user(message, state, phone, config, t, keycrm=keycrm,
+                         genders=genders)
 
 
 @router.message(OnboardingStates.waiting_phone, F.text.in_(variants("BTN_SUPPORT")))

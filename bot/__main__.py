@@ -18,8 +18,10 @@ from core.repos.referrals import SqliteReferralLedger
 from core.repos.stock import SqliteRestockWatchlist, SqliteStockSnapshot
 from core.repos.sync_state import SqliteSyncJournal
 from core.repos.uow import SqliteUnitOfWork
+from core.repos.buyer_gender import PgBuyerGenders
 from core.repos.users import (SqliteChatsByEmail, SqliteCustomerDirectory,
-                              SqliteKnownBirthdays, SqliteLanguageChoice)
+                              SqliteGenderForm, SqliteKnownBirthdays,
+                              SqliteLanguageChoice)
 from core.repos.events import last_seen
 from core.repos.schema import init_db
 from bot.analytics import track
@@ -46,6 +48,7 @@ from bot import profile
 from bot.outbox import watch as watch_outbox
 from bot import webhooks
 from bot.birthdays import watch as watch_birthdays
+from bot.gender import watch as watch_gender
 from bot.handlers.common import REFERRAL_PREFIX
 from bot.referrals import watch as watch_referrals
 from bot.catalogue import watch as watch_catalogue
@@ -94,6 +97,17 @@ async def main() -> None:
     # to anyone, which is the only reason the buy button is possible at all —
     # no Shopify Admin token has ever been configured for this store.
     dp["storefront"] = ShopifyStorefront(config.website_url)
+
+    # The warehouse's answer to "how should this person be addressed", if the
+    # read-only DSN is configured. Absent is the normal state of a fresh
+    # deployment and of every test: no source, no sweep, and every customer
+    # addressed the way core/texts.py is written.
+    dsn = config.env.buyer_gender_dsn
+    dp["genders"] = PgBuyerGenders(dsn) if dsn else None
+    if dsn:
+        logger.info("Gender source configured — app.buyer_gender will be read")
+    else:
+        logger.info("No gender source configured — the copy stays as written")
 
     # Conditional Nova Poshta client
     np_keys = config.env.novaposhta_keys
@@ -222,6 +236,14 @@ async def main() -> None:
                     lambda: last_seen(webhooks.ARRIVED)),
                 name="rivo_watchdog"))
 
+        # Which form of Ukrainian each customer is addressed in. Only when
+        # there is somewhere to ask: the loop exists to carry a correction
+        # somebody made by hand, and with no source there is nothing to carry.
+        if dp["genders"] is not None:
+            loops.append(spawn(
+                watch_gender(dp["genders"], SqliteCustomerDirectory(),
+                             SqliteGenderForm()),
+                name="gender_watcher"))
         loops.append(spawn(
             watch_orders(dp["keycrm"], SqliteSyncJournal(),
                          SqliteCustomerDirectory(), SqliteUnitOfWork),
