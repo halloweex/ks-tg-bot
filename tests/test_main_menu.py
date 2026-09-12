@@ -296,3 +296,47 @@ def test_the_same_action_wears_the_same_colour_everywhere():
     products = [{"name": "A", "sku": "1", "qty": 1}]
     basket = _order_kb(row, products, {"1": offer}, T, SHOP)
     assert basket.inline_keyboard[0][0].style == "success", "ordering it again"
+
+
+def test_the_menu_command_lets_go_of_the_support_state():
+    """«📋 Меню» as a button has always cleared the state; as a command it did
+    not even take one.
+
+    So a customer who opened support, read «розкажи, що турбує», changed her
+    mind and typed /menu got the menu and stayed in the support state. Her next
+    message, about anything at all, went to a manager. One screen with two
+    entrances behaving differently, which is the defect this bot has paid for
+    more than once."""
+    import asyncio
+    from types import SimpleNamespace
+
+    from bot.handlers import menu as mod
+    from bot.states import SupportStates
+
+    class _State:
+        def __init__(self) -> None:
+            self.state = SupportStates.waiting_message
+
+        async def clear(self) -> None:
+            self.state = None
+
+        async def set_state(self, state) -> None:
+            self.state = state
+
+    state = _State()
+    said: list[str] = []
+
+    async def answer(text, **kwargs):
+        said.append(text)
+        return SimpleNamespace(message_id=1)
+
+    message = SimpleNamespace(chat=SimpleNamespace(id=1),
+                              from_user=SimpleNamespace(id=1), answer=answer)
+    config = SimpleNamespace(env=SimpleNamespace(admin_ids=[]),
+                             website_url="https://shop.example", bottom_menu=False)
+
+    asyncio.run(mod.restore_menu(message, state, config, T))
+
+    assert state.state is None, (
+        "she asked for the menu and is still talking to a manager")
+    assert said, "and the menu itself still arrives"

@@ -176,3 +176,51 @@ def test_a_job_whose_messages_were_never_queued_is_closed_with_zeros(db):
     assert _report() == [job_id]
     [report] = [row for row in asyncio.run(claim(50)) if row["chat_id"] == ADMIN]
     assert "0" in json.loads(report["payload"])["text"]
+
+
+def test_a_command_never_becomes_the_broadcast(db):
+    """The one place an admin command can reach a customer.
+
+    `process_broadcast_message` takes `message.text` verbatim and `F.text`
+    matches a command like any other line. Registration order then decides the
+    outcome and is not on our side: /stop and /broadcast sit above the handler
+    and fire, while /stats and /chatid sit below it and become the broadcast —
+    so "/stats" goes out to every subscriber, from the shop, signed by the shop.
+
+    Checked on the slash rather than on a list of known commands, because a
+    typo — "/statss" — has no handler and would still be sent."""
+    import asyncio
+    from types import SimpleNamespace
+
+    from bot.handlers import broadcast as mod
+
+    ADMIN = 4242
+    config = SimpleNamespace(env=SimpleNamespace(admin_ids=[ADMIN]))
+    stored: dict = {}
+
+    class _State:
+        async def update_data(self, **kwargs):
+            stored.update(kwargs)
+            return dict(stored)
+
+        async def set_state(self, state) -> None:
+            stored["state"] = state
+
+        async def clear(self) -> None:
+            stored.clear()
+
+    for text in ("/stats", "/chatid", "/statss", "/menu"):
+        said: list[str] = []
+
+        async def answer(line, **kwargs):
+            said.append(line)
+            return SimpleNamespace(message_id=1)
+
+        message = SimpleNamespace(
+            chat=SimpleNamespace(id=ADMIN), from_user=SimpleNamespace(id=ADMIN),
+            text=text, answer=answer)
+        asyncio.run(mod.process_broadcast_message(message, config, _State(), None))
+
+        assert "broadcast_text" not in stored, f"{text} became a broadcast"
+        assert said and "/" in said[0], (
+            f"{text} was dropped without saying why")
