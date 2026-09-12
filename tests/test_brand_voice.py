@@ -16,7 +16,7 @@ import re
 
 import pytest
 
-from core.i18n import SUPPORTED, Texts
+from core.i18n import FORMS, SUPPORTED, Texts
 
 # Read from the support chat or the admin surfaces, never by a customer.
 NOT_CUSTOMER_FACING = {
@@ -29,8 +29,8 @@ NOT_CUSTOMER_FACING = {
 }
 
 
-def _customer_strings(lang: str) -> dict[str, str]:
-    t = Texts(lang)
+def _customer_strings(lang: str, gender: str = "f") -> dict[str, str]:
+    t = Texts(lang, gender)
     import core.texts as table
 
     return {
@@ -42,20 +42,26 @@ def _customer_strings(lang: str) -> dict[str, str]:
     }
 
 
+# Both rules apply to every form the copy can be rendered in, not only the one
+# `core/texts.py` spells out: the masculine and unmarked tables in core/i18n.py
+# are customer-facing Ukrainian too, and «вітаю вас» was the first wording
+# proposed for one of them.
+@pytest.mark.parametrize("gender", sorted(FORMS))
 @pytest.mark.parametrize("lang", sorted(SUPPORTED))
-def test_no_long_dash_reaches_a_customer(lang):
+def test_no_long_dash_reaches_a_customer(lang, gender):
     """The en dash in a range («Показано 1–5 з 12») is typography and stays;
     the em dash is the one that was asked to go."""
-    guilty = {k: v for k, v in _customer_strings(lang).items() if "—" in v}
+    guilty = {k: v for k, v in _customer_strings(lang, gender).items() if "—" in v}
     assert not guilty, f"long dash in: {sorted(guilty)}"
 
 
-def test_ukrainian_never_slips_into_the_formal_you():
+@pytest.mark.parametrize("gender", sorted(FORMS))
+def test_ukrainian_never_slips_into_the_formal_you(gender):
     """«Ми звертаємось до людини як до рівної, на "ти"» (Tone of voice, p. 199).
     One «Ваш» is enough to make the whole screen sound like a bank."""
     formal = re.compile(r"\b(Ви|ви|Ваш|ваш|Вам|вам|Вас|вас)\b")
     guilty = {}
-    for key, value in _customer_strings("uk").items():
+    for key, value in _customer_strings("uk", gender).items():
         # «вами», «вами» inside a word are fine; only whole words count.
         if formal.search(value):
             guilty[key] = value

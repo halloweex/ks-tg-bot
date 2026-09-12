@@ -1,4 +1,4 @@
-"""Per-user language resolution and the English string table.
+"""Per-user language resolution, the English table, and the gendered Ukrainian.
 
 `texts.py` stays the Ukrainian source of truth — every key is defined there.
 This module holds translations keyed by the same names and a `Texts` view that
@@ -8,6 +8,13 @@ and resolves per user.
 A key missing from a translation falls back to Ukrainian rather than raising:
 a half-translated string table degrades to the default language instead of
 breaking the handler that uses it.
+
+Since 2026-09-12 a `Texts` is bound to two things, not one: the language and the
+grammatical form the customer is addressed in. The second is the same mechanism
+as the first — a dictionary of overrides under the same keys, consulted first —
+and it exists because Ukrainian marks the addressee's gender and this shop has
+777 male buyers. See the tables below, and `core/domain/gender.py` for where the
+form comes from.
 """
 from __future__ import annotations
 
@@ -322,6 +329,146 @@ UK_EXTRA: dict[str, str] = {
     "MSG_LANGUAGE_CHOOSE": "Оберіть мову:",
 }
 
+# ---------------------------------------------------------------------------
+# The same language, three forms of it.
+#
+# Ukrainian marks the addressee's gender in the past tense, so «що ти вже
+# купувала» is a claim about whoever is reading. It is right for 94.8% of this
+# shop's buyers and wrong for 777 of them, which is what `buyer_gender` (one row
+# per buyer, decided outside this repo) is for. core/domain/gender.py holds the
+# rules; this is only the copy.
+#
+# Three tables and not two. Feminine is the one in `core/texts.py` — unchanged,
+# because that is how the shop has always spoken and because a chat with nothing
+# decided about it must read exactly as it read before. Masculine is below.
+# The third is for a person the classifier refused to decide about, whose card
+# is not in the CRM at all, or whose number turned out to be two people: it says
+# the same things without marking gender, usually by moving the verb out of the
+# past tense or by naming the order instead of the act of buying.
+#
+# Only Ukrainian needs them. English marks none of this — "you have bought" is
+# already all three — so `EN` is shared by every form, and a key missing from a
+# gender table falls through to the language table and then to `core.texts`,
+# which is what keeps these dictionaries short: only the strings that actually
+# differ are here.
+#
+# **«рада тебе бачити» is not on this list and must not be.** That is the bot
+# speaking about itself — the brand persona is Анна — so it is her gender, not
+# the customer's, and it stays feminine in all three forms.
+FEMININE, MASCULINE, NEUTRAL = "f", "m", "u"
+
+UK_MASCULINE: dict[str, str] = {
+    "GREETING": (
+        "Вітаємо у {brand_name}! 🌸\n\n"
+        "Покажу, де твоє замовлення, що ти вже купував і коли улюблений засіб "
+        "знову зʼявиться.\n\n"
+        "Щоб знайти твої замовлення, поділись, будь ласка, номером телефону: тим "
+        "самим, що вказував при покупці."
+    ),
+    "MSG_NO_PHONE_YET": (
+        "Щоб показати твої замовлення, нам потрібен номер телефону: той самий, "
+        "що ти вказував при покупці.\n\n"
+        "Поділись ним через «📱 Змінити номер», або напиши нам, і ми знайдемо "
+        "замовлення вручну."
+    ),
+    "MSG_NO_ORDERS": (
+        "Замовлень поки немає, саме час зробити перше.\n\n"
+        "А якщо ти вже щось у нас замовляв, воно могло бути оформлене на інший "
+        "номер: той, що ти вказав під час покупки, а не той, до якого прив'язаний "
+        "Telegram. Напиши нам, і ми знайдемо його вручну."
+    ),
+    # The owner's own wording for this one. The feminine line pays a woman a
+    # compliment; the masculine one pays a man a different compliment rather
+    # than the same one in the wrong gender. Said on «ти», like everything else
+    # a customer reads — tests/test_brand_voice.py enforces that, and «вітаю
+    # вас» would have failed it.
+    "MSG_MENU_PLACEHOLDER": "О! Відчуваю харизму. Обери дію",
+    "MSG_FAVOURITES_HEADER_ONCE": (
+        "<b>🛍 Ти це вже купував</b>\n"
+        "Натисни, щоб замовити ще раз 👇"
+    ),
+    "MSG_FAVOURITES_TITLE_ONCE": "🛍 Ти це вже купував",
+    "MSG_FAVOURITES_ALSO": "Також ти купував: {names}",
+    "BTN_FAVOURITES_ALL": "🔍 Усе, що ти купував · з фото",
+    "MSG_INLINE_EMPTY": "Тут зʼявиться те, що ти замовляв",
+    "MSG_OPT_OUT_CONFIRM": "Ти відписався від розсилки. Щоб підписатись знову, надішли /start",
+    "MSG_OPT_IN_CONFIRM": "Ти знову підписаний на розсилку!",
+    # The friend is a second person whose gender nothing here knows. Following
+    # the customer's own is a guess, and it is the better guess: «запроси
+    # подругу» shown to a man is the same mistake this whole file exists to
+    # stop, one step removed.
+    "BTN_INVITE": "🎁 Запроси друга",
+    "BTN_INVITE_SEND": "📨 Надіслати другу",
+    "MSG_INVITE_SCREEN": (
+        "<b>🎁 Запроси друга</b>\n\n"
+        "Надішли йому бота, а коли він зробить перше замовлення, ми надішлемо "
+        "тобі промокод сюди ж, у чат."
+    ),
+    "MSG_SHARE_ROW": "Надіслати другу",
+    "BTN_SHARE_PRODUCT": "🎁 Порадити другу",
+    "MSG_REFERRAL_EARNED": (
+        "🎁 Твій друг зробив перше замовлення!\n"
+        "Дякуємо, що порадив нас."
+    ),
+    "MSG_LOYALTY_REFERRAL": (
+        "<b>🎁 Твій друг зробив замовлення</b>\n\n"
+        "Нагорода вже у твоєму кабінеті. Дякуємо, що порадив нас."
+    ),
+}
+
+UK_NEUTRAL: dict[str, str] = {
+    "GREETING": (
+        "Вітаємо у {brand_name}! 🌸\n\n"
+        "Покажу, де твоє замовлення, що вже є в твоїй історії покупок, і коли "
+        "улюблений засіб знову зʼявиться.\n\n"
+        "Щоб знайти твої замовлення, поділись, будь ласка, номером телефону: тим "
+        "самим, що й при покупці."
+    ),
+    "MSG_NO_PHONE_YET": (
+        "Щоб показати твої замовлення, нам потрібен номер телефону: той самий, "
+        "що й при покупці.\n\n"
+        "Поділись ним через «📱 Змінити номер», або напиши нам, і ми знайдемо "
+        "замовлення вручну."
+    ),
+    "MSG_NO_ORDERS": (
+        "Замовлень поки немає, саме час зробити перше.\n\n"
+        "А якщо замовлення в тебе вже було, воно могло бути оформлене на інший "
+        "номер: той, що вказаний у замовленні, а не той, до якого прив'язаний "
+        "Telegram. Напиши нам, і ми знайдемо його вручну."
+    ),
+    # No pet name for somebody we do not know. The line still says what the
+    # field is for, which is the part that has to be there.
+    "MSG_MENU_PLACEHOLDER": "Обери дію",
+    "MSG_FAVOURITES_HEADER_ONCE": (
+        "<b>🛍 Це вже було в твоїх замовленнях</b>\n"
+        "Натисни, щоб замовити ще раз 👇"
+    ),
+    "MSG_FAVOURITES_TITLE_ONCE": "🛍 Це вже було в твоїх замовленнях",
+    "MSG_FAVOURITES_ALSO": "Також у твоїх замовленнях: {names}",
+    "BTN_FAVOURITES_ALL": "🔍 Усі твої товари · з фото",
+    "MSG_INLINE_EMPTY": "Тут зʼявиться те, що ти замовиш",
+    "MSG_OPT_OUT_CONFIRM": "Розсилку вимкнено. Щоб підписатись знову, надішли /start",
+    "MSG_OPT_IN_CONFIRM": "Розсилку увімкнено!",
+    "BTN_INVITE": "🎁 Запроси друзів",
+    "BTN_INVITE_SEND": "📨 Надіслати друзям",
+    "MSG_INVITE_SCREEN": (
+        "<b>🎁 Запроси друзів</b>\n\n"
+        "Надішли їм бота, а коли хтось зробить перше замовлення, ми надішлемо "
+        "тобі промокод сюди ж, у чат."
+    ),
+    "MSG_SHARE_ROW": "Надіслати друзям",
+    "BTN_SHARE_PRODUCT": "🎁 Порадити друзям",
+    "MSG_REFERRAL_EARNED": (
+        "🎁 За твоїм запрошенням зробили перше замовлення!\n"
+        "Дякуємо, що радиш нас."
+    ),
+    "MSG_LOYALTY_REFERRAL": (
+        "<b>🎁 За твоїм запрошенням зробили замовлення</b>\n\n"
+        "Нагорода вже у твоєму кабінеті. Дякуємо, що радиш нас."
+    ),
+}
+
+
 # CRM status values as the customer should read them. Keys are the raw KeyCRM
 # values (order status_name and shipping_status), lowercased. Anything not listed
 # is shown as-is rather than hidden — an unknown status is still information.
@@ -369,6 +516,15 @@ CURRENCY_NAMES: dict[str, dict[str, str]] = {
 
 _TABLES: dict[str, dict[str, str]] = {"uk": UK_EXTRA, "en": EN}
 
+# Looked up before the language table and only when a form other than the
+# feminine one is asked for, so the default path is the one that existed
+# before gender did.
+_GENDERED: dict[tuple[str, str], dict[str, str]] = {
+    ("uk", MASCULINE): UK_MASCULINE,
+    ("uk", NEUTRAL): UK_NEUTRAL,
+}
+FORMS = (FEMININE, MASCULINE, NEUTRAL)
+
 
 def normalize(code: str | None) -> str:
     """Map a Telegram language_code to a language we actually support.
@@ -387,14 +543,26 @@ class Texts:
 
     Attribute access mirrors the `texts` module, so handlers read the same
     names they always did.
+
+    Also form-bound, since the tables above. `gender` is one of FORMS and comes
+    from `core.domain.gender`, which this module deliberately does not import:
+    `i18n-is-a-leaf` forbids it, and a `Gender` is a `str` whose value is one of
+    these three letters — tests/test_gender_texts.py holds the two spellings
+    together. A handler that constructs `Texts(lang)` with no form gets the
+    feminine one, which is what every screen rendered before this existed.
     """
 
-    __slots__ = ("lang",)
+    __slots__ = ("lang", "gender")
 
-    def __init__(self, lang: str = DEFAULT_LANG) -> None:
+    def __init__(self, lang: str = DEFAULT_LANG, gender: str = FEMININE) -> None:
         self.lang = lang if lang in SUPPORTED else DEFAULT_LANG
+        self.gender = gender if gender in FORMS else FEMININE
 
     def __getattr__(self, name: str) -> str:
+        if self.gender != FEMININE:
+            gendered = _GENDERED.get((self.lang, self.gender), {})
+            if name in gendered:
+                return gendered[name]
         table = _TABLES.get(self.lang, {})
         if name in table:
             return table[name]
@@ -465,19 +633,30 @@ def operator_texts() -> Texts:
     return Texts(OPERATOR_LANG)
 
 
-def customer_texts(stored: str | None) -> Texts:
+def customer_texts(stored: str | None, gender: str | None = None) -> Texts:
     """Strings addressed to a customer we are messaging out of the blue.
 
     Used where there is no incoming update from them to resolve a language from,
     so only a stored choice is available; Ukrainian when there is none.
+
+    The form is stored the same way and read the same way, and for the same
+    reason: a message the bot sends on its own initiative has nobody's update to
+    resolve anything from. None means nothing was stored, which reads as the
+    feminine form — see core/domain/gender.py on why that is the default and not
+    the unmarked one.
     """
-    return Texts(stored or DEFAULT_LANG)
+    return Texts(stored or DEFAULT_LANG, gender or FEMININE)
 
 
 def variants(key: str) -> set[str]:
-    """Every language's value for a key.
+    """Every value a key can be rendered as: language times form.
 
     Router filters that match on button text are built at import time, so they
-    must accept the button in any language the bot can render it in.
+    must accept the button in any language the bot can render it in — and, since
+    gender, in any form. «🎁 Запроси друга» is a reply-keyboard button, which
+    means a male customer's menu key is *only* reachable if that label is in
+    here; leaving the form out would have handed him a keyboard whose buttons do
+    nothing.
     """
-    return {getattr(Texts(lang), key) for lang in SUPPORTED}
+    return {getattr(Texts(lang, gender), key)
+            for lang in SUPPORTED for gender in FORMS}
