@@ -56,44 +56,6 @@ def test_a_refused_reaction_is_not_an_error_anybody_hears_about():
     react = _Method(raises=_bad_request("Bad Request: REACTION_INVALID"))
     asyncio.run(screen.seen(SimpleNamespace(react=react)))  # does not raise
 
-
-# --- the message that goes away ---------------------------------------------
-
-def test_a_message_takes_itself_back_after_it_has_been_read(monkeypatch):
-    scheduled = []
-    monkeypatch.setattr(screen, "spawn",
-                        lambda coro, name=None: scheduled.append(coro))
-    slept = []
-
-    async def sleep(seconds):
-        slept.append(seconds)
-
-    monkeypatch.setattr(screen.asyncio, "sleep", sleep)
-
-    delete = _Method()
-    answer = _Method(returns=SimpleNamespace(delete=delete))
-
-    async def run():
-        await screen.ephemeral(SimpleNamespace(answer=answer), "ok", seconds=30)
-        await scheduled[0]
-
-    asyncio.run(run())
-    assert answer.calls[0]["args"] == ("ok",)
-    assert slept == [30]
-    assert len(delete.calls) == 1
-
-
-def test_a_message_already_gone_is_not_deleted_twice(monkeypatch):
-    """The customer may have cleared the chat, or a redeploy may have outlived
-    the timer. Neither is worth a line in the error log."""
-    async def sleep(seconds):
-        return None
-
-    monkeypatch.setattr(screen.asyncio, "sleep", sleep)
-    delete = _Method(raises=_bad_request("Bad Request: message to delete not found"))
-    asyncio.run(screen._forget(SimpleNamespace(delete=delete), 1))  # does not raise
-
-
 # --- the effect --------------------------------------------------------------
 
 def test_an_effect_rides_along_when_telegram_takes_it():
@@ -647,3 +609,33 @@ def test_the_log_records_the_outcome_and_not_only_the_refusal(caplog):
     assert any("DOCUMENT_INVALID" in line for line in said), said
     assert any("after all" in line for line in said), (
         "the line must say the strip worked, not merely that a refusal arrived")
+
+
+# --- nothing the customer can see is taken back ------------------------------
+
+
+def test_no_message_the_customer_sees_deletes_itself():
+    """`ephemeral()` said something and removed it 45 seconds later, for lines
+    that "answer an action rather than carry information".
+
+    Both lines it carried carried information. «Твоє повідомлення вже у нас» is
+    the only acknowledgement she gets that the shop has her problem, and «ти
+    знову підписана на розсилку» is the only notice that pressing /start put her
+    back on a list she had left. Each disappeared while she was still reading
+    the screen under it.
+
+    The function is gone rather than merely unused: with no callers it would be
+    a convention, and a convention is what somebody reinstates on a quiet
+    afternoon. This asserts the property instead."""
+    import subprocess
+
+    from tests.conftest import REPO_ROOT
+
+    assert not hasattr(screen, "ephemeral")
+
+    found = subprocess.run(
+        ["grep", "-rn", "--include=*.py", "-e", r"\.delete()", "-e", "delete_message",
+         "bot", "core"],
+        capture_output=True, text=True, cwd=REPO_ROOT).stdout.strip()
+    assert not found, (
+        f"something removes a message the customer can see:\n{found}")

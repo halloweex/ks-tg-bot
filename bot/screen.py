@@ -10,15 +10,13 @@ actually said.
 Falls back to sending a new message whenever an edit cannot work — the anchor
 may be a photo, older than Telegram's edit window, or already gone.
 
-Three smaller things about how the chat looks live here too, for the same
-reason: `seen()` marks a customer's message as read with a reaction, `ephemeral()`
-says something and takes it back, and an effect is how a message arrives. All
-three are decoration — every one of them fails silently, because a chat that
+Two smaller things about how the chat looks live here too, for the same reason:
+`seen()` marks a customer's message as read with a reaction, and an effect is how
+a message arrives. Both are decoration — each fails silently, because a chat that
 looks slightly plainer is never worth a broken flow.
 """
 from __future__ import annotations
 
-import asyncio
 from typing import Sequence
 
 from aiogram.types import (CallbackQuery, InlineKeyboardMarkup, Message,
@@ -27,7 +25,6 @@ from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from loguru import logger
 
 from bot import rich
-from bot.tasks import spawn
 
 from core.config import AppConfig
 from core.i18n import Texts
@@ -38,11 +35,6 @@ from bot.keyboards import main_menu_inline_kb, main_menu_kb
 # not a failure — a double tap should not spawn a duplicate message.
 _NOT_MODIFIED = "message is not modified"
 
-
-# How long a message that answers an action stays on screen. Long enough to be
-# read twice, short enough that a chat scrolled through next week holds what the
-# shop said and not the chatter around it.
-_EPHEMERAL_SECONDS = 45
 
 # What a customer's message is marked with when it reaches the manager. Reading
 # it is the manager's job; this only says it arrived, and it says so on the
@@ -82,30 +74,20 @@ async def with_effect(message: Message, text: str, effect: str,
     return await message.answer(text, **kwargs)
 
 
-async def ephemeral(message: Message, text: str,
-                    seconds: int = _EPHEMERAL_SECONDS, **kwargs) -> Message | None:
-    """Say something and take it back once it has been read.
-
-    For the messages that answer an action rather than carry information — "sent
-    to the manager", "here is the shop" — and are noise a day later. The chat
-    keeps one live screen and what the shop actually said; this is how the rest
-    stops accumulating.
-
-    Deletion is a background task, so nothing waits on it, and a redeploy in the
-    meantime leaves the message where it is. Cosmetic either way.
-    """
-    sent = await message.answer(text, **kwargs)
-    spawn(_forget(sent, seconds), name="ephemeral")
-    return sent
-
-
-async def _forget(sent: Message, seconds: int) -> None:
-    """Delete a message after `seconds`, and shrug if it is already gone."""
-    await asyncio.sleep(seconds)
-    try:
-        await sent.delete()
-    except TelegramAPIError as exc:
-        logger.debug("Could not delete an ephemeral message: {}", exc)
+# `ephemeral()` used to live here: it said something and deleted it again after
+# 45 seconds, for lines that "answer an action rather than carry information".
+#
+# It is gone, and the mechanism with it rather than its call sites, because the
+# reasoning was wrong in a way that reads fine from the code and badly from the
+# chat. Both messages it carried mattered to the person reading them: «твоє
+# повідомлення вже у нас» is the only acknowledgement she gets that the shop has
+# her problem, and «ти знову підписана на розсилку» is the only notice that
+# pressing /start put her back on a list she had left. Each disappeared while she
+# was still reading the screen under it.
+#
+# Nothing the customer can see is taken back. Leaving the function here with no
+# callers would make that a convention; removing it makes it a property of the
+# module, and a vanishing message cannot be reintroduced by absent-mindedness.
 
 
 async def send_main_menu(message: Message, t: Texts, config: AppConfig,

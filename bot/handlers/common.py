@@ -12,7 +12,7 @@ from core.config import AppConfig
 from core.repos.users import get_user, get_user_language, is_opted_out, opt_in_user
 from bot import rich
 from bot.keyboards import language_kb, share_phone_kb
-from bot.screen import ephemeral, send_main_menu
+from bot.screen import send_main_menu
 from bot.handlers.orders import (favourites_screen, follow_up_parcel,
                                  orders_screen)
 from core.adapters.keycrm.client import KeyCRMClient
@@ -77,9 +77,13 @@ async def cmd_start(
     if await is_opted_out(message.chat.id):
         await opt_in_user(message.chat.id)
         track(message.chat.id, "opted_in")
-        # A status notice, not something the shop said: it answers the /start
-        # that caused it and means nothing an hour later.
-        await ephemeral(message, t.MSG_OPT_IN_CONFIRM)
+        # **It used to take itself back after 45 seconds**, as "a status notice
+        # that means nothing an hour later". It means a great deal: she opted
+        # out of the mailing on purpose, pressed /start for some other reason,
+        # and was put back on the list. This line is the only thing telling her
+        # so, and a notice about her own subscription that disappears while she
+        # is reading the greeting under it is worse than no notice at all.
+        await message.answer(t.MSG_OPT_IN_CONFIRM)
 
     # Returning user — already verified, show main menu
     user = await get_user(message.chat.id)
