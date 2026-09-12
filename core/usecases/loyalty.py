@@ -18,7 +18,7 @@ from core.domain.campaign import daily
 from core.domain.loyalty import Kind, LoyaltyEvent
 from core.i18n import customer_texts
 from core.ports.outbox import MessageQueue
-from core.ports.users import ChatsByEmail, LanguageChoice
+from core.ports.users import ChatsByEmail, GenderForm, LanguageChoice
 
 KIND = "loyalty"
 
@@ -40,9 +40,15 @@ async def announce(
     languages: LanguageChoice,
     queue: MessageQueue,
     *,
+    forms: GenderForm | None = None,
     account_url: str = "",
 ) -> bool:
     """Queue a message about this event, if there is anybody to send it to.
+
+    `forms` decides which form of Ukrainian the referral note is written in —
+    the one message here that marks gender at all. Read from our own column and
+    not from the warehouse, so it works whether or not a gender source is
+    configured; None is the wording that shipped.
 
     False is the ordinary outcome, not a failure: the loyalty programme has
     thousands of customers and this bot has a handful, so most events are about
@@ -59,7 +65,8 @@ async def announce(
     if chat_id is None:
         return False
 
-    t = customer_texts(await languages.chosen_by(chat_id))
+    t = customer_texts(await languages.chosen_by(chat_id),
+                       await forms.form_for(chat_id) if forms else None)
     payload: dict = {"text": _text(event, t)}
     if account_url:
         # Where the points actually live. The bot reports; the account is

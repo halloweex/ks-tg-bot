@@ -39,7 +39,7 @@ from core.i18n import customer_texts
 from core.ports.discounts import DiscountCodes
 from core.ports.outbox import MessageQueue
 from core.ports.repositories import ReferralLedger
-from core.ports.users import LanguageChoice
+from core.ports.users import GenderForm, LanguageChoice
 
 KIND = "referral"
 
@@ -61,6 +61,7 @@ async def check_once(
     languages: LanguageChoice,
     queue: MessageQueue,
     *,
+    forms: GenderForm | None = None,
     code: str = "",
     reward: str = "",
     discount_link: str = "",
@@ -69,6 +70,13 @@ async def check_once(
     link_for: Callable[[str], str] | None = None,
 ) -> Swept:
     """Find the referrals that have come good, and pay for them once.
+
+    `forms` is how the thank-you knows whether to say «порадила» or «порадив»,
+    and None — which is what every caller but the bot passes — keeps the wording
+    that shipped. Optional rather than required because the alternative was a
+    signature change in four places for a sentence in two, and because a
+    scenario that cannot run without knowing somebody's gender would be a worse
+    thing than one that addresses them the way the strings are written.
 
     `prefix` stays the first argument rather than joining the ports behind it:
     it is not an outside thing being handed in, it is what the sweep is looking
@@ -114,7 +122,9 @@ async def check_once(
                 hers = issued
                 link = link_for(issued) if link_for else ""
 
-        t = customer_texts(await languages.chosen_by(referrer_chat_id))
+        t = customer_texts(
+            await languages.chosen_by(referrer_chat_id),
+            await forms.form_for(referrer_chat_id) if forms else None)
         payload: dict = {"text": t.MSG_REFERRAL_EARNED + (
             t.MSG_REFERRAL_CODE.format(code=hers, reward=reward) if hers
             else t.MSG_REFERRAL_BY_HAND)}

@@ -26,7 +26,7 @@ from core.ports.discounts import DiscountCodes
 from core.i18n import operator_texts
 from core.ports.outbox import MessageQueue
 from core.ports.repositories import ReferralLedger
-from core.ports.users import LanguageChoice
+from core.ports.users import GenderForm, LanguageChoice
 from core.usecases.referrals import check_once
 
 POLL_INTERVAL_SECONDS = 15 * 60
@@ -41,6 +41,7 @@ async def watch(
     languages: LanguageChoice,
     queue: MessageQueue,
     discounts: DiscountCodes | None = None,
+    forms: GenderForm | None = None,
 ) -> None:
     """Poll forever. Never lets one bad round kill the loop.
 
@@ -56,6 +57,7 @@ async def watch(
     while True:
         try:
             swept = await check_once(prefix, ledger, languages, queue,
+                                     forms=forms,
                                      code=config.referral_code,
                                      reward=config.referral_reward,
                                      discount_link=link,

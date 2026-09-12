@@ -32,7 +32,7 @@ from bot.alerts import tell_admins_once
 
 from core.adapters.rivo.parse import is_unexplained, parse_event
 from core.ports.outbox import MessageQueue
-from core.ports.users import ChatsByEmail, LanguageChoice
+from core.ports.users import ChatsByEmail, GenderForm, LanguageChoice
 from core.usecases.loyalty import announce
 
 SIGNATURE_HEADER = "rivo-signature"
@@ -164,6 +164,7 @@ def build_app(
     chats: ChatsByEmail,
     languages: LanguageChoice,
     queue: MessageQueue,
+    forms: GenderForm | None = None,
     account_url: str = "",
     sample_dir: Path | None = None,
     arrived: Callable[[], None] | None = None,
@@ -234,7 +235,8 @@ def build_app(
             # this one has nothing to retry.
             return web.Response(text="ignored")
 
-        await announce(event, chats, languages, queue, account_url=account_url)
+        await announce(event, chats, languages, queue, forms=forms,
+                       account_url=account_url)
         return web.Response(text="ok")
 
     async def health(_request: web.Request) -> web.Response:

@@ -178,7 +178,8 @@ async def main() -> None:
         loops.append(spawn(
             watch_referrals(bot, REFERRAL_PREFIX, config, config.env.admin_ids,
                             SqliteReferralLedger(), SqliteLanguageChoice(),
-                            SqliteMessageQueue(), discounts),
+                            SqliteMessageQueue(), discounts,
+                            SqliteGenderForm()),
             name="referral_watcher"))
         # Pull whatever changed in the CRM into the local cache, and — as a
         # separate task, so it survives that one dying — watch that it keeps
@@ -195,6 +196,10 @@ async def main() -> None:
                         chats=SqliteChatsByEmail(),
                         languages=SqliteLanguageChoice(),
                         queue=SqliteMessageQueue(),
+                        # Read from our own column, so this works whether or
+                        # not a gender source is configured: no column, no
+                        # form, the copy as written.
+                        forms=SqliteGenderForm(),
                         account_url=config.loyalty_account_url,
                         # Beside the database, which is the volume that
                         # survives a deploy. Rivo is the one service this repo
