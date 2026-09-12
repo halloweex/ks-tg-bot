@@ -152,6 +152,32 @@ def band(u: float) -> Image.Image:
     return f.crop(((big - W) // 2, (big - H) // 2, (big - W) // 2 + W, (big - H) // 2 + H))
 
 
+def gif_palette() -> Image.Image:
+    """A palette built from the ramps the artwork actually contains.
+
+    A generic quantiser wastes entries: median-cut left the worst jump between
+    adjacent interior pixels at 14/255 against the render's own floor of 5,
+    which banded the light visibly — and raising it from 128 to 256 colours
+    changed that number not at all, because the problem is allocation, not
+    count. Spending the whole palette on the five ramps that exist — the two
+    silhouette edges, the lit edge, and the two highlight ramps — lands on the
+    floor: worst jump 5, mean error 0.05/255.
+    """
+    def ramp(a, b, n):
+        return [tuple(round(a[j] + (b[j] - a[j]) * k / (n - 1)) for j in range(3))
+                for k in range(n)]
+
+    entries = (ramp(BURGUNDY, LIME, 12)      # antialiased mark edge
+               + ramp(BURGUNDY, PINK, 12)    # antialiased wordmark edge
+               + ramp(BURGUNDY, CREAM, 12)   # those edges with light on them
+               + ramp(LIME, highlight(LIME), 110)
+               + ramp(PINK, highlight(PINK), 110))[:256]
+    pal = Image.new("P", (1, 1))
+    flat = [c for e in entries for c in e]
+    pal.putpalette(flat + [0] * (768 - len(flat)))
+    return pal
+
+
 def frame(i: int, base: Image.Image, mark: Image.Image,
           word: Image.Image) -> Image.Image:
     """One frame. The mark and the wordmark are lit separately, because their
@@ -197,11 +223,12 @@ def one_size(size: tuple[int, int], suffix: str) -> None:
                     # takes an animation.
                     "-an", str(mp4)], check=True)
 
-    # One shared palette for every frame: a per-frame palette would make the
-    # flat burgundy shimmer as the quantiser re-picks colours.
+    # One shared palette for every frame — a per-frame palette would make the
+    # flat burgundy shimmer as the quantiser re-picks colours — and it is built
+    # by hand rather than measured off the frames. See gif_palette().
     step = max(1, round(FPS / GIF_FPS))
     picked = frames[::step]
-    palette = frames[len(frames) // 2].quantize(colors=128, method=Image.MEDIANCUT)
+    palette = gif_palette()
     gif = HERE / f"description{suffix}.gif"
     seq = [f.quantize(palette=palette, dither=Image.Dither.NONE) for f in picked]
     seq[0].save(gif, save_all=True, append_images=seq[1:], loop=0,
