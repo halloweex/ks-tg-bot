@@ -41,7 +41,7 @@ from bot.keyboards import (info_menu_kb, main_menu_inline_kb, menu_kb,
                            settings_menu_kb, website_kb)
 from bot import rich
 from bot.handlers.settings import settings_screen
-from bot.handlers.support import begin_support
+from bot.handlers.support import support_entry
 from bot.screen import render, send_main_menu
 from core.adapters.keycrm.client import KeyCRMClient
 from core.adapters.novaposhta.client import NovaPoshtaClient
@@ -120,8 +120,9 @@ async def open_support(message: Message, state: FSMContext, config: AppConfig,
     """💬 — hand the conversation to a person."""
     track(message.chat.id, "support_opened")
     await state.set_state(SupportStates.waiting_message)
-    await message.answer(await begin_support(state, t, config),
-                         reply_markup=menu_kb(t))
+    text, markup = await support_entry(message.bot, state, t, config,
+                                       message.from_user, message.chat.id)
+    await message.answer(text, reply_markup=markup)
 
 
 @_menu("BTN_INFO")
@@ -285,7 +286,9 @@ async def support_from_menu(
     """💬 from the menu in the message."""
     await callback.answer()
     track(callback.from_user.id, "support_opened")
-    await render(callback, await begin_support(state, t, config), menu_kb(t))
+    text, markup = await support_entry(callback.bot, state, t, config,
+                                       callback.from_user, callback.from_user.id)
+    await render(callback, text, markup)
 
 
 @router.callback_query(MenuAction.filter(F.action == "menu"))
@@ -321,7 +324,9 @@ async def support_from_screen(
     """The support button offered on the "we found no orders" screen."""
     await callback.answer()
     track(callback.from_user.id, "support_opened")
-    await render(callback, await begin_support(state, t, config), menu_kb(t))
+    text, markup = await support_entry(callback.bot, state, t, config,
+                                       callback.from_user, callback.from_user.id)
+    await render(callback, text, markup)
 
 
 @router.callback_query(InfoAction.filter(F.page == "back"))

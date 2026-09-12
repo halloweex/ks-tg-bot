@@ -10,7 +10,7 @@ from core.i18n import Texts, variants
 from bot.analytics import track
 from core.config import AppConfig
 from core.effects import CONFETTI
-from bot.handlers.support import begin_support
+from bot.handlers.support import support_entry
 from bot.keyboards import menu_kb, share_phone_kb
 from bot.handlers.orders import first_order_kb, first_order_offer
 from bot.screen import send_main_menu, typing
@@ -130,8 +130,9 @@ async def escape_to_support(message: Message, state: FSMContext,
     "the number cannot be typed" to a button the bot drew.
     """
     track(message.chat.id, "support_opened", source="share_phone")
-    await message.answer(await begin_support(state, t, config),
-                         reply_markup=menu_kb(t))
+    text, markup = await support_entry(message.bot, state, t, config,
+                                       message.from_user, message.chat.id)
+    await message.answer(text, reply_markup=markup)
 
 
 @router.message(OnboardingStates.waiting_phone)

@@ -152,6 +152,12 @@ EN: dict[str, str] = {
         "Share it with the button below and we'll find your orders.\n\n"
         "Language: {language}"
     ),
+    "MSG_SUPPORT_DIRECT": (
+        "Write to the manager: a person answers, not a bot.\n"
+        "We've already passed on who you are and what you ordered, so you "
+        "won't have to explain from scratch."
+    ),
+    "BTN_WRITE_TO_MANAGER": "💬 Write to the manager",
     "MSG_SUPPORT_PROMPT": "Tell us what's bothering you, and we'll work it out together.",
     "MSG_SUPPORT_PROMPT_OFF_HOURS": (
         "We're back at {time}. "

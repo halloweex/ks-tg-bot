@@ -57,6 +57,38 @@ async def tell_admins_once(bot: Bot, admin_ids: list[int], key: str,
     return await tell_admins(bot, admin_ids, text)
 
 
+async def resolve_support_link(bot: Bot, support_chat_id: int) -> str:
+    """The public link to the support chat, derived from its id.
+
+    A customer who taps «💬 Менеджер» is sent here to write directly, because
+    that is where the answer comes from: the manager reads the relay and then
+    opens her own chat with the person. The bot used to promise «відповімо тут»
+    and the reply arrived somewhere else entirely, which from the customer's
+    side is indistinguishable from being ignored.
+
+    Derived rather than configured so `support_chat_id` stays the single thing
+    to change. An account with no public username has no t.me link, and this
+    returns "" — the relay then stays as it was rather than the button pointing
+    nowhere.
+
+    Never raises: a link is a convenience and the bot must start without one.
+    """
+    try:
+        chat = await bot.get_chat(support_chat_id)
+    except TelegramAPIError as exc:
+        logger.warning("Could not resolve a link for support chat {}: {}",
+                       support_chat_id, exc)
+        return ""
+    username = getattr(chat, "username", "")
+    if not username:
+        logger.warning("Support chat {} has no public username, so the manager "
+                       "button keeps relaying through the bot instead of "
+                       "linking to it", support_chat_id)
+        return ""
+    logger.info("Support chat {} resolves to t.me/{}", support_chat_id, username)
+    return f"https://t.me/{username}"
+
+
 async def check_support_chat(bot: Bot, support_chat_id: int,
                              admin_ids: list[int]) -> bool:
     """At startup, find out whether the support chat can be written to at all.

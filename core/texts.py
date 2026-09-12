@@ -433,6 +433,14 @@ MSG_SETTINGS_NO_PHONE = (
 )
 
 # Menu content
+# Shown instead of the relay when the manager's chat has a public link: she is
+# where the answer comes from, so that is where the question goes.
+MSG_SUPPORT_DIRECT = (
+    "Напиши менеджеру: відповідає людина, не бот.\n"
+    "Ми вже передали, хто ти й що замовляла, тож пояснювати з нуля не доведеться."
+)
+BTN_WRITE_TO_MANAGER = "💬 Написати менеджеру"
+
 MSG_SUPPORT_PROMPT = "Розкажи, що турбує, і розберемось разом."
 # Said BEFORE she starts typing, not after she has sent it. The hour was
 # already known and already spoken, but only on the confirmation: she opened

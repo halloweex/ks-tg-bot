@@ -24,7 +24,8 @@ from core.repos.events import last_seen
 from core.repos.schema import init_db
 from bot.analytics import track
 from bot.fsm_storage import SQLiteStorage
-from bot.alerts import check_support_chat, tell_admins_once
+from bot.alerts import (check_support_chat, resolve_support_link,
+                        tell_admins_once)
 from bot.errors import on_error
 from bot.logs import setup_logging
 from bot.handlers.broadcast import router as broadcast_router
@@ -122,6 +123,10 @@ async def main() -> None:
         # changes with configuration, not with code, and the way it used to be
         # discovered was a customer saying "nobody answered me".
         await check_support_chat(bot, config.support_chat_id, config.env.admin_ids)
+        # Resolved once, here, rather than on every screen that draws the
+        # button: it is one network call and the answer does not change while
+        # the bot runs.
+        config.support_url = await resolve_support_link(bot, config.support_chat_id)
         # Poll KeyCRM for restocks and queue a message for whoever subscribed.
         # No bot argument any more: since stage 6 the sweep queues and the
         # outbox sends, so nothing in that path knows about Telegram. The four

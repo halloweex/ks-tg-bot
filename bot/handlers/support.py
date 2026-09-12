@@ -15,6 +15,7 @@ from core.i18n import Texts, operator_texts
 from bot.alerts import tell_admins_once
 from bot.analytics import track
 from bot.customer import describe
+from bot.keyboards import manager_kb, menu_kb
 from core.config import AppConfig
 from core.repos.outbox import SqliteMessageQueue
 from core.repos.support import (album_in_progress, mark_discount_answered,
@@ -46,6 +47,50 @@ def support_prompt(t: Texts, config: AppConfig,
         return t.MSG_SUPPORT_PROMPT, False
     return (t.MSG_SUPPORT_PROMPT_OFF_HOURS.format(
         time=window[0].strftime("%H:%M")), True)
+
+
+async def introduce(bot, config: AppConfig, from_user, chat_id: int) -> None:
+    """Tell the manager who is about to write, before they write.
+
+    The link hands the customer straight to the manager's own chat, which is
+    where she works — and where, until now, she met a stranger. The relay's one
+    real gift was the line naming the person, their number and their orders, so
+    it is sent on its own rather than lost with the forwarding.
+
+    Best effort in every direction: a destination that cannot be written to
+    costs its own copy and nothing else. The customer is told nothing about it
+    — she is about to speak to a human either way, and an error about the bot's
+    own plumbing is not hers to read.
+    """
+    op = operator_texts()
+    for destination in relay_destinations(config, chat_id):
+        try:
+            await bot.send_message(
+                destination,
+                op.MSG_SUPPORT_ADMIN_NOTE.format(
+                    who=await describe(from_user, chat_id)),
+                parse_mode="HTML")
+        except TelegramAPIError as exc:  # noqa: PERF203
+            logger.warning("Could not introduce {} to {}: {}",
+                           chat_id, destination, exc)
+
+
+async def support_entry(bot, state: FSMContext, t: Texts, config: AppConfig,
+                        from_user, chat_id: int):
+    """What «💬 Менеджер» shows, and what it tells the manager.
+
+    Two shapes, and which one runs is a property of the configuration rather
+    than a setting: if the support chat has a public link the customer is sent
+    to it, and if it has none the bot relays as it always did. One behaviour at
+    a time, never a screen that offers both.
+    """
+    if config.support_url:
+        # No FSM state: she is not writing into the bot, so nothing she types
+        # here afterwards should be treated as a support message.
+        await state.clear()
+        await introduce(bot, config, from_user, chat_id)
+        return t.MSG_SUPPORT_DIRECT, manager_kb(t, config.support_url)
+    return await begin_support(state, t, config), menu_kb(t)
 
 
 async def begin_support(state: FSMContext, t: Texts, config: AppConfig) -> str:

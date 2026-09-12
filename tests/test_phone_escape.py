@@ -48,6 +48,15 @@ class _Recorder:
             SimpleNamespace(phone_number=phone, user_id=SENDER_ID) if phone else None
         )
         self.answers: list[tuple[str, object]] = []
+        # The escape now goes through `support_entry`, which tells the manager
+        # who is about to write before handing over the link. That needs a bot.
+        self.introduced: list[tuple[int, str]] = []
+
+        async def send_message(chat_id, text, **kwargs):
+            self.introduced.append((chat_id, text))
+            return SimpleNamespace(message_id=1)
+
+        self.bot = SimpleNamespace(send_message=send_message)
 
     async def answer(self, text, reply_markup=None, **kwargs):
         self.answers.append((text, reply_markup))
@@ -74,11 +83,17 @@ class _State:
         return dict(self.data)
 
 
-def _config(start: time, end: time) -> SimpleNamespace:
+def _config(start: time, end: time, support_url: str = "") -> SimpleNamespace:
+    """`support_url` empty by default: these tests are about the relay's
+    wording, and the direct link replaces the relay rather than decorating it.
+    The link's own behaviour is tested in tests/test_support_threads.py."""
     return SimpleNamespace(
         support_hours_from=start.strftime("%H:%M"),
         support_hours_to=end.strftime("%H:%M"),
         support_window=(start, end),
+        support_url=support_url,
+        env=SimpleNamespace(admin_ids=[]),
+        support_chat_id=777,
     )
 
 
