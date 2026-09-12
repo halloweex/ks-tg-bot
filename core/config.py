@@ -143,11 +143,6 @@ class AppConfig:
     # message, because the bot reports and the shop is where they are spent.
     loyalty_account_url: str = ""
     bottom_menu: bool = True
-    # Where «💬 Менеджер» sends a customer. Resolved at startup from
-    # `support_chat_id` rather than configured beside it, so there is one id to
-    # move and no second copy to forget. Empty means the account has no public
-    # username, and the relay is used instead — see bot/handlers/menu.py.
-    support_url: str = ""
     support_hours_from: str = ""
     support_hours_to: str = ""
     # Filled at startup from getMe, not from the file: it is the bot's own name

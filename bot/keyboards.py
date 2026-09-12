@@ -228,20 +228,6 @@ def main_menu_inline_kb(t: Texts, website_url: str) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def manager_kb(t: Texts, support_url: str) -> InlineKeyboardMarkup:
-    """Open the manager's chat, and the way back.
-
-    A url button rather than a callback, because the destination is another
-    chat and no relay sits in between any more. The reply comes from there, so
-    that is where the question goes.
-    """
-    builder = InlineKeyboardBuilder()
-    builder.button(text=t.BTN_WRITE_TO_MANAGER, url=support_url)
-    builder.button(text=t.BTN_MENU, callback_data=MenuAction(action="menu"))
-    builder.adjust(1)
-    return builder.as_markup()
-
-
 def website_kb(t: Texts, website_url: str) -> InlineKeyboardMarkup:
     """The shop link, which only an inline button can carry — and the way back."""
     builder = InlineKeyboardBuilder()

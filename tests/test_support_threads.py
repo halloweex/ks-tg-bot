@@ -22,9 +22,6 @@ from bot.handlers import support
 
 SUPPORT_CHAT = 129462784
 CUSTOMER = 555000111
-from core.i18n import Texts
-
-T = Texts("uk")
 ADMIN = 42
 
 
@@ -163,10 +160,7 @@ def config():
     # No support window: these tests are about the relay, and an unconfigured
     # window is what keeps the confirmation the plain one they assert on.
     # The window itself is tested in tests/test_support_hours.py.
-    # `support_url` empty: this fixture is the relay's world. The direct link
-    # replaces the relay rather than decorating it, and has its own fixture.
     return SimpleNamespace(support_chat_id=SUPPORT_CHAT, support_window=None,
-                           support_url="",
                            env=SimpleNamespace(admin_ids=[ADMIN]))
 
 
@@ -517,7 +511,6 @@ class _ForbiddenBot(_FakeBot):
 @pytest.fixture()
 def broken_config():
     return SimpleNamespace(support_chat_id=SUPPORT_CHAT, support_window=None,
-                           support_url="",
                            env=SimpleNamespace(admin_ids=[ADMIN]))
 
 
@@ -801,99 +794,6 @@ def test_nothing_the_code_writes_carries_the_legacy_sentinel(db, config, texts):
 
     assert asyncio.run(sentinels()) == 0, (
         "a thread was recorded without the chat it lives in")
-
-
-# --- writing to the manager directly -----------------------------------------
-#
-# The relay carried the question out and the answer came back by another road:
-# the manager read the forward, opened her own chat with the customer and
-# worked there. From the customer's side the bot had said «відповімо тут» and
-# then said nothing, which is indistinguishable from being ignored.
-
-
-def _linked_config():
-    return SimpleNamespace(support_chat_id=SUPPORT_CHAT, support_window=None,
-                           support_url="https://t.me/korean_story_ua",
-                           env=SimpleNamespace(admin_ids=[ADMIN]))
-
-
-def test_the_button_hands_the_customer_the_manager_s_chat(db):
-    bot = _ForwardingBot()
-    state = _NoState()
-    text, markup = asyncio.run(support.support_entry(
-        bot, state, T, _linked_config(),
-        SimpleNamespace(id=CUSTOMER, first_name="Оксана", last_name="",
-                        username="oksana"),
-        CUSTOMER))
-
-    urls = [b.url for row in markup.inline_keyboard for b in row if b.url]
-    assert urls == ["https://t.me/korean_story_ua"]
-    assert "менеджер" in text.lower()
-
-
-def test_the_manager_learns_who_is_about_to_write(db):
-    """The relay's one real gift was the line naming the person, their number
-    and their orders. Handing the customer a link and nothing else would have
-    the manager meet a stranger, which is worse than the relay was."""
-    bot = _ForwardingBot()
-    asyncio.run(support.support_entry(
-        bot, _NoState(), T, _linked_config(),
-        SimpleNamespace(id=CUSTOMER, first_name="Оксана", last_name="",
-                        username="oksana"),
-        CUSTOMER))
-
-    told = [m["chat_id"] for m in bot.sent]
-    assert sorted(told) == sorted([SUPPORT_CHAT, ADMIN])
-    assert "oksana" in bot.sent[0]["text"]
-
-
-def test_the_direct_screen_leaves_no_support_state_behind(db):
-    """She is not writing into the bot, so nothing she types here afterwards is
-    a support message. Leaving the state set would relay her next words to the
-    manager a second time, from a chat she thought she had left."""
-    class _Remembering:
-        def __init__(self) -> None:
-            self.state = "something"
-
-        async def clear(self) -> None:
-            self.state = None
-
-        async def set_state(self, state) -> None:
-            self.state = state
-
-        async def update_data(self, **kwargs) -> dict:
-            return dict(kwargs)
-
-        async def get_data(self) -> dict:
-            return {}
-
-    state = _Remembering()
-    asyncio.run(support.support_entry(
-        _ForwardingBot(), state, T, _linked_config(),
-        SimpleNamespace(id=CUSTOMER, first_name="О", last_name="",
-                        username="o"), CUSTOMER))
-    assert state.state is None
-
-
-def test_without_a_link_the_relay_is_exactly_as_it_was(db, config):
-    """One behaviour at a time. An account with no public username has no t.me
-    link, and a button pointing nowhere is worse than the relay."""
-    class _Waiting(_NoState):
-        def __init__(self) -> None:
-            self.state = None
-
-        async def set_state(self, state) -> None:
-            self.state = state
-
-    state = _Waiting()
-    text, markup = asyncio.run(support.support_entry(
-        _ForwardingBot(), state, T, config,
-        SimpleNamespace(id=CUSTOMER, first_name="О", last_name="",
-                        username="o"), CUSTOMER))
-
-    assert state.state is not None, "the relay needs her next message"
-    assert not any(b.url for row in markup.inline_keyboard for b in row)
-    assert text == T.MSG_SUPPORT_PROMPT
 
 
 def test_the_confirmation_stays_in_the_chat(db, config, texts):

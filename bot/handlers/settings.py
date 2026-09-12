@@ -12,7 +12,7 @@ from bot.analytics import track
 from core.config import AppConfig
 from core.repos.users import get_user_phone, save_user, set_user_language
 from bot.handlers.onboarding import own_contact_phone
-from bot.handlers.support import support_entry
+from bot.handlers.support import begin_support
 from bot.keyboards import (language_kb, menu_kb, settings_menu_kb,
                            share_phone_kb)
 from bot.screen import render, send_main_menu
@@ -136,9 +136,8 @@ async def escape_to_support(message: Message, state: FSMContext,
     not, and the customer cannot type their way around it.
     """
     track(message.chat.id, "support_opened", source="share_phone")
-    text, markup = await support_entry(message.bot, state, t, config,
-                                       message.from_user, message.chat.id)
-    await message.answer(text, reply_markup=markup)
+    await message.answer(await begin_support(state, t, config),
+                         reply_markup=menu_kb(t))
 
 
 @router.message(SettingsStates.waiting_new_phone)
