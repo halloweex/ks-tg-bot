@@ -144,7 +144,8 @@ async def open_settings(message: Message, state: FSMContext, t: Texts) -> None:
 # number is shared — a menu that answers nothing.
 @router.message(Command("menu"), _NOT_SHARING_PHONE)
 @_menu("BTN_MENU")
-async def restore_menu(message: Message, config: AppConfig, t: Texts) -> None:
+async def restore_menu(message: Message, state: FSMContext, config: AppConfig,
+                       t: Texts) -> None:
     """/menu, and «📋 Меню» — the single button older versions put on the
     keyboard.
 
@@ -152,10 +153,23 @@ async def restore_menu(message: Message, config: AppConfig, t: Texts) -> None:
     screen, and tapping it should bring the current menu rather than nothing.
     Answering with the keyboard replaces the old one with it.
 
+    The share-phone states are filtered out above (`_NOT_SHARING_PHONE`), so
+    clearing here cannot abandon an onboarding half-way: those never reach this
+    handler.
+
     The command is how the menu in the message is brought back: it is an
     ordinary message and scrolls away like any other, and «⭐ Улюблені» on it
     is the only way into the inline list that does not cost an extra tap.
+
+    **It clears the state, and that is not housekeeping.** The inline «📋 Меню»
+    button has always done so (`back_to_menu`); this entrance did not even take
+    `state` as an argument. So a customer who opened support, read «розкажи, що
+    турбує», changed her mind and typed /menu got the menu — and stayed in the
+    support state. Her next message, about anything at all, went to a manager.
+    One screen with two entrances behaving differently, which is the defect
+    this bot has paid for more than once.
     """
+    await state.clear()
     await send_main_menu(message, t, config)
 
 

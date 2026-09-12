@@ -52,16 +52,19 @@ def _replied(message_id: int, *, text: str | None = None, forward_from_id: int |
 
 
 def test_all_three_messages_of_a_thread_map_to_the_customer(db):
-    asyncio.run(db.remember_support_thread([10, 11, 12], CUSTOMER))
+    asyncio.run(db.remember_support_thread([10, 11, 12], CUSTOMER, SUPPORT_CHAT))
     for message_id in (10, 11, 12):
-        assert asyncio.run(db.support_thread_owner(message_id)) == CUSTOMER
+        assert asyncio.run(db.support_thread_owner(message_id, SUPPORT_CHAT)) == CUSTOMER
 
 
 def test_an_admin_can_answer_from_their_own_chat(db, config):
     """A discount ask is copied to every admin. A copy nobody can reply to is a
     copy that wastes the reader's time, so the relay accepts a reply wherever
     the replied-to message belongs to a thread."""
-    asyncio.run(db.remember_support_thread([10, 11], CUSTOMER))
+    # Recorded against the admin's own chat, because that is where the copy was
+    # put. The id alone is not the identity: message 11 exists in the manager's
+    # chat too, and means somebody else there.
+    asyncio.run(db.remember_support_thread([10, 11], CUSTOMER, ADMIN))
 
     bot = _FakeBot()
     msg = _manager_message(bot, text="Промокод HELLO10", replied=_replied(11))
@@ -74,7 +77,7 @@ def test_an_admin_can_answer_from_their_own_chat(db, config):
 
 
 def test_unknown_message_has_no_owner(db):
-    assert asyncio.run(db.support_thread_owner(999)) is None
+    assert asyncio.run(db.support_thread_owner(999, SUPPORT_CHAT)) is None
 
 
 def test_reply_to_the_forwarded_text_resolves(db):
@@ -83,9 +86,9 @@ def test_reply_to_the_forwarded_text_resolves(db):
     Forwarding privacy strips forward_from, and the replied-to text is the
     customer's own words, which carry no chat_id.
     """
-    asyncio.run(db.remember_support_thread([10, 11, 12], CUSTOMER))
+    asyncio.run(db.remember_support_thread([10, 11, 12], CUSTOMER, SUPPORT_CHAT))
     replied = _replied(11, text="де моє замовлення?")
-    assert asyncio.run(support._reply_target(replied)) == CUSTOMER
+    assert asyncio.run(support._reply_target(replied, SUPPORT_CHAT)) == CUSTOMER
 
 
 @pytest.mark.parametrize(
@@ -104,19 +107,19 @@ def test_guesses_are_gone_and_do_not_route_a_reply(db, replied, why):
     table are not migrated — there were three users — so they now produce the
     visible error instead.
     """
-    assert asyncio.run(support._reply_target(replied)) is None, why
+    assert asyncio.run(support._reply_target(replied, SUPPORT_CHAT)) is None, why
 
 
 def test_no_target_when_nothing_identifies_the_customer(db):
-    assert asyncio.run(support._reply_target(_replied(79, text="просто текст"))) is None
-    assert asyncio.run(support._reply_target(None)) is None
+    assert asyncio.run(support._reply_target(_replied(79, text="просто текст"), SUPPORT_CHAT)) is None
+    assert asyncio.run(support._reply_target(None, SUPPORT_CHAT)) is None
 
 
 def test_the_table_wins_over_a_stale_guess(db):
     """If both answer, the recorded mapping is the one to trust."""
-    asyncio.run(db.remember_support_thread([80], CUSTOMER))
+    asyncio.run(db.remember_support_thread([80], CUSTOMER, SUPPORT_CHAT))
     replied = _replied(80, text="chat_id: 42", forward_from_id=42)
-    assert asyncio.run(support._reply_target(replied)) == CUSTOMER
+    assert asyncio.run(support._reply_target(replied, SUPPORT_CHAT)) == CUSTOMER
 
 
 # --- what the customer actually receives ---------------------------------
@@ -179,7 +182,7 @@ def _queued_replies() -> list[dict]:
 
 
 def test_text_reply_reaches_the_customer_as_one_message(db, config):
-    asyncio.run(db.remember_support_thread([11], CUSTOMER))
+    asyncio.run(db.remember_support_thread([11], CUSTOMER, SUPPORT_CHAT))
     bot = _FakeBot()
     msg = _manager_message(bot, text="Вже відправили!", replied=_replied(11, text="?"))
     asyncio.run(support.admin_reply(msg, config, None))
@@ -195,7 +198,7 @@ def test_a_managers_answer_is_not_silenced_at_night(db, config):
     """The reason the queue has a per-message quiet-hours flag. A restock at
     03:00 is the bot's idea and can arrive quietly; a person answering a person
     who is waiting is not the bot's call to postpone."""
-    asyncio.run(db.remember_support_thread([11], CUSTOMER))
+    asyncio.run(db.remember_support_thread([11], CUSTOMER, SUPPORT_CHAT))
     msg = _manager_message(_FakeBot(), text="Вже відправили!",
                            replied=_replied(11, text="?"))
     asyncio.run(support.admin_reply(msg, config, None))
@@ -209,7 +212,7 @@ def test_a_photo_reply_is_copied_instead_of_becoming_the_word_None(db, config):
     The old handler always sent `message.text`, which is None for a photo, so
     the customer received the word "None" and the manager saw nothing wrong.
     """
-    asyncio.run(db.remember_support_thread([11], CUSTOMER))
+    asyncio.run(db.remember_support_thread([11], CUSTOMER, SUPPORT_CHAT))
     bot = _FakeBot()
     msg = _manager_message(bot, text=None, replied=_replied(11, text="?"))
     asyncio.run(support.admin_reply(msg, config, None))
@@ -225,7 +228,7 @@ def test_a_managers_answer_arrives_as_itself(db, config):
     """No "Відповідь від менеджера:" over it. The customer wrote to the shop
     and the shop is answering — a label announcing the relay every time is only
     in the way, and it made a person sound like a system."""
-    asyncio.run(db.remember_support_thread([11], CUSTOMER))
+    asyncio.run(db.remember_support_thread([11], CUSTOMER, SUPPORT_CHAT))
     bot = _FakeBot()
     msg = _manager_message(bot, text="🥰🥰🥰", replied=_replied(11, text="?"))
     asyncio.run(support.admin_reply(msg, config, None))
@@ -245,20 +248,31 @@ def test_a_reply_in_another_chat_is_ignored(db, config):
 # --- albums ---------------------------------------------------------------
 
 class _ForwardingBot(_FakeBot):
+    """A bot that numbers messages the way Telegram does: per chat.
+
+    It used to hold one counter for every chat, which is the one thing that
+    could not happen in production and the one thing that hid the defect —
+    message 1001 exists in the manager's chat AND in each admin's, and the
+    thread table was keyed as though it did not."""
+
     def __init__(self):
         super().__init__()
-        self._next_id = 1000
+        self._next_id: dict[int, int] = {}
         self.forwarded: list[int] = []
+        self.forwarded_to: list[tuple[int, int]] = []
+
+    def _issue(self, chat_id: int) -> int:
+        self._next_id[chat_id] = self._next_id.get(chat_id, 1000) + 1
+        return self._next_id[chat_id]
 
     async def send_message(self, chat_id, text, **kw):
         await super().send_message(chat_id, text, **kw)
-        self._next_id += 1
-        return SimpleNamespace(message_id=self._next_id)
+        return SimpleNamespace(message_id=self._issue(chat_id))
 
     async def forward_message(self, chat_id, from_chat_id, message_id, **kw):
-        self._next_id += 1
         self.forwarded.append(message_id)
-        return SimpleNamespace(message_id=self._next_id)
+        self.forwarded_to.append((chat_id, message_id))
+        return SimpleNamespace(message_id=self._issue(chat_id))
 
 
 def _customer_message(bot, *, message_id, media_group_id=None):
@@ -318,9 +332,15 @@ def test_an_album_is_announced_once_and_every_part_forwarded(db, config, texts):
     for part in parts[1:]:
         asyncio.run(support.forward_album_tail(part, _NoState(), config, texts))
 
-    assert bot.forwarded == [1, 2, 3], "every photo must reach the manager"
-    # Metadata line and instruction once, not three times.
-    assert len(bot.sent) == 2
+    # Two destinations now — the manager and the admin — so every photo is
+    # forwarded to each. What must stay true is that each photo reaches each of
+    # them exactly once.
+    assert sorted(bot.forwarded) == [1, 1, 2, 2, 3, 3], (
+        "every photo must reach every destination")
+    for destination in (SUPPORT_CHAT, ADMIN):
+        assert sorted(m for c, m in bot.forwarded_to if c == destination) == [1, 2, 3]
+    # Metadata line and instruction once per destination, not once per photo.
+    assert len(bot.sent) == 4
     # The customer is told once.
     assert parts[0].answered == ["ok"] and parts[1].answered == []
 
@@ -331,7 +351,7 @@ def test_every_part_of_an_album_can_be_replied_to(db, config, texts):
     asyncio.run(support.forward_to_support(parts[0], _NoState(), config, texts))
     asyncio.run(support.forward_album_tail(parts[1], _NoState(), config, texts))
 
-    owners = {asyncio.run(support_repo.support_thread_owner(mid)) for mid in range(1001, 1006)}
+    owners = {asyncio.run(support_repo.support_thread_owner(mid, SUPPORT_CHAT)) for mid in range(1001, 1006)}
     assert owners == {CUSTOMER, None} or owners == {CUSTOMER}
     assert CUSTOMER in owners
 
@@ -401,10 +421,11 @@ def test_attachments_travel_in_both_directions(db, config, texts):
     # A voice note from the customer: no text at all.
     incoming = _customer_message(bot, message_id=77)
     asyncio.run(support.forward_to_support(incoming, _NoState(), config, texts))
-    assert bot.forwarded == [77], "the customer's attachment must be forwarded as-is"
+    assert bot.forwarded == [77, 77], (
+        "the customer's attachment must be forwarded as-is, to each destination")
 
     forwarded_id = 1002  # note=1001, forward=1002 with _ForwardingBot's counter
-    assert asyncio.run(support_repo.support_thread_owner(forwarded_id)) == CUSTOMER
+    assert asyncio.run(support_repo.support_thread_owner(forwarded_id, SUPPORT_CHAT)) == CUSTOMER
 
     # A photo back from the manager: message.text is None. It is queued rather
     # than sent, and the copy instruction is what carries the attachment.
@@ -444,7 +465,7 @@ def test_a_managers_reply_is_marked_when_it_finds_its_customer(db, config):
     """A reply that matched a thread and one that matched nothing looked the
     same in the support chat: the only difference was a message that appears in
     the second case, which nobody reads in a busy chat."""
-    asyncio.run(db.remember_support_thread([10], CUSTOMER))
+    asyncio.run(db.remember_support_thread([10], CUSTOMER, SUPPORT_CHAT))
     bot = _FakeBot()
     message = _manager_message(bot, text="hello", replied=_replied(10))
     asyncio.run(support.admin_reply(message, config, None))
@@ -455,11 +476,17 @@ def test_a_managers_reply_is_marked_when_it_finds_its_customer(db, config):
 
 class _ForbiddenBot(_FakeBot):
     """A bot whose every call to the support chat is refused — which is what
-    "bot can't initiate conversation with a user" looks like from here."""
+    "bot can't initiate conversation with a user" looks like from here.
+
+    Messages to an admin still go: that is how the alert reaches them. It must
+    return something with a message_id like the real one, because the relay now
+    reads the id of the note it just sent, and a double that returns None fails
+    with an AttributeError the relay's `except TelegramAPIError` never sees."""
 
     def __init__(self):
         super().__init__()
         self.alerted: list[str] = []
+        self._next_id = 500
 
     async def send_message(self, chat_id, text, **kw):
         if chat_id == SUPPORT_CHAT:
@@ -467,6 +494,8 @@ class _ForbiddenBot(_FakeBot):
                 method=SimpleNamespace(),
                 message="Forbidden: bot can't initiate conversation with a user")
         self.alerted.append(text)
+        self._next_id += 1
+        return SimpleNamespace(message_id=self._next_id)
 
     async def forward_message(self, chat_id, from_chat_id, message_id, **kw):
         raise TelegramForbiddenError(
@@ -481,7 +510,7 @@ class _ForbiddenBot(_FakeBot):
 
 @pytest.fixture()
 def broken_config():
-    return SimpleNamespace(support_chat_id=SUPPORT_CHAT,
+    return SimpleNamespace(support_chat_id=SUPPORT_CHAT, support_window=None,
                            env=SimpleNamespace(admin_ids=[ADMIN]))
 
 
@@ -496,6 +525,13 @@ def test_a_customer_is_told_when_their_message_did_not_arrive(db, broken_config,
     assert message.reactions == [], "nothing arrived, so nothing is marked as arrived"
 
 
+def _relay_alerts(bot) -> list[str]:
+    """Only the operator alerts. `alerted` collects everything the bot sends to
+    an admin, and since the relay itself now sends there, the customer's own
+    forwarded request lands in the same list."""
+    return [line for line in bot.alerted if "relay to" in line]
+
+
 def test_the_operator_hears_about_it_too(db, broken_config, texts):
     """The customer's retry cannot fix a misconfigured chat id. Somebody who
     can has to be told, and told what to do about it."""
@@ -503,9 +539,13 @@ def test_the_operator_hears_about_it_too(db, broken_config, texts):
     bot = _ForbiddenBot()
     asyncio.run(support.forward_to_support(
         _customer_message(bot, message_id=1), _NoState(), broken_config, texts))
-    assert len(bot.alerted) == 1
-    assert "support_chat_id" in bot.alerted[0]
-    assert "Start" in bot.alerted[0]
+
+    alerts = _relay_alerts(bot)
+    assert alerts, "a broken destination has to be named to somebody"
+    # The id is in the text because there is more than one destination now, and
+    # "the relay is broken" without saying which one is a hunt.
+    assert str(SUPPORT_CHAT) in alerts[0]
+    assert "Start" in alerts[0]
 
 
 def test_the_same_alert_is_not_repeated_for_every_customer(db, broken_config, texts):
@@ -517,7 +557,12 @@ def test_the_same_alert_is_not_repeated_for_every_customer(db, broken_config, te
         asyncio.run(support.forward_to_support(
             _customer_message(bot, message_id=message_id), _NoState(),
             broken_config, texts))
-    assert len(bot.alerted) == 1
+    # Two destinations are broken here, and three customers wrote in. One alert
+    # per broken destination is the rule; one per customer is how alerts get
+    # muted. The key carries the destination, which is what makes the second
+    # alert worth sending at all: "the relay is broken" does not say which chat
+    # to go and fix.
+    assert len(_relay_alerts(bot)) == 2
 
 
 def test_the_startup_check_finds_it_before_any_customer_does(db, broken_config):
@@ -607,3 +652,145 @@ def test_a_customer_who_was_never_told_the_hour_is_told_it_on_send(db, config):
         incoming, _StateThatRemembers(), _shut_window(config), texts))
 
     assert incoming.answered[-1].startswith("back at "), incoming.answered
+
+
+# --- support reaches the admins as well as the manager -----------------------
+
+
+def test_a_customer_request_reaches_the_manager_and_every_admin(db, config, texts):
+    """Until now it went to the manager alone, and the owner — an admin, not the
+    manager — had no way to see that anybody had written in at all. He found out
+    because a customer's message appeared to vanish: it had been relayed
+    correctly, to a chat he does not read."""
+    bot = _ForwardingBot()
+    message = _customer_message(bot, message_id=42)
+
+    asyncio.run(support.forward_to_support(message, _NoState(), config, texts))
+
+    assert sorted({chat for chat, _mid in bot.forwarded_to}) == sorted({SUPPORT_CHAT, ADMIN})
+    assert message.answered == ["ok"], "told once, not once per destination"
+
+
+def test_a_reply_from_either_chat_reaches_the_customer(db, config, texts):
+    """The point of sending to more than one place: whoever sees it first can
+    answer, and the answer goes to the customer rather than nowhere."""
+    bot = _ForwardingBot()
+    asyncio.run(support.forward_to_support(
+        _customer_message(bot, message_id=43), _NoState(), config, texts))
+
+    for destination in (SUPPORT_CHAT, ADMIN):
+        owner = asyncio.run(support_repo.support_thread_owner(1002, destination))
+        assert owner == CUSTOMER, f"a reply in {destination} routed nowhere"
+
+
+def test_one_id_in_two_chats_is_two_threads(db):
+    """The defect the composite key exists for, in one line.
+
+    Telegram numbers messages per chat, so message 1001 exists in the manager's
+    chat AND in each admin's. Keyed on the id alone, the second customer's
+    thread overwrote the first — and the manager, replying to what was under
+    their thumb, reached a stranger."""
+    other_customer = CUSTOMER + 1
+    asyncio.run(db.remember_support_thread([1001], CUSTOMER, SUPPORT_CHAT))
+    asyncio.run(db.remember_support_thread([1001], other_customer, ADMIN))
+
+    assert asyncio.run(db.support_thread_owner(1001, SUPPORT_CHAT)) == CUSTOMER
+    assert asyncio.run(db.support_thread_owner(1001, ADMIN)) == other_customer
+
+
+def test_a_thread_written_before_the_column_still_answers(db):
+    """Rows that predate the chat column cannot say where they came from, so
+    they answer from anywhere — exactly as they did. Nothing pending is dropped
+    by the migration, and the ambiguity ages out with the 90-day sweep."""
+    async def legacy() -> None:
+        from core.repos.base import connect
+        async with connect() as conn:
+            await conn.execute(
+                "INSERT INTO support_threads (admin_chat_id, admin_message_id, "
+                "                             chat_id) VALUES (0, ?, ?)",
+                (777, CUSTOMER))
+            await conn.commit()
+    asyncio.run(legacy())
+
+    assert asyncio.run(db.support_thread_owner(777, SUPPORT_CHAT)) == CUSTOMER
+    assert asyncio.run(db.support_thread_owner(777, ADMIN)) == CUSTOMER
+
+
+def test_an_exact_thread_wins_over_a_legacy_one(db):
+    """A legacy row must not shadow a real one: the precise answer is the right
+    answer wherever both exist."""
+    other_customer = CUSTOMER + 2
+
+    async def both() -> None:
+        from core.repos.base import connect
+        async with connect() as conn:
+            await conn.execute(
+                "INSERT INTO support_threads (admin_chat_id, admin_message_id, "
+                "                             chat_id) VALUES (0, ?, ?)",
+                (778, other_customer))
+            await conn.commit()
+    asyncio.run(both())
+    asyncio.run(db.remember_support_thread([778], CUSTOMER, ADMIN))
+
+    assert asyncio.run(db.support_thread_owner(778, ADMIN)) == CUSTOMER
+    assert asyncio.run(db.support_thread_owner(778, SUPPORT_CHAT)) == other_customer
+
+
+def test_a_broken_manager_chat_no_longer_loses_the_message(db, broken_config, texts):
+    """The reason this change is worth its size.
+
+    With one destination, a chat that cannot be written to meant the customer's
+    message reached nobody and she was told to try again — a retry that could
+    not work, because the fault was a configuration she has no part in. Now the
+    admins still get it, so the request is answerable and she is not asked to
+    do anything."""
+    texts.MSG_SUPPORT_NOT_DELIVERED = "not delivered"
+
+    class _ManagerChatBroken(_ForwardingBot):
+        async def send_message(self, chat_id, text, **kw):
+            if chat_id == SUPPORT_CHAT:
+                raise TelegramForbiddenError(
+                    method=SimpleNamespace(),
+                    message="Forbidden: bot can't initiate conversation with a user")
+            return await super().send_message(chat_id, text, **kw)
+
+        async def forward_message(self, chat_id, from_chat_id, message_id, **kw):
+            if chat_id == SUPPORT_CHAT:
+                raise TelegramForbiddenError(
+                    method=SimpleNamespace(),
+                    message="Forbidden: bot can't initiate conversation with a user")
+            return await super().forward_message(chat_id, from_chat_id,
+                                                 message_id, **kw)
+
+    bot = _ManagerChatBroken()
+    message = _customer_message(bot, message_id=44)
+    asyncio.run(support.forward_to_support(message, _NoState(), broken_config, texts))
+
+    assert [chat for chat, _mid in bot.forwarded_to] == [ADMIN]
+    assert message.answered == ["ok"], (
+        "somebody received it, so she must not be told it failed")
+    assert message.reactions, "and her own message is marked as arrived"
+
+
+def test_nothing_the_code_writes_carries_the_legacy_sentinel(db, config, texts):
+    """`admin_chat_id = 0` means "written before the column existed" and is
+    matched from any chat. Only the migration may write it.
+
+    This is the guard the design needs and the one a lookup cannot give: a row
+    stored with 0 answers correctly from everywhere, so a caller that forgot to
+    pass its chat looks exactly like a caller that remembered — right up until
+    two chats collide and the wrong customer gets the answer. A mutation that
+    passed 0 instead of the real chat survived every other test in this file."""
+    bot = _ForwardingBot()
+    asyncio.run(support.forward_to_support(
+        _customer_message(bot, message_id=51), _NoState(), config, texts))
+
+    async def sentinels() -> int:
+        from core.repos.base import connect
+        async with connect() as conn:
+            cursor = await conn.execute(
+                "SELECT COUNT(*) FROM support_threads WHERE admin_chat_id = 0")
+            return (await cursor.fetchone())[0]
+
+    assert asyncio.run(sentinels()) == 0, (
+        "a thread was recorded without the chat it lives in")

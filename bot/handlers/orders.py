@@ -1197,7 +1197,13 @@ async def perform_discount_ask(callback: CallbackQuery, sku: str,
         # made. Copies are best-effort: the customer's answer depends on the
         # support chat alone, so an admin who has never opened the bot cannot
         # turn their own missing copy into a failed request.
-        ids = [sent.message_id]
+        # Recorded against the chat it was put in, here and for every copy
+        # below. One list for all of them was the defect: Telegram numbers
+        # messages per chat, so the manager's id 501 and an admin's id 501 are
+        # different messages, and the row written second silently took the
+        # first one's place. A reply then reached whoever the survivor named.
+        await remember_support_thread([sent.message_id], chat_id,
+                                      config.support_chat_id)
         for admin_id in config.env.admin_ids:
             if admin_id == config.support_chat_id:
                 continue
@@ -1208,15 +1214,19 @@ async def perform_discount_ask(callback: CallbackQuery, sku: str,
                 logger.warning("Discount copy to admin {} failed: {}",
                                admin_id, exc)
                 continue
-            ids.append(copy.message_id)
+            # Recorded against the chat it was put in. One list for every admin
+            # was the defect: message ids are numbered per chat, so two admins
+            # both reaching id 512 shared one row and the second overwrote the
+            # first — a reply then reached whoever the surviving row named.
+            await remember_support_thread([copy.message_id], chat_id, admin_id)
 
         # Same thread mechanism as support: a manager replying to any of these
         # messages reaches the customer. Without it the request carried only
         # the chat_id printed in the text, so a reply landed nowhere unless the
         # manager happened to reply to that exact line — the failure this whole
-        # table exists to remove. Every copy is registered, so whoever sees the
-        # request first can be the one who answers it.
-        await remember_support_thread(ids, chat_id)
+        # table exists to remove. Every copy is registered above, against its
+        # own chat, so whoever sees the request first can be the one who
+        # answers it.
     except TelegramAPIError as exc:
         # It used to say "passed on to the manager" here whatever happened, and
         # the request was already written down — so a customer was thanked for

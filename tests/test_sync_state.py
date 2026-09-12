@@ -225,7 +225,7 @@ def test_a_new_late_column_forces_a_version_bump():
     """
     from core.repos import schema
 
-    assert (len(schema._LATE_COLUMNS), schema.SCHEMA_VERSION) == (15, 17), (
+    assert (len(schema._LATE_COLUMNS), schema.SCHEMA_VERSION) == (15, 18), (
         "adding a column to _LATE_COLUMNS is half the change: it also needs "
         "SCHEMA_VERSION bumped and a migration that calls _add_late_columns, or "
         "it only ever reaches databases that do not exist yet"

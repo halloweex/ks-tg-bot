@@ -400,7 +400,14 @@ def _ask_for_discount(sku: str) -> dict:
         told.setdefault("to", []).append(chat_id)
         told.setdefault("chat_id", chat_id)
         told.setdefault("text", text)
-        return SimpleNamespace(message_id=len(told["to"]))
+        # Numbered per chat, the way Telegram does it. One counter for all of
+        # them was the thing that could not happen in production and the thing
+        # that hid the defect: the same id exists in the support chat and in
+        # each admin's, and the thread table used to be keyed as if it did not.
+        ids = told.setdefault("ids", {})
+        ids[chat_id] = ids.get(chat_id, 500) + 1
+        told.setdefault("sent", []).append((chat_id, ids[chat_id]))
+        return SimpleNamespace(message_id=ids[chat_id])
 
     async def answer(text=None, **kwargs):
         told.setdefault("popup", text)
@@ -532,3 +539,37 @@ def test_a_product_beyond_the_fiftieth_can_still_be_subscribed_to(db):
 
     assert "1" in asyncio.run(get_subscribed_skus(CHAT)), (
         "the tap did nothing: the sku lookup could not see the whole history")
+
+
+def test_each_copy_of_the_ask_is_recorded_against_the_chat_it_is_in(db):
+    """A discount ask is copied to the support chat and to every admin, and a
+    reply in any of them must reach the customer who asked.
+
+    The ids are numbered per chat, so the copies collide: without the chat in
+    the key the last one written wins and the others route to whoever that row
+    names. Here that is visible as the wrong customer; in production it was a
+    promo code sent to a stranger."""
+    from core.repos.support import support_thread_owner
+
+    _registered_customer(_order("1"), offers={"1": _offer("1")})
+    told = _ask_for_discount("1")
+
+    assert len(told["sent"]) > 1, "the ask goes to more than one chat"
+
+    async def sentinels() -> int:
+        from core.repos.base import connect
+        async with connect() as conn:
+            cursor = await conn.execute(
+                "SELECT COUNT(*) FROM support_threads WHERE admin_chat_id = 0")
+            return (await cursor.fetchone())[0]
+
+    # `0` means "written before the column existed" and matches any chat, so a
+    # row stored with it answers correctly from everywhere — right up until two
+    # chats collide. Only the migration may write it.
+    assert asyncio.run(sentinels()) == 0, (
+        "a copy was recorded without the chat it lives in")
+    for chat_id, message_id in told["sent"]:
+        owner = asyncio.run(support_thread_owner(message_id, chat_id))
+        assert owner == CHAT, (
+            f"a reply to message {message_id} in chat {chat_id} routed to "
+            f"{owner} rather than the customer who asked")

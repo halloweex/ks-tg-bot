@@ -95,6 +95,23 @@ async def process_broadcast_message(
         return
 
     at = admin_texts(await get_user_language(message.from_user.id))
+
+    # **The one place an admin command can reach a customer.**
+    #
+    # This handler takes `message.text` verbatim, and `F.text` matches a command
+    # like any other line. Registration order then decides the outcome and is
+    # not on our side: `/stop` and `/broadcast` sit above this handler and fire,
+    # while `/stats` and `/chatid` sit below it and become the broadcast — so
+    # "/stats" goes out to every subscriber, from the shop, signed by the shop.
+    #
+    # Checked here rather than by reordering the router, because reordering only
+    # covers the commands that have handlers. A typo — "/statss", "/menü" — has
+    # none, and would still be sent. Everything starting with a slash is
+    # refused, and the state is kept so the real text can simply be typed next.
+    if message.text.startswith("/"):
+        await message.answer(at.MSG_BROADCAST_LOOKS_LIKE_A_COMMAND)
+        return
+
     recipients = await get_broadcast_recipients()
     if not recipients:
         await message.answer(at.MSG_BROADCAST_NO_RECIPIENTS)

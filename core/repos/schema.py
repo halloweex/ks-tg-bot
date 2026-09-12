@@ -204,9 +204,18 @@ CREATE TABLE IF NOT EXISTS stock_subscriptions (
 # particular message rather than to the forwarded text.
 _CREATE_SUPPORT_THREADS = """
 CREATE TABLE IF NOT EXISTS support_threads (
-    admin_message_id INTEGER PRIMARY KEY,
+    -- Which chat the bot put the message in. Telegram numbers messages per
+    -- chat, so `admin_message_id` alone is not an identity: message 1001 in
+    -- the manager's chat and message 1001 in an admin's are different
+    -- messages, and one key for both silently reassigned the thread — a
+    -- manager's reply reaching a stranger. 0 means a row written before this
+    -- column existed; those match any chat, as they always did, and age out
+    -- with the 90-day sweep.
+    admin_chat_id    INTEGER NOT NULL DEFAULT 0,
+    admin_message_id INTEGER NOT NULL,
     chat_id          INTEGER NOT NULL,
-    created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (admin_chat_id, admin_message_id)
 );
 """
 
@@ -382,7 +391,7 @@ CREATE INDEX IF NOT EXISTS ix_referrals_referrer ON referrals(referrer_chat_id);
 # It could not express this change (SQLite cannot alter a UNIQUE constraint),
 # and it silently swallowed real failures — a full disk logged success.
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 
 
 async def _columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -652,6 +661,53 @@ async def _migration_17_shared_numbers(db: aiosqlite.Connection) -> None:
     await _add_late_columns(db)
 
 
+async def _migration_18_threads_know_their_chat(db: aiosqlite.Connection) -> None:
+    """A message id is only an identity together with the chat it is in.
+
+    `support_threads` was keyed on `admin_message_id` alone while rows arrived
+    from more than one chat: the manager's, and each admin's own chat with the
+    bot (a discount ask is copied to every admin, `bot/handlers/orders.py`).
+    Telegram numbers messages per chat, so the two id spaces overlap — the live
+    table had 213-503, 305-857 and 990-1003 side by side — and `INSERT OR
+    REPLACE` resolved a collision by silently reassigning the thread. The
+    manager replies to what is under their thumb and reaches a stranger.
+
+    Rows that predate the column keep `admin_chat_id = 0` and are matched from
+    any chat, exactly as they were before. Nothing is guessed and nothing is
+    dropped: a pending conversation still answers, while every new row is
+    precise. The ambiguity dies on its own with the 90-day sweep.
+    """
+    # Every migration carries the late columns as well as its own change: a
+    # database stamped one version back must come out complete, whichever
+    # version it was stamped to. tests/test_sync_state.py pins both halves, and
+    # it belongs above the early return — a table already rebuilt is not a
+    # reason to skip the columns.
+    await _add_late_columns(db)
+
+    cursor = await db.execute("PRAGMA table_info(support_threads)")
+    columns = {row[1] for row in await cursor.fetchall()}
+    if "admin_chat_id" in columns:
+        return
+    # SQLite cannot add a column to a primary key, so the table is rebuilt. The
+    # rename-and-copy shape rather than a DROP: if anything here fails the
+    # transaction rolls back with the old table still in place.
+    await db.execute("ALTER TABLE support_threads RENAME TO support_threads_old")
+    await db.execute("""
+        CREATE TABLE support_threads (
+            admin_chat_id    INTEGER NOT NULL DEFAULT 0,
+            admin_message_id INTEGER NOT NULL,
+            chat_id          INTEGER NOT NULL,
+            created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (admin_chat_id, admin_message_id)
+        )
+    """)
+    await db.execute(
+        "INSERT INTO support_threads (admin_chat_id, admin_message_id, chat_id, "
+        "                             created_at) "
+        "SELECT 0, admin_message_id, chat_id, created_at FROM support_threads_old")
+    await db.execute("DROP TABLE support_threads_old")
+
+
 # (version, name, coroutine). Append only; never edit one that has shipped.
 _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (1, "late columns", _migration_1_late_columns),
@@ -671,6 +727,8 @@ _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (15, "referrals", _migration_15_referrals),
     (16, "discount asks per product", _migration_16_discount_scope),
     (17, "shared numbers are never linked (§4.8)", _migration_17_shared_numbers),
+    (18, "a support thread knows which chat it is in",
+     _migration_18_threads_know_their_chat),
 )
 
 

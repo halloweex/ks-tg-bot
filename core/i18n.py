@@ -168,6 +168,11 @@ EN: dict[str, str] = {
     "MSG_OPT_OUT_CONFIRM": "You have unsubscribed from our updates. Send /start to subscribe again.",
     "MSG_OPT_IN_CONFIRM": "You are subscribed to our updates again!",
     "MSG_BROADCAST_PROMPT": "Enter the broadcast text:",
+    "MSG_BROADCAST_LOOKS_LIKE_A_COMMAND": (
+        "That starts with «/», so it looks like a command rather than a "
+        "broadcast. Nothing was sent. Type the text again, or /start to leave "
+        "the flow."
+    ),
     "MSG_BROADCAST_CONFIRM": "Send this message to {count} users?",
     "BTN_BROADCAST_YES": "✅ Yes",
     "BTN_BROADCAST_NO": "❌ No",

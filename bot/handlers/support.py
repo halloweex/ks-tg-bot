@@ -68,6 +68,56 @@ async def begin_support(state: FSMContext, t: Texts, config: AppConfig) -> str:
     return text
 
 
+def relay_destinations(config: AppConfig, writer_chat_id: int) -> list[int]:
+    """Every chat a customer's support message goes to, in order, deduplicated.
+
+    The manager first, because that is whose job it is, then the admins — the
+    owner asked to see support as well as the manager, and until now it went to
+    the manager alone. An id appearing in both lists is sent to once.
+
+    The writer's own chat is skipped. An admin writing to support would
+    otherwise be forwarded their own message back, which reads as a bug and
+    puts a thread row on a message they are looking at from the wrong side.
+    """
+    seen = dict.fromkeys([config.support_chat_id, *config.env.admin_ids])
+    return [chat for chat in seen if chat != writer_chat_id]
+
+
+async def _relay_to(bot, destination: int, message: Message, op,
+                    *, with_note: bool) -> list[int]:
+    """One customer message into one chat. Returns the ids it put there.
+
+    Raises if the chat cannot be written to, so the caller can drop that one
+    destination and keep the others: before this there was only ever one, and
+    its failure was the whole relay failing.
+    """
+    ids: list[int] = []
+    if with_note:
+        # The metadata line, carrying the chat_id as a privacy-safe identifier.
+        note = await bot.send_message(
+            chat_id=destination,
+            text=op.MSG_SUPPORT_ADMIN_NOTE.format(
+                who=await describe(message.from_user, message.chat.id)),
+            parse_mode="HTML",
+        )
+        ids.append(note.message_id)
+
+    # forward_message carries whatever the customer sent — photo, voice, video
+    # note, document — so attachments arrive unchanged in this direction.
+    forwarded = await bot.forward_message(
+        chat_id=destination,
+        from_chat_id=message.chat.id,
+        message_id=message.message_id,
+    )
+    ids.append(forwarded.message_id)
+
+    if with_note:
+        instruction = await bot.send_message(
+            chat_id=destination, text=op.MSG_SUPPORT_REPLY_INSTRUCTION)
+        ids.append(instruction.message_id)
+    return ids
+
+
 def forwarded_confirmation(t: Texts, config: AppConfig,
                            now: datetime | None = None,
                            hours_named: bool = False) -> str:
@@ -116,64 +166,33 @@ async def forward_to_support(
     # instructions change language depending on who happened to write in.
     op = operator_texts()
 
-    thread_ids: list[int] = []
-
-    # Every call to the support chat in one place, because they fail together
-    # and they fail for one reason: the chat cannot be written to. Telegram
-    # says so with "bot can't initiate conversation with a user" when
-    # support_chat_id names an account that has never opened this bot — which
-    # is a configuration mistake, not a customer's problem, and used to reach
-    # the customer as silence and the operator as nothing at all.
-    try:
-        if first_of_album:
-            # Send metadata line with chat_id (privacy-safe identifier)
-            note = await bot.send_message(
-                chat_id=config.support_chat_id,
-                text=op.MSG_SUPPORT_ADMIN_NOTE.format(
-                    who=await describe(message.from_user, message.chat.id)),
-                parse_mode="HTML",
+    delivered = 0
+    for destination in relay_destinations(config, message.chat.id):
+        try:
+            ids = await _relay_to(bot, destination, message, op,
+                                  with_note=first_of_album)
+        except TelegramAPIError as exc:
+            logger.error("Support relay to chat {} failed: {}", destination, exc)
+            await tell_admins_once(
+                bot, config.env.admin_ids, f"support_relay:{destination}",
+                f"Support relay to {destination} is broken: {exc}\n\n"
+                f"A bot cannot write to a user who has never opened it — that "
+                f"account must press Start, or the id must name a group the bot "
+                f"is in. Other destinations are unaffected.",
             )
-            thread_ids.append(note.message_id)
+            continue
+        delivered += 1
+        # Registered per destination, because the id is only half the identity:
+        # see core/repos/support.py. A reply in ANY of these chats reaches the
+        # customer, which is the point of sending to more than one.
+        await remember_support_thread(ids, message.chat.id, destination)
 
-        # Forward the actual message. forward_message carries whatever the
-        # customer sent — photo, voice, video note, document — so attachments
-        # reach the manager unchanged in this direction.
-        forwarded = await bot.forward_message(
-            chat_id=config.support_chat_id,
-            from_chat_id=message.chat.id,
-            message_id=message.message_id,
-        )
-        thread_ids.append(forwarded.message_id)
-
-        if first_of_album:
-            # Send instruction for replying
-            instruction = await bot.send_message(
-                chat_id=config.support_chat_id,
-                text=op.MSG_SUPPORT_REPLY_INSTRUCTION,
-            )
-            thread_ids.append(instruction.message_id)
-    except TelegramAPIError as exc:
-        logger.error("Support relay to chat {} failed: {}",
-                     config.support_chat_id, exc)
-        await tell_admins_once(
-            bot, config.env.admin_ids, "support_relay",
-            f"Support relay is broken: {exc}\n\n"
-            f"support_chat_id={config.support_chat_id}. A bot cannot write to a "
-            f"user who has never opened it — that account must press Start, or "
-            f"the id must name a group the bot is in. Customers are being told "
-            f"to try again; their messages are not reaching anyone.",
-        )
-        # The state is deliberately left alone: whatever they send next is
-        # still a support message, so a retry is one tap and not a new flow.
+    if not delivered:
+        # Nobody got it. The state is deliberately left alone: whatever she
+        # sends next is still a support message, so a retry is one tap and not
+        # a new flow.
         await message.answer(t.MSG_SUPPORT_NOT_DELIVERED)
         return
-
-    # Every bot-sent message of the request, because a manager replies to
-    # whichever is under their thumb — most often the forwarded one, which is
-    # exactly the one carrying no usable sender when the customer has
-    # forwarding privacy on. Each part of an album is registered too, so a
-    # reply to any photo reaches the right person.
-    await remember_support_thread(thread_ids, message.chat.id)
 
     if not first_of_album:
         # A later part of an album: already confirmed, state already cleared.
@@ -218,7 +237,8 @@ async def forward_album_tail(
     await forward_to_support(message, state, config, t)
 
 
-async def _reply_target(replied: Message | None) -> int | None:
+async def _reply_target(replied: Message | None,
+                        admin_chat_id: int) -> int | None:
     """Which customer this reply is aimed at. The table, and nothing else.
 
     Two guesses used to sit under this — `forward_from`, and a regex for the
@@ -236,7 +256,7 @@ async def _reply_target(replied: Message | None) -> int | None:
     """
     if replied is None:
         return None
-    return await support_thread_owner(replied.message_id)
+    return await support_thread_owner(replied.message_id, admin_chat_id)
 
 
 # Narrow on purpose. support_chat_id is often an admin's own DM with the bot, and
@@ -264,7 +284,7 @@ async def admin_reply(
 
     bot = message.bot
     replied = message.reply_to_message
-    user_chat_id = await _reply_target(replied)
+    user_chat_id = await _reply_target(replied, message.chat.id)
 
     if not user_chat_id:
         # Only complain about a reply that was plausibly aimed at a customer:

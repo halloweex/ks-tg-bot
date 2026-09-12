@@ -14,15 +14,22 @@ from core.repos.base import connect
 _SUPPORT_THREAD_TTL_DAYS = 90
 
 
-async def remember_support_thread(admin_message_ids: list[int], chat_id: int) -> None:
-    """Record which customer a set of support-chat messages belongs to."""
+async def remember_support_thread(admin_message_ids: list[int], chat_id: int,
+                                  admin_chat_id: int) -> None:
+    """Record which customer a set of messages in one chat belongs to.
+
+    `admin_chat_id` is which chat they were put in, and it is half the identity:
+    Telegram numbers messages per chat, so the manager's message 1001 and an
+    admin's message 1001 are different messages. Keyed on the id alone, the
+    second one overwrote the first and a reply reached a stranger.
+    """
     if not admin_message_ids:
         return
     async with connect() as db:
         await db.executemany(
-            "INSERT OR REPLACE INTO support_threads (admin_message_id, chat_id) "
-            "VALUES (?, ?)",
-            [(mid, chat_id) for mid in admin_message_ids],
+            "INSERT OR REPLACE INTO support_threads "
+            "  (admin_chat_id, admin_message_id, chat_id) VALUES (?, ?, ?)",
+            [(admin_chat_id, mid, chat_id) for mid in admin_message_ids],
         )
         await db.execute(
             "DELETE FROM support_threads WHERE created_at < datetime('now', ?)",
@@ -67,12 +74,25 @@ async def album_in_progress(chat_id: int, media_group_id: str) -> bool:
         return await cursor.fetchone() is not None
 
 
-async def support_thread_owner(admin_message_id: int) -> int | None:
-    """The customer behind a message in the support chat, or None if unknown."""
+async def support_thread_owner(admin_message_id: int,
+                               admin_chat_id: int) -> int | None:
+    """The customer behind a message in one chat, or None if unknown.
+
+    The chat is matched as well as the id, which is what stops a reply in one
+    chat from being routed by a thread that belongs to another.
+
+    `admin_chat_id = 0` is the exception and it is deliberate: rows written
+    before the column existed cannot say which chat they came from, so they
+    still answer from any of them — exactly the behaviour they had. An exact
+    match wins over a legacy one, and the legacy rows disappear with the
+    90-day sweep.
+    """
     async with connect() as db:
         cursor = await db.execute(
-            "SELECT chat_id FROM support_threads WHERE admin_message_id = ?",
-            (admin_message_id,),
+            "SELECT chat_id FROM support_threads "
+            " WHERE admin_message_id = ? AND admin_chat_id IN (?, 0) "
+            " ORDER BY admin_chat_id != 0 DESC LIMIT 1",
+            (admin_message_id, admin_chat_id),
         )
         row = await cursor.fetchone()
         return row[0] if row else None
