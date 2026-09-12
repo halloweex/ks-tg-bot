@@ -12,24 +12,31 @@ else writes those two fields), not TDLib — which gives the game away by exposi
 photo_/animation_ read-only plus `edit_description_media_link_`, "the internal
 link, which can be used to edit the photo or animation shown in the chat with
 the bot if the chat is empty". Clients open @BotFather; they do not call a
-method. So this script builds the file and a human uploads it:
+method. So this script builds the file and a human uploads it, in the BotFather
+panel under "Welcome message" -> "Set Welcome Picture".
 
-    @BotFather -> /mybots -> the bot -> Edit Bot -> Edit Description Picture
-    (attach as Photo/Video, not as a file; /empty clears it)
+**GIF, not mp4, and the sizes are enumerated.** Verbatim from that panel:
 
-Why the geometry is not negotiable: Telegram documents no size for this slot
-anywhere, but Android lays out a fixed 16:9 box and CENTRE-CROPS anything else
-(BotHelpCell.java: `photoHeight = (int) (width * 0.5625) // 16:9`, with
+    Upload a photo for the bot's start page, 640x360 pixels. You can also use
+    a GIF animation, 320x180, 640x360 or 960x540 pixels.
+    People will see the description and image when they open a chat with your
+    bot, in a block titled 'What can this bot do?'.
+
+So an mp4 is not offered at all — an mp4 uploaded here does nothing, which is
+how this was found out. The animated route is a GIF, which Telegram converts to
+MPEG4 itself and stores in description_document. mp4s are still built below,
+because core.telegram.org/bots/features says "a photo or video" for the older
+BotFather chat flow, but the GIF is the deliverable.
+
+Why 16:9 regardless: Android lays out a fixed 16:9 box and CENTRE-CROPS anything
+else (BotHelpCell.java: `photoHeight = (int) (width * 0.5625) // 16:9`, with
 ImageReceiver's isAspectFit defaulting to false), while iOS and Desktop keep the
-real aspect. Off-ratio artwork would therefore be cropped on one platform and
-intact on another. 16:9 it is. 1280x720 rather than the 640x360 BotFather's own
-prompt suggests, because Android sizes the box in screen pixels (~0.7 of the
-short side, so ~810px wide on a 1080p phone) and 640 would upscale.
+real aspect. Every size BotFather names is already 16:9.
 
-Why the mp4 is H.264 with no audio track: Telegram Desktop only treats an mp4 as
-an *animation* if it has no audio stream, is at most 10MB and is H.264
-(media_clip_ffmpeg.cpp isGifv()). With sound it is sent as a video and never
-reaches this slot. Android has the same rule via "muted".
+Why the mp4s carry no audio track: Telegram Desktop only treats an mp4 as an
+*animation* if it has no audio stream, is at most 10MB and is H.264
+(media_clip_ffmpeg.cpp isGifv()). With sound it goes as a video. Android has the
+same rule via "muted".
 
 Run: .venv/bin/python webapp/build_description.py
 """
@@ -44,10 +51,21 @@ from PIL import Image
 
 HERE = pathlib.Path(__file__).parent
 
-W, H = 1280, 720           # exactly 16:9
+# The sizes BotFather actually names, read off its own panel (see the quote in
+# the docstring). 960x540 first: it is the largest ACCEPTED size, so it upscales
+# least in Android's box (~810px wide on a 1080p phone). A 1280x720 master was
+# built first and is not on the list — the enumeration is real, and overriding
+# it with reasoning about upscaling was simply wrong.
+SIZES = [(960, 540), (640, 360), (320, 180)]
+W, H = SIZES[0]            # build() re-points these per size
 FPS = 30
 DURATION = 6.0
 FRAMES = int(FPS * DURATION)
+# The GIF is the robust route: Telegram converts an uploaded GIF to MPEG4
+# itself, so it lands in description_document as an animation whatever the
+# platform. An mp4 only becomes an animation if the sending client decides it
+# is one — on mobile an attached mp4 goes as a video instead.
+GIF_FPS = 15
 
 # Composition, as fractions of the canvas. A HORIZONTAL lockup — mark left,
 # wordmark right, both on the vertical centre line. birthday.png stacks them,
@@ -151,23 +169,26 @@ def frame(i: int, base: Image.Image, mark: Image.Image,
     return out
 
 
-def build() -> None:
+def one_size(size: tuple[int, int], suffix: str) -> None:
+    global W, H
+    W, H = size
     mark, word = masks()
     base = still(mark, word)
+    frames = [frame(i, base, mark, word) for i in range(FRAMES)]
 
-    jpg = HERE / "description.jpg"
+    jpg = HERE / f"description{suffix}.jpg"
     base.save(jpg, quality=95, subsampling=0, optimize=True)
 
-    frames = HERE / "description_frames"
-    frames.mkdir(exist_ok=True)
-    for old in frames.glob("*.png"):
+    tmp = HERE / "description_frames"
+    tmp.mkdir(exist_ok=True)
+    for old in tmp.glob("*.png"):
         old.unlink()
-    for i in range(FRAMES):
-        frame(i, base, mark, word).save(frames / f"{i:03d}.png")
+    for i, f in enumerate(frames):
+        f.save(tmp / f"{i:03d}.png")
 
-    mp4 = HERE / "description.mp4"
+    mp4 = HERE / f"description{suffix}.mp4"
     subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-loglevel", "error",
-                    "-framerate", str(FPS), "-i", str(frames / "%03d.png"),
+                    "-framerate", str(FPS), "-i", str(tmp / "%03d.png"),
                     "-c:v", "libx264", "-preset", "veryslow", "-crf", "18",
                     "-pix_fmt", "yuv420p", "-profile:v", "high",
                     "-g", str(FPS * 3), "-movflags", "+faststart",
@@ -176,9 +197,26 @@ def build() -> None:
                     # takes an animation.
                     "-an", str(mp4)], check=True)
 
-    print(f"description.jpg  {W}x{H}  {jpg.stat().st_size / 1024:6.0f} KB")
-    print(f"description.mp4  {W}x{H}  {mp4.stat().st_size / 1024:6.0f} KB  "
-          f"{DURATION:g}s @ {FPS}fps")
+    # One shared palette for every frame: a per-frame palette would make the
+    # flat burgundy shimmer as the quantiser re-picks colours.
+    step = max(1, round(FPS / GIF_FPS))
+    picked = frames[::step]
+    palette = frames[len(frames) // 2].quantize(colors=128, method=Image.MEDIANCUT)
+    gif = HERE / f"description{suffix}.gif"
+    seq = [f.quantize(palette=palette, dither=Image.Dither.NONE) for f in picked]
+    seq[0].save(gif, save_all=True, append_images=seq[1:], loop=0,
+                duration=round(1000 * step / FPS), optimize=True, disposal=1)
+
+    print(f"description{suffix}: {W}x{H}  jpg {jpg.stat().st_size / 1024:5.0f} KB  "
+          f"mp4 {mp4.stat().st_size / 1024:5.0f} KB  "
+          f"gif {gif.stat().st_size / 1024:5.0f} KB ({len(seq)} frames)")
+
+
+def build() -> None:
+    # Always suffixed by size: an unsuffixed "description.mp4" is what got
+    # uploaded into the avatar slot by mistake once already.
+    for size in SIZES:
+        one_size(size, f"_{size[0]}x{size[1]}")
 
 
 if __name__ == "__main__":
