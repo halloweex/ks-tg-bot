@@ -22,7 +22,7 @@ from core.repos.support import (album_in_progress, mark_discount_answered,
                                 remember_support_thread, start_album,
                                 support_thread_owner)
 from core.usecases.support import queue_reply
-from bot.screen import ephemeral, seen
+from bot.screen import seen
 from bot.states import SupportStates
 
 router = Router()
@@ -251,14 +251,20 @@ async def forward_to_support(
     hours_named = bool((await state.get_data()).get("hours_named"))
     await state.clear()
     track(message.chat.id, "support_message_sent")
-    # The durable half of the confirmation is the reaction on their own
-    # message: it sits where the customer is already looking and is still there
-    # next week. The line of text is the transient half — it answers the tap
-    # and is noise a day later, so it takes itself back.
     await seen(message)
-    # No keyboard to attach: the menu is already under the input field.
-    await ephemeral(message,
-                    forwarded_confirmation(t, config, hours_named=hours_named))
+    # **It used to take itself back after 45 seconds**, on the reasoning that a
+    # line answering a tap is noise a day later and the 👀 on her own message is
+    # the durable half.
+    #
+    # Watched from her side, that reasoning is wrong. She writes out a problem,
+    # reads «твоє повідомлення вже у нас», and a minute later the only words the
+    # shop said to her are gone — while the answer, when it comes, comes from
+    # somewhere else entirely. What looks tidy from the code looks like being
+    # ignored from the chat.
+    #
+    # It stays. No keyboard to attach: the menu is already under the input field.
+    await message.answer(
+        forwarded_confirmation(t, config, hours_named=hours_named))
 
 
 @router.message(StateFilter(None), F.media_group_id)

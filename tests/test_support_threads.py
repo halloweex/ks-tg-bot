@@ -894,3 +894,23 @@ def test_without_a_link_the_relay_is_exactly_as_it_was(db, config):
     assert state.state is not None, "the relay needs her next message"
     assert not any(b.url for row in markup.inline_keyboard for b in row)
     assert text == T.MSG_SUPPORT_PROMPT
+
+
+def test_the_confirmation_stays_in_the_chat(db, config, texts):
+    """It used to delete itself after 45 seconds.
+
+    From the code that reads as tidiness: a line answering a tap is noise a day
+    later, and the 👀 on her own message is the durable half. From her side it
+    reads as being ignored — she writes out a problem, reads «твоє повідомлення
+    вже у нас», and a minute later the only words the shop said to her are
+    gone."""
+    import bot.handlers.support as mod
+
+    assert not hasattr(mod, "ephemeral"), (
+        "the confirmation is the one line telling her the shop has her message")
+
+    bot = _ForwardingBot()
+    message = _customer_message(bot, message_id=61)
+    asyncio.run(support.forward_to_support(message, _NoState(), config, texts))
+
+    assert message.answered == ["ok"]
