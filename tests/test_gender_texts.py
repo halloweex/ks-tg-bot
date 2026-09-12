@@ -145,3 +145,30 @@ def test_no_feminine_string_is_left_without_the_other_two_forms():
     assert not uncovered, (
         "feminine wording with no masculine/unmarked form: "
         f"{ {k: v for k, v in sorted(uncovered.items())} }")
+
+
+# --- the other string built from somebody's name -----------------------------
+def test_the_welcome_back_greeting_escapes_the_name_it_carries():
+    """Everything this bot sends goes out with parse_mode="HTML", and this name
+    comes from the CRM, where a person types it. An unescaped '<' is not a wrong
+    greeting — it is a 400 and no greeting at all.
+
+    Measured on the live warehouse on 2026-09-12: 0 of 20 361 buyer names carry
+    '&', '<' or '>'. That is why nobody has seen this, not why it cannot happen;
+    one manager typing «Анна & Ко» is all it takes.
+    """
+    import ast
+    import pathlib
+
+    source = pathlib.Path("bot/handlers/common.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    formats = [node for node in ast.walk(tree)
+               if isinstance(node, ast.Call)
+               and getattr(node.func, "attr", "") == "format"
+               and getattr(node.func.value, "attr", "") == "MSG_WELCOME_BACK_NAME"]
+    assert formats, "the greeting moved — point this test at it"
+    for call in formats:
+        passed = {keyword.arg: keyword.value for keyword in call.keywords}
+        assert "name" in passed
+        assert getattr(passed["name"].func, "id", "") == "escape", (
+            "the name reaches an HTML message unescaped")

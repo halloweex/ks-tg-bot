@@ -397,9 +397,26 @@ MSG_MENU_PLACEHOLDER_NAMED = "Красуне {name}, обери дію"
 #: rides on — so the named line is abandoned rather than trimmed when it does
 #: not fit.
 PLACEHOLDER_MAX_LEN = 64
-#: How much of a name is worth showing. Long enough for any given name in this
-#: base; short enough that no placeholder built from one can approach the limit.
+#: How much of a name is worth showing, in the same units. Long enough for any
+#: given name in this base; short enough that no placeholder built from one can
+#: approach the limit.
 NAME_MAX_LEN_IN_PLACEHOLDER = 20
+
+#: Zero-width joiner and the emoji variation selector. A name cut to a budget can
+#: end on one of them, which leaves a glyph joined to nothing.
+_DANGLING = "\u200d\ufe0f"
+
+
+def utf16_len(text: str) -> int:
+    """Length as Telegram counts it: UTF-16 code units, not codepoints.
+
+    The Bot API counts string lengths this way throughout — entity offsets say so
+    outright — and the difference is not academic. An emoji outside the BMP costs
+    two units and one `len()`, so «Юля🎉🎉🎉…» measured in Python fits a 64-char
+    limit at 39 characters and is refused by Telegram at 69 units. The refusal is
+    a 400 on the send, which costs the message the keyboard rides on.
+    """
+    return len(text.encode("utf-16-le")) // 2
 
 
 def first_name(raw: str) -> str:
@@ -407,15 +424,28 @@ def first_name(raw: str) -> str:
 
     `first_name` in a Telegram profile is a free-text field: people put their
     full name in it, a shop name, a row of emoji, a phone number. What survives
-    here is the first whitespace-separated token, capped — and nothing at all if
-    it carries no letter, because «❤️❤️, обери дію» is not warmer than the line
-    without a name in it.
+    here is the first whitespace-separated token, cut to a budget — and nothing
+    at all if it carries no letter, because «❤️❤️, обери дію» is not warmer than
+    the line without a name in it.
+
+    The cut is made codepoint by codepoint against a UTF-16 budget rather than by
+    slicing: slicing a string at a fixed number of characters is what let an
+    emoji-heavy name overflow Telegram's limit, and slicing at a fixed number of
+    *units* would split a surrogate pair and produce a string that cannot be
+    encoded at all.
     """
     token = str(raw or "").strip().split()[:1]
     if not token:
         return ""
-    name = token[0][:NAME_MAX_LEN_IN_PLACEHOLDER].strip(" ,.;:!?-–—\"'()[]{}")
-    return name if any(char.isalpha() for char in name) else ""
+    name, used = [], 0
+    for char in token[0]:
+        cost = utf16_len(char)
+        if used + cost > NAME_MAX_LEN_IN_PLACEHOLDER:
+            break
+        name.append(char)
+        used += cost
+    trimmed = "".join(name).rstrip(_DANGLING).strip(" ,.;:!?-–—\"'()[]{}")
+    return trimmed if any(char.isalpha() for char in trimmed) else ""
 
 
 def vocative(name: str) -> str:

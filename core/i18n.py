@@ -627,8 +627,11 @@ class Texts:
         line = self.MSG_MENU_PLACEHOLDER_NAMED.format(name=who)
         # Telegram refuses a placeholder over 64 characters, and the refusal
         # costs the message the keyboard rides on, not just the keyboard. The
-        # nameless line always fits.
-        if len(line) > texts.PLACEHOLDER_MAX_LEN:
+        # nameless line always fits. Measured in UTF-16 units because that is
+        # what Telegram counts — see texts.utf16_len, which exists because this
+        # guard first shipped counting codepoints and let «Юля🎉🎉🎉…» through at
+        # 69 units.
+        if texts.utf16_len(line) > texts.PLACEHOLDER_MAX_LEN:
             return self.MSG_MENU_PLACEHOLDER
         return line
 

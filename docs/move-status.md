@@ -52,6 +52,26 @@ Nova Poshta 83% → 85%; по трём клиентам вместе 61% → 73%
   `with_logo`, `customer_ref`) и правило, где их можно, а где нельзя.
 - `bot/handlers/inline.py`, `bot/customer.py`, `bot/birthdays.py` — целиком новые.
 
+## Добавлено после переноса (2026-09-12): род обращения
+
+Тоже не перенос, а новый код по тем же правилам. Полностью — `docs/gender.md`,
+контракт слоёв — `docs/components.md` §10.6. Знать до следующего шага:
+
+- `core/domain/gender.py` — три формы, декодирование колонки, правило для чата с
+  несколькими карточками CRM.
+- `core/ports/gender.py` — `BuyerGenders`, один метод; `GenderForm` дописан в
+  `core/ports/users.py` рядом с `LanguageChoice`.
+- `core/repos/buyer_gender.py` — **единственный модуль в дереве, читающий чужую
+  базу**: `app.buyer_gender` в постгресе соседнего проекта, ролью `ks_readonly`,
+  только SELECT. Живёт в `core.repos` по контракту `only-repos-touch-db`.
+- `core/usecases/gender.py` + `bot/gender.py` — свип раз в час и джойн
+  «их покупатели ↔ наши чаты» через `user_crm_buyers`.
+- `core/i18n.py` — `UK_MASCULINE` и `UK_NEUTRAL`: тот же механизм, что EN, плюс
+  `Texts.menu_placeholder`. `core/texts.py` — `first_name`, `vocative`,
+  `utf16_len`.
+- Схема 20: `users.gender`. `save_user` заодно перестал быть
+  `INSERT OR REPLACE` — см. `docs/found-during-move.md` п. 20.
+
 ---
 
 ## Порт репозиториев: серия закрыта (коммиты 1–22, 2026-08-26)

@@ -82,14 +82,34 @@ def test_a_name_with_hearts_around_it_keeps_them():
     assert "Юля" in Texts("uk", "u").menu_placeholder("❤️Юля❤️")
 
 
+@pytest.mark.parametrize("name", [
+    "Я" * 40,                 # letters, all inside the BMP: one unit each
+    "Юля" + "🎉" * 40,        # a name with a letter and a lot of astral emoji
+    "👩🏽‍🦰Оксана",             # a joined sequence in front of the name
+])
 @pytest.mark.parametrize("lang", sorted(SUPPORTED))
 @pytest.mark.parametrize("gender", sorted(FORMS))
-def test_no_form_can_exceed_the_limit_telegram_enforces(lang, gender):
-    """The invariant that keeps the fallback below unreachable in practice: the
-    longest name that can get through times the longest line still fits."""
-    longest = "Я" * texts.NAME_MAX_LEN_IN_PLACEHOLDER
-    line = Texts(lang, gender).menu_placeholder(longest)
-    assert 1 <= len(line) <= texts.PLACEHOLDER_MAX_LEN, line
+def test_no_form_can_exceed_the_limit_telegram_enforces(lang, gender, name):
+    """Measured in UTF-16 code units, which is how Telegram counts.
+
+    This is the test that was wrong first: it measured `len()`, so «Юля🎉🎉🎉…»
+    passed at 39 characters and would have been refused at 69 units — a 400 that
+    costs the whole message the keyboard rides on, not just the keyboard.
+    """
+    line = Texts(lang, gender).menu_placeholder(name)
+    assert 1 <= texts.utf16_len(line) <= texts.PLACEHOLDER_MAX_LEN, (
+        f"{texts.utf16_len(line)} units: {line!r}")
+
+
+@pytest.mark.parametrize("name", ["🎉" * 40, "Юля" + "🎉" * 40, "👨‍👩‍👧‍👦Ліза"])
+def test_a_cut_name_is_still_a_string_that_can_be_sent(name):
+    """Cutting at a number of UTF-16 units rather than codepoints would split a
+    surrogate pair, and a lone surrogate cannot be encoded at all — the send
+    would fail in the encoder rather than at Telegram."""
+    line = Texts("uk", "f").menu_placeholder(name)
+    line.encode("utf-8")
+    line.encode("utf-16")
+    assert not any("\ud800" <= char <= "\udfff" for char in line)
 
 
 def test_a_line_that_would_not_fit_is_given_up_rather_than_trimmed(monkeypatch):

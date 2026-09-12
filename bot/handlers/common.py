@@ -1,6 +1,8 @@
 """Common command handlers — /start and other global commands."""
 from __future__ import annotations
 
+from html import escape
+
 from aiogram import Router
 from aiogram.filters import CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
@@ -91,7 +93,15 @@ async def cmd_start(
     track(message.chat.id, "start", returning=bool(user), lang=lang)
     if user:
         if user.get("full_name"):
-            greeting = t.MSG_WELCOME_BACK_NAME.format(name=user["full_name"])
+            # Escaped, because every message this bot sends goes out with
+            # parse_mode="HTML" and this name comes from the CRM, where a person
+            # types it. An unescaped '<' is not a wrong greeting, it is a 400
+            # ("can't parse entities") and no greeting at all. Measured on the
+            # live warehouse: 0 of 20 361 buyer names carry '&', '<' or '>'
+            # today, which is why nobody has seen it — not why it cannot happen.
+            # core/texts.py::customer_ref escapes for the same reason.
+            greeting = t.MSG_WELCOME_BACK_NAME.format(
+                name=escape(user["full_name"]))
         else:
             greeting = t.MSG_WELCOME_BACK
         # Arriving from the button above an inline list: the customer is

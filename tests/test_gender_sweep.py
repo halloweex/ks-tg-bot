@@ -150,3 +150,44 @@ def test_an_empty_base_asks_nothing():
     warehouse = FakeWarehouse({})
     assert _run(FakeDirectory({}), warehouse, FakeForms()) == {}
     assert warehouse.asked == []
+
+
+# --- the loop around it ------------------------------------------------------
+def test_one_bad_round_does_not_kill_the_loop(monkeypatch):
+    """The other database belongs to another compose project, with its own
+    deploys and its own restarts, so it *will* be unreachable sometimes. What
+    that may cost is an hour of nobody's form changing — not the sweep."""
+    import bot.gender as loop
+
+    monkeypatch.setattr(loop, "POLL_INTERVAL_SECONDS", 0)
+    rounds = []
+
+    async def flaky(directory, source, forms):
+        rounds.append(len(rounds) + 1)
+        if len(rounds) == 1:
+            raise RuntimeError("warehouse is down")
+        if len(rounds) == 2:
+            return {7: "m"}
+        raise asyncio.CancelledError  # stop the loop from the inside
+
+    monkeypatch.setattr(loop, "refresh_forms", flaky)
+
+    async def scenario():
+        with pytest.raises(asyncio.CancelledError):
+            await loop.watch(FakeWarehouse({}), FakeDirectory({}), FakeForms())
+
+    asyncio.run(scenario())
+    assert rounds == [1, 2, 3], "the round after the failure must still happen"
+
+
+def test_cancellation_is_not_swallowed_as_a_bad_round():
+    """A shutdown has to end the loop. `except Exception` would not catch
+    CancelledError on 3.8+, and the explicit re-raise above it says so out loud
+    rather than relying on that."""
+    import inspect
+
+    import bot.gender as loop
+
+    body = inspect.getsource(loop.watch)
+    assert "except asyncio.CancelledError:" in body
+    assert body.index("except asyncio.CancelledError:") < body.index("except Exception")
