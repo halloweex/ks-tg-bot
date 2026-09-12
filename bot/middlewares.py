@@ -77,15 +77,59 @@ class DropCustomEmoji(BaseRequestMiddleware):
             plain = _without_custom_emoji(method) if _is_emoji_refusal(exc) else None
             if plain is None:
                 raise
-            logger.warning("Custom emoji refused ({}), sending plain: {}",
+            # The wording is logged on every retry, deliberately: the vocabulary
+            # of this failure is not documented anywhere and was guessed wrong
+            # once already. The log is how the real one gets recorded when it
+            # finally happens.
+            logger.warning("Retrying without custom emoji after: {} ({})",
                            exc.message, type(method).__name__)
-            return await make_request(bot, plain)
+            try:
+                return await make_request(bot, plain)
+            except TelegramBadRequest:
+                # Dropping the logos did not help, so they were not the problem.
+                # The first refusal is the true one and the caller needs it,
+                # not a second-hand version of the same failure.
+                raise exc from None
+
+
+# The one refusal that must never trigger a retry without the logos.
+#
+# «message is not modified» is Telegram saying the new content equals the old.
+# Strip the emoji and the content is no longer equal, so the retry **succeeds**
+# — and the screen silently loses its logos for no reason at all. Every other
+# 400 either fails again (and the original is raised) or was genuinely the
+# emoji. This one is the only one that would quietly do damage.
+#
+# `bot/screen.py::render` also matches this string, for the double-tap guard.
+_NOT_MODIFIED = "message is not modified"
 
 
 def _is_emoji_refusal(exc: TelegramBadRequest) -> bool:
-    """Whether Telegram is complaining about the custom emoji specifically."""
-    said = exc.message.lower()
-    return "custom emoji" in said or "custom_emoji" in said
+    """Whether this refusal is worth retrying without the logos.
+
+    **It used to match the words "custom emoji", and that was a guess that
+    never held.** `/emojiprobe` asked the live API on 2026-09-12: an unusable
+    custom emoji in ordinary text comes back as `Bad Request: DOCUMENT_INVALID`,
+    which says nothing about emoji at all. So the net did not fire, and the
+    error reached the customer instead of the message without its logos. The
+    tests did not show it because they asserted `CUSTOM_EMOJI_INVALID` — the
+    same guess the code was written from.
+
+    Guessing a second wording would be the same mistake with a longer list, and
+    the wording for the case this exists for — a lapsed Premium — is still
+    unmeasured. So the question is turned around: not "is this about emoji" but
+    "could dropping them help, and can trying hurt".
+
+    It cannot hurt, because of what the caller does with the answer.
+    `_without_custom_emoji` returns None for a call carrying no custom emoji, so
+    nothing that has no logos is ever retried. A call that does carry them and
+    was refused is already failing; one extra request on that path is cheap, and
+    if it fails too the original refusal is what gets raised.
+
+    The single exception is above: the one 400 whose retry would succeed for the
+    wrong reason.
+    """
+    return _NOT_MODIFIED not in exc.message.lower()
 
 
 def _without_custom_emoji(method: TelegramMethod) -> TelegramMethod | None:

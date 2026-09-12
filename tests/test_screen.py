@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.methods import SendMessage
+from aiogram.methods import EditMessageText, SendMessage
 
 from bot import screen
 from bot.middlewares import DropCustomEmoji
@@ -143,7 +143,12 @@ def test_stripping_leaves_the_rest_of_the_message_alone():
 def test_a_refused_logo_costs_the_logo_and_not_the_message():
     """The permission is the owner's Premium subscription, which can lapse
     without anybody here doing anything. The delivery screen must not go with
-    it."""
+    it.
+
+    Note the wording below is the one this test was written with, and it is NOT
+    the one Telegram actually sends — see the tests at the end of this file.
+    It is kept because it must keep working, not because it was ever observed.
+    """
     sent = []
 
     async def make_request(bot, method):
@@ -454,3 +459,92 @@ def test_plain_ok_is_earned_in_exactly_one_place():
         f"or favourites screen for the menu is the one place it is earned; "
         f"everywhere else the anchor is always plain and the flag only turns "
         f"the detector off ahead of time.")
+
+
+# --- the wording was a guess, and the guess was wrong ------------------------
+#
+# `/emojiprobe` asked the live API on 2026-09-12. An unusable custom emoji in
+# ordinary text comes back as `Bad Request: DOCUMENT_INVALID`, which says
+# nothing about emoji at all — so the net did not fire and the refusal reached
+# the customer. Every test above asserted `CUSTOM_EMOJI_INVALID`, the same guess
+# the code was written from, which is why the suite was green the whole time.
+
+
+def _carrying_a_logo() -> SendMessage:
+    return SendMessage(chat_id=1, text=f"{texts.custom_emoji('42', '🚚')} Ваші")
+
+
+def _refusing(wording: str, *, then=None):
+    """A transport that refuses the first call and does `then` on the second."""
+    calls: list = []
+
+    async def make_request(bot, method):
+        calls.append(getattr(method, "text", None))
+        if len(calls) == 1:
+            raise _bad_request(wording)
+        if then is not None:
+            raise _bad_request(then)
+        return "sent"
+
+    return make_request, calls
+
+
+def test_the_wording_telegram_actually_sends_is_retried():
+    """The measured one. This is the assertion the suite was missing."""
+    make_request, calls = _refusing("Bad Request: DOCUMENT_INVALID")
+    result = asyncio.run(DropCustomEmoji()(make_request, None, _carrying_a_logo()))
+
+    assert result == "sent"
+    assert calls[1] == "🚚 Ваші"
+
+
+def test_a_wording_nobody_has_seen_yet_is_retried_too():
+    """The wording for the case this net exists for — a lapsed Premium — has
+    still never been observed. Matching on words means guessing it, and guessing
+    is what put the hole here. The question is turned around instead: the call
+    carries logos and was refused, so dropping them is worth one attempt."""
+    make_request, calls = _refusing("Bad Request: SOMETHING_NOBODY_WROTE_DOWN")
+    result = asyncio.run(DropCustomEmoji()(make_request, None, _carrying_a_logo()))
+
+    assert result == "sent"
+    assert calls[1] == "🚚 Ваші"
+
+
+def test_not_modified_never_costs_a_screen_its_logos():
+    """The one refusal whose retry would succeed for the wrong reason.
+
+    «message is not modified» means the new content equals the old. Strip the
+    logos and it no longer does, so the retry goes through and the screen
+    quietly loses them — a silent downgrade caused by a double tap."""
+    make_request, calls = _refusing("Bad Request: message is not modified")
+    method = EditMessageText(chat_id=1, message_id=2,
+                             text=f"{texts.custom_emoji('42', '🚚')} Ваші")
+
+    with pytest.raises(TelegramBadRequest):
+        asyncio.run(DropCustomEmoji()(make_request, None, method))
+    assert len(calls) == 1, "a double tap must not be retried without the logos"
+
+
+def test_a_call_with_no_logos_is_never_retried():
+    """What keeps the wider net safe: nothing that has no custom emoji in it is
+    tried a second time, whatever Telegram said."""
+    make_request, calls = _refusing("Bad Request: chat not found")
+    method = SendMessage(chat_id=1, text="звичайний текст")
+
+    with pytest.raises(TelegramBadRequest):
+        asyncio.run(DropCustomEmoji()(make_request, None, method))
+    assert len(calls) == 1
+
+
+def test_when_dropping_the_logos_does_not_help_the_first_refusal_is_raised():
+    """The logos were not the problem, so the first refusal is the true
+    diagnosis. Raising the second would describe the retry instead of the
+    failure, and the retry is ours rather than the customer's."""
+    make_request, calls = _refusing("Bad Request: DOCUMENT_INVALID",
+                                    then="Bad Request: chat not found")
+
+    with pytest.raises(TelegramBadRequest) as raised:
+        asyncio.run(DropCustomEmoji()(make_request, None, _carrying_a_logo()))
+
+    assert "DOCUMENT_INVALID" in raised.value.message
+    assert len(calls) == 2
