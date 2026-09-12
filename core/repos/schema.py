@@ -224,6 +224,22 @@ CREATE TABLE IF NOT EXISTS support_threads (
 # no signal marking the last one. This records that a chat's album is already
 # being forwarded, so the messages after the first join the same thread instead
 # of being dropped. Short-lived by nature — the parts arrive within a second.
+# Who the support chat is talking to right now, so a manager answering a long
+# consultation does not have to reply to a message for every line of it.
+#
+# One row per chat, replaced on every answer. Deliberately not a history: the
+# question it answers is "who am I talking to", and a second row would only
+# make that ambiguous. It expires by time rather than being deleted — a stale
+# focus that fires an hour later is exactly the failure worth preventing.
+_CREATE_SUPPORT_FOCUS = """
+CREATE TABLE IF NOT EXISTS support_focus (
+    admin_chat_id INTEGER PRIMARY KEY,
+    chat_id       INTEGER NOT NULL,
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
+
 _CREATE_SUPPORT_ALBUMS = """
 CREATE TABLE IF NOT EXISTS support_albums (
     chat_id        INTEGER NOT NULL,
@@ -391,7 +407,7 @@ CREATE INDEX IF NOT EXISTS ix_referrals_referrer ON referrals(referrer_chat_id);
 # It could not express this change (SQLite cannot alter a UNIQUE constraint),
 # and it silently swallowed real failures — a full disk logged success.
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 
 
 async def _columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -708,6 +724,18 @@ async def _migration_18_threads_know_their_chat(db: aiosqlite.Connection) -> Non
     await db.execute("DROP TABLE support_threads_old")
 
 
+async def _migration_19_support_focus(db: aiosqlite.Connection) -> None:
+    """Remember who the support chat is answering, so a reply is needed once.
+
+    The manager replies to the forwarded message, and until now every further
+    line needed the same gesture. A consultation is ten of them, and that is why
+    the relay went unused for weeks: she read the forward and moved to her own
+    chat, where typing is just typing.
+    """
+    await _add_late_columns(db)
+    await db.execute(_CREATE_SUPPORT_FOCUS)
+
+
 # (version, name, coroutine). Append only; never edit one that has shipped.
 _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (1, "late columns", _migration_1_late_columns),
@@ -729,6 +757,7 @@ _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
     (17, "shared numbers are never linked (§4.8)", _migration_17_shared_numbers),
     (18, "a support thread knows which chat it is in",
      _migration_18_threads_know_their_chat),
+    (19, "who the support chat is answering", _migration_19_support_focus),
 )
 
 
@@ -781,6 +810,7 @@ async def init_db() -> None:
         await db.execute(_CREATE_STOCK_SUBSCRIPTIONS)
         await db.execute(_CREATE_DISCOUNT_REQUESTS)
         await db.execute(_CREATE_SUPPORT_THREADS)
+        await db.execute(_CREATE_SUPPORT_FOCUS)
         await db.execute(_CREATE_FSM_STATE)
         await db.execute(_CREATE_SUPPORT_ALBUMS)
         await db.execute(_CREATE_SYNC_STATE)

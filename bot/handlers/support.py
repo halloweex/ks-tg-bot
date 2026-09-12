@@ -17,8 +17,10 @@ from bot.analytics import track
 from bot.customer import describe
 from core.config import AppConfig
 from core.repos.outbox import SqliteMessageQueue
-from core.repos.support import (album_in_progress, mark_discount_answered,
-                                remember_support_thread, start_album,
+from core.repos.support import (album_in_progress, current_focus,
+                                forget_focus, mark_discount_answered,
+                                remember_focus, remember_support_thread,
+                                start_album,
                                 support_thread_owner)
 from core.usecases.support import queue_reply
 from bot.screen import seen
@@ -182,6 +184,26 @@ async def forward_to_support(
             )
             continue
         delivered += 1
+        # **A new request ends the no-reply mode in that chat.**
+        #
+        # This is the whole safety of the feature. She is answering one person
+        # without replying to anything; a second request arrives; her next line
+        # was written for whichever of the two she was reading. The bot cannot
+        # know which, and guessing sends a stranger somebody else's answer.
+        #
+        # Only when the focus is on somebody ELSE: a second message from the
+        # same customer mid-conversation is the conversation, not a new one.
+        focused = await current_focus(destination)
+        if focused is not None and focused != message.chat.id:
+            await forget_focus(destination)
+            try:
+                await bot.send_message(destination,
+                                       op.MSG_SUPPORT_FOCUS_OFF)
+            except TelegramAPIError:
+                # The relay itself got through; a notice about it is not worth
+                # failing the delivery that just succeeded.
+                logger.debug("Could not announce the focus reset to {}",
+                             destination)
         # Registered per destination, because the id is only half the identity:
         # see core/repos/support.py. A reply in ANY of these chats reaches the
         # customer, which is the point of sending to more than one.
@@ -241,6 +263,51 @@ async def forward_album_tail(
     if not await album_in_progress(message.chat.id, message.media_group_id):
         return
     await forward_to_support(message, state, config, t)
+
+
+@router.message(StateFilter(None), ~F.reply_to_message, ~F.contact)
+async def answer_without_a_reply(message: Message, config: AppConfig) -> None:
+    """A bare line in a chat that is already answering somebody.
+
+    **Why this exists.** Every answer used to need a reply-to-message, and a
+    consultation is ten of them. That is why the relay went unused for weeks:
+    the manager read the forward and moved to her own chat, where typing is just
+    typing — and the customer, who had been told «відповімо тут», got her answer
+    from a different name in a different chat.
+
+    **Why it is narrow.** It routes only where a reply has already been made
+    within FOCUS_MINUTES, and the bot said out loud whose conversation that is.
+    A new request into the same chat clears it, because at that moment two
+    people are in front of her and the bot has no business guessing. Anything
+    else — no focus, an expired one — falls through to silence, exactly as a
+    bare line did before.
+
+    Note what it must never touch: a customer writing to the bot. Those are in
+    `SupportStates.waiting_message`, so `StateFilter(None)` excludes them, and
+    an admin using the bot as a customer taps buttons rather than typing.
+    """
+    if (message.chat.id != config.support_chat_id
+            and message.chat.id not in config.env.admin_ids):
+        return
+    if not (message.text or message.caption or message.photo or message.voice
+            or message.document or message.video or message.video_note):
+        return
+
+    user_chat_id = await current_focus(message.chat.id)
+    if user_chat_id is None:
+        return
+
+    queue = SqliteMessageQueue()
+    if message.text:
+        await queue_reply(queue, user_chat_id, text=message.text)
+    else:
+        await queue_reply(queue, user_chat_id,
+                          copy_from=(message.chat.id, message.message_id))
+    # Refreshed on every line, so a conversation does not time out mid-sentence.
+    await remember_focus(message.chat.id, user_chat_id)
+    logger.info("Support reply queued for chat_id={} (no reply needed)",
+                user_chat_id)
+    await seen(message)
 
 
 async def _reply_target(replied: Message | None,
@@ -333,6 +400,14 @@ async def admin_reply(
     # Telegram is busy, and shelves it with an alert if it truly cannot be
     # delivered — instead of raising inside this handler where nobody sees it.
     logger.info("Support reply queued for chat_id={}", user_chat_id)
+
+    # From here her bare lines go to this customer, for FOCUS_MINUTES. Said out
+    # loud, once, and naming the person: the whole risk of this is a line meant
+    # for somebody else, and she is the only one who can catch it.
+    if await current_focus(message.chat.id) != user_chat_id:
+        await message.answer(operator_texts().MSG_SUPPORT_FOCUS_ON.format(
+            who=await describe(None, user_chat_id)))
+    await remember_focus(message.chat.id, user_chat_id)
 
     # And the manager gets the same mark the customer does, on their own reply:
     # it says the thread was matched to a customer and the answer is on its way.

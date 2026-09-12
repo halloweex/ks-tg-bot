@@ -142,16 +142,25 @@ class _FakeBot:
 
 def _manager_message(bot, *, text, replied):
     reactions: list[str] = []
+    answered: list[str] = []
 
     async def react(reaction, **kw):
         reactions.extend(item.emoji for item in reaction)
 
+    async def answer(line, **kw):
+        # Recorded rather than discarded: the bot now says something back to the
+        # manager — whose conversation her bare lines will join — and that
+        # sentence is the safety of the whole no-reply mode.
+        answered.append(line)
+        return SimpleNamespace(message_id=600 + len(answered))
+
     msg = SimpleNamespace(
         bot=bot, chat=SimpleNamespace(id=SUPPORT_CHAT), text=text,
         message_id=500, reply_to_message=replied,
-        answer=lambda *a, **k: asyncio.sleep(0), react=react,
+        answer=answer, react=react,
     )
     msg.reactions = reactions
+    msg.answered = answered
     return msg
 
 
@@ -814,3 +823,165 @@ def test_the_confirmation_stays_in_the_chat(db, config, texts):
     asyncio.run(support.forward_to_support(message, _NoState(), config, texts))
 
     assert message.answered == ["ok"]
+
+
+# --- answering without a reply every time ------------------------------------
+#
+# Every answer used to need a reply-to-message, and a consultation is ten of
+# them. That is why the relay went unused for weeks: the manager read the
+# forward and moved to her own chat, where typing is just typing.
+
+
+def _manager_line(bot, text="і ось такий крем", replied=None):
+    said: list[str] = []
+    reactions: list[str] = []
+
+    async def answer(line, **kwargs):
+        said.append(line)
+        return SimpleNamespace(message_id=900 + len(said))
+
+    async def react(reaction, **kwargs):
+        reactions.extend(item.emoji for item in reaction)
+
+    msg = SimpleNamespace(
+        bot=bot, chat=SimpleNamespace(id=SUPPORT_CHAT), message_id=700,
+        text=text, caption=None, photo=None, voice=None, document=None,
+        video=None, video_note=None, reply_to_message=replied,
+        from_user=SimpleNamespace(id=SUPPORT_CHAT, first_name="K",
+                                  last_name="", username="k", is_bot=False),
+        answer=answer, react=react)
+    msg.said = said
+    msg.reactions = reactions
+    return msg
+
+
+def _focus_config():
+    return SimpleNamespace(support_chat_id=SUPPORT_CHAT, support_window=None,
+                           env=SimpleNamespace(admin_ids=[ADMIN]))
+
+
+def test_the_first_answer_needs_a_reply_and_the_rest_do_not(db, config):
+    """The whole point: one gesture opens the conversation, the rest is typing."""
+    asyncio.run(db.remember_support_thread([11], CUSTOMER, SUPPORT_CHAT))
+
+    bot = _FakeBot()
+    asyncio.run(support.admin_reply(
+        _manager_message(bot, text="вітаю", replied=_replied(11)), config, None))
+
+    line = _manager_line(bot, text="ось така сироватка")
+    asyncio.run(support.answer_without_a_reply(line, _focus_config()))
+
+    queued = _queued_replies()
+    assert [r["chat_id"] for r in queued] == [CUSTOMER, CUSTOMER]
+    assert "сироватка" in queued[1]["payload"]["text"]
+    assert line.reactions, "her own line is marked as taken"
+
+
+def test_she_is_told_who_the_bare_lines_will_reach(db, config):
+    """The name, not the instruction, is what makes this safe: a line meant for
+    somebody else is a mistake only she can catch."""
+    asyncio.run(db.remember_support_thread([11], CUSTOMER, SUPPORT_CHAT))
+
+    bot = _FakeBot()
+    answer = _manager_message(bot, text="вітаю", replied=_replied(11))
+    asyncio.run(support.admin_reply(answer, config, None))
+
+    assert any("reply" in line for line in answer.answered), answer.answered
+    assert any(str(CUSTOMER) in line for line in answer.answered), (
+        "the announcement has to name the person it will send to")
+
+
+def test_a_new_request_ends_the_no_reply_mode(db, texts):
+    """The one failure this feature could cause, and the guard against it.
+
+    She is answering one person without replying to anything. A second request
+    arrives. Her next line was written for whichever of the two she was reading,
+    and the bot cannot know which — so it stops deciding."""
+    asyncio.run(db.remember_support_thread([11], CUSTOMER, SUPPORT_CHAT))
+    bot = _ForwardingBot()
+    asyncio.run(support.admin_reply(
+        _manager_message(bot, text="вітаю", replied=_replied(11)),
+        _focus_config(), None))
+    assert asyncio.run(support_repo.current_focus(SUPPORT_CHAT)) == CUSTOMER
+
+    other = CUSTOMER + 7
+    incoming = _customer_message(bot, message_id=71)
+    incoming.chat = SimpleNamespace(id=other)
+    incoming.from_user = SimpleNamespace(id=other, first_name="І", last_name="",
+                                         username="i")
+    asyncio.run(support.forward_to_support(incoming, _NoState(), _focus_config(),
+                                           texts))
+
+    assert asyncio.run(support_repo.current_focus(SUPPORT_CHAT)) is None, (
+        "two people are in front of her; a bare line is no longer hers to route")
+
+    stray = _manager_line(bot, text="а ось це вам")
+    asyncio.run(support.answer_without_a_reply(stray, _focus_config()))
+    assert len(_queued_replies()) == 1, "the stray line reached nobody"
+
+
+def test_a_second_message_from_the_same_customer_keeps_the_mode(db, texts):
+    """A customer writing twice mid-conversation is the conversation, not a new
+    one. Ending the mode there would be the feature refusing to work exactly
+    when it is being used."""
+    asyncio.run(db.remember_support_thread([11], CUSTOMER, SUPPORT_CHAT))
+    bot = _ForwardingBot()
+    asyncio.run(support.admin_reply(
+        _manager_message(bot, text="вітаю", replied=_replied(11)),
+        _focus_config(), None))
+
+    again = _customer_message(bot, message_id=72)
+    asyncio.run(support.forward_to_support(again, _NoState(), _focus_config(),
+                                           texts))
+
+    assert asyncio.run(support_repo.current_focus(SUPPORT_CHAT)) == CUSTOMER
+
+
+def test_a_stale_focus_routes_nothing(db):
+    """Thirty minutes, and it is read rather than swept: a row that has gone
+    stale must stop routing the moment it is stale, not whenever a sweep runs."""
+    async def stale() -> None:
+        from core.repos.base import connect
+        async with connect() as conn:
+            await conn.execute(
+                "INSERT OR REPLACE INTO support_focus "
+                "  (admin_chat_id, chat_id, updated_at) "
+                "  VALUES (?, ?, datetime('now', '-31 minutes'))",
+                (SUPPORT_CHAT, CUSTOMER))
+            await conn.commit()
+    asyncio.run(stale())
+
+    assert asyncio.run(support_repo.current_focus(SUPPORT_CHAT)) is None
+
+    line = _manager_line(_FakeBot(), text="ще одне")
+    asyncio.run(support.answer_without_a_reply(line, _focus_config()))
+    assert _queued_replies() == []
+
+
+def test_a_stranger_typing_in_their_own_chat_reaches_nobody(db):
+    """`answer_without_a_reply` sees every stateless message in every chat. It
+    must route only from the support chat or an admin's.
+
+    The focus row is planted by hand, because that is the only way to test the
+    guard rather than the absence of a row: nothing in the code writes one for
+    a stranger's chat today, and the check is what keeps that true after
+    somebody adds a caller."""
+    stranger = 999999
+
+    async def plant() -> None:
+        from core.repos.base import connect
+        async with connect() as conn:
+            await conn.execute(
+                "INSERT OR REPLACE INTO support_focus "
+                "  (admin_chat_id, chat_id, updated_at) "
+                "  VALUES (?, ?, datetime('now'))", (stranger, CUSTOMER))
+            await conn.commit()
+    asyncio.run(plant())
+    assert asyncio.run(support_repo.current_focus(stranger)) == CUSTOMER
+
+    line = _manager_line(_FakeBot(), text="привіт")
+    line.chat = SimpleNamespace(id=stranger)
+    asyncio.run(support.answer_without_a_reply(line, _focus_config()))
+
+    assert _queued_replies() == [], (
+        "a chat that is neither support nor an admin's routed a message")

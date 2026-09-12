@@ -43,6 +43,55 @@ async def remember_support_thread(admin_message_ids: list[int], chat_id: int,
 _ALBUM_TTL_MINUTES = 60
 
 
+# How long the support chat keeps answering the same customer without being
+# told again. Long enough for a consultation — the one that went to the
+# manager's own chat ran half an hour — and short enough that a line typed after
+# lunch cannot land on somebody from before it.
+FOCUS_MINUTES = 30
+
+
+async def remember_focus(admin_chat_id: int, chat_id: int) -> None:
+    """This chat is now answering this customer."""
+    async with connect() as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO support_focus "
+            "  (admin_chat_id, chat_id, updated_at) VALUES (?, ?, datetime('now'))",
+            (admin_chat_id, chat_id),
+        )
+        await db.commit()
+
+
+async def current_focus(admin_chat_id: int) -> int | None:
+    """Who this chat is answering, or None if nobody recently enough.
+
+    Expiry is read rather than swept: a row that has gone stale must stop
+    routing the moment it is stale, and a sweep that runs later would leave a
+    window where it still does.
+    """
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT chat_id FROM support_focus "
+            " WHERE admin_chat_id = ? "
+            f"   AND updated_at > datetime('now', '-{FOCUS_MINUTES} minutes')",
+            (admin_chat_id,),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else None
+
+
+async def forget_focus(admin_chat_id: int) -> None:
+    """Stop answering whoever it was.
+
+    Called when a new request arrives in the chat: the manager now has two
+    conversations in front of her, and which one a bare line belongs to is no
+    longer something the bot may decide for her.
+    """
+    async with connect() as db:
+        await db.execute("DELETE FROM support_focus WHERE admin_chat_id = ?",
+                         (admin_chat_id,))
+        await db.commit()
+
+
 async def start_album(chat_id: int, media_group_id: str) -> bool:
     """Claim an album for this chat. True if this is its first message.
 

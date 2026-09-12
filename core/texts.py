@@ -463,6 +463,21 @@ MSG_SUPPORT_ADMIN_NOTE = "📩 Нове звернення\n👤 {who}"
 # ordered under this number nor a name set on their account.
 MSG_CUSTOMER_UNKNOWN = "клієнт"
 MSG_SUPPORT_REPLY_INSTRUCTION = "↩️ Відповідайте на переслане повідомлення, щоб відповісти клієнту."
+
+# Said once, when the manager's answer opens a conversation rather than closing
+# it. The name matters more than the instruction: a bare line goes to whoever
+# this says, and she is the only one who can notice it is the wrong person.
+MSG_SUPPORT_FOCUS_ON = (
+    "↩️ Далі пишіть без reply, все піде {who}.\n"
+    "Щоб відповісти комусь іншому, зробіть reply на його повідомлення."
+)
+# And when a new request arrives while she is mid-conversation: two people are
+# now in front of her, and which one a bare line belongs to is not the bot's to
+# decide.
+MSG_SUPPORT_FOCUS_OFF = (
+    "⚠️ Нове звернення, тому режим без reply вимкнено. "
+    "Відповідайте reply на потрібне повідомлення."
+)
 MSG_SUPPORT_NO_REPLY_TARGET = "Будь ласка, відповідайте на переслане повідомлення клієнта."
 
 # Broadcast opt-out
