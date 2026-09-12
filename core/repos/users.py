@@ -21,44 +21,52 @@ async def save_user(
     email: str | None = None,
     source: str = "",
 ) -> None:
-    """Persist a verified chat_id-to-phone mapping with optional profile fields.
+    """Bind a verified number to a chat, and fill in a name if one was offered.
 
-    Uses INSERT OR REPLACE — chat_id is PRIMARY KEY, so re-verification
-    overwrites the old row. Optional full_name/email are stored when provided.
+    **An upsert that touches only what it was given.** It used to be an
+    `INSERT OR REPLACE`, which writes a whole new row — so every column not
+    named in the statement went back to its default, and the defence against
+    that was a list of eleven `(SELECT … FROM users WHERE chat_id = ?)`
+    sub-selects carrying each one over by hand. A list like that is only ever as
+    complete as the last person who remembered it, and it was not complete:
+    `crm_shared_number` was missing, and that column is the §4.8 refusal — the
+    thing that stops a chat whose number belongs to several CRM buyer cards from
+    being matched to their orders. «📱 Змінити номер» calls this function, so
+    changing a number cleared the refusal and the window sweep resumed matching
+    by number. docs/found-during-move.md, item 20.
 
-    REPLACE writes a whole new row, so **any column not listed here is reset to
-    its default** — which is why every one of them is carried over by hand
-    below. Losing the language would flip the customer back to Ukrainian;
-    losing created_at would destroy the signup cohort; losing the birthday
-    would mean asking Telegram for it again and, until the next sweep, no
-    greeting; losing crm_checked_at would put the chat back in the queue of
-    "never looked up".
+    `ON CONFLICT … DO UPDATE` cannot have that bug: a column absent from the
+    statement is a column that keeps its value, so language, gender, birthday,
+    crm_checked_at, created_at and the §4.8 mark are all safe by construction
+    rather than by enumeration. The same reason `upsert_orders` stopped being a
+    REPLACE (item 1 of the same document).
+
+    **`full_name` and `email` are now left alone when not offered.** REPLACE
+    wrote NULL over them, so a phone change also erased the CRM name the support
+    card is built from until the next profile sync put it back. `PgUserProfiles`
+    has always used `COALESCE($2, full_name)`; this is the two engines agreeing,
+    which is what point 3 of docs/postgres-migration.md asks the pair of
+    implementations to be tested for.
 
     `source` is the deep link this person arrived through, and it is written
     **once**: an empty column takes the new value, a filled one keeps what it
-    has. First touch is the question it answers — who brought them — and a
-    later visit through somebody else's link does not change that.
-
-    `gender` is carried for the same reason as the language: changing a number
-    is not a reason to start addressing somebody differently, and the refresh
-    that would put it back runs on its own schedule.
+    has. First touch is the question it answers — who brought them — and a later
+    visit through somebody else's link does not change that. Expressed in SQL
+    rather than by reading first, which is what makes it true under concurrency
+    and identical to the Postgres statement.
     """
     async with connect() as db:
         await db.execute(
-            "INSERT OR REPLACE INTO users "
-            "(chat_id, phone, full_name, email, language, source, crm_checked_at, "
-            " birthdate, birthdate_checked_at, gender, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, "
-            "  (SELECT language FROM users WHERE chat_id = ?), "
-            "  COALESCE(NULLIF((SELECT source FROM users WHERE chat_id = ?), ''), ?), "
-            "  (SELECT crm_checked_at FROM users WHERE chat_id = ?), "
-            "  (SELECT birthdate FROM users WHERE chat_id = ?), "
-            "  (SELECT birthdate_checked_at FROM users WHERE chat_id = ?), "
-            "  (SELECT gender FROM users WHERE chat_id = ?), "
-            "  COALESCE((SELECT created_at FROM users WHERE chat_id = ?), datetime('now')), "
-            "  datetime('now'))",
-            (chat_id, phone, full_name, email, chat_id, chat_id, source,
-             chat_id, chat_id, chat_id, chat_id, chat_id),
+            "INSERT INTO users "
+            "  (chat_id, phone, full_name, email, source, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now')) "
+            "ON CONFLICT(chat_id) DO UPDATE SET "
+            "  phone      = excluded.phone, "
+            "  full_name  = COALESCE(excluded.full_name, users.full_name), "
+            "  email      = COALESCE(excluded.email, users.email), "
+            "  source     = COALESCE(NULLIF(users.source, ''), excluded.source), "
+            "  updated_at = datetime('now')",
+            (chat_id, phone, full_name, email, source),
         )
         await db.commit()
 

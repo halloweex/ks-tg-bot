@@ -277,3 +277,114 @@ def test_an_ordinary_customer_is_still_matched_by_number(tmp_path, monkeypatch):
         return route([_order(44730, MINE)], await d.phones(), await d.buyers())
 
     assert list(asyncio.run(scenario())) == [CHAT]
+
+
+def test_changing_the_number_does_not_reopen_the_leak(tmp_path, monkeypatch):
+    """The fourth door, and the one that was open: «📱 Змінити номер».
+
+    The mark is what makes the refusal outlive the request — after it, `phones()`
+    stops offering the chat and the sweep's number rule has nothing to match
+    against. `save_user` used to be an INSERT OR REPLACE whose hand-written list
+    of carried columns did not include `crm_shared_number`, so re-sharing a
+    contact reset it to 0 and the sweep resumed attaching strangers' orders two
+    minutes later. docs/found-during-move.md, item 20.
+
+    Asserted through `route` rather than on the column, because the column is
+    the mechanism and the leak is the behaviour: a test on the flag would pass
+    the day somebody keeps the flag and changes what reads it.
+    """
+    from core.repos import base as repos_base
+    from core.repos.schema import init_db
+    from core.repos.users import SqliteCustomerDirectory, save_user
+    from core.usecases.sync_incremental import route
+
+    monkeypatch.setattr(repos_base, "DB_PATH", str(tmp_path / "bot_data.db"))
+    strangers = [_order(44730, MINE), _order(44731, SOMEBODY_ELSE)]
+
+    async def scenario():
+        await init_db()
+        d = SqliteCustomerDirectory()
+        await save_user(CHAT, NUMBER)
+        await d.mark_shared(CHAT)
+        refused = route(strangers, await d.phones(), await d.buyers())
+        # **The same number, re-shared.** That is the case that leaks, and the
+        # first version of this test missed it by using a different one: the
+        # strangers' orders carry THIS number, so a chat that moves to another
+        # number stops matching them for a reason that has nothing to do with
+        # the mark. Re-sharing the same contact is also the likelier gesture —
+        # somebody checking whether the bot still has their number.
+        await save_user(CHAT, NUMBER)
+        after_reshare = route(strangers, await d.phones(), await d.buyers())
+        # And a profile write over the same row, which is what the enrichment
+        # path does with the number it read back.
+        await save_user(CHAT, NUMBER, full_name="Оксана П.")
+        after_profile = route(strangers, await d.phones(), await d.buyers())
+        return refused, after_reshare, after_profile
+
+    refused, after_reshare, after_profile = asyncio.run(scenario())
+    assert refused == {}, "§4.8 refuses a shared number"
+    assert after_reshare == {}, "and re-sharing the number is not a reason to stop"
+    assert after_profile == {}, "nor is a profile write"
+
+
+def test_nothing_else_is_lost_when_a_number_changes(tmp_path, monkeypatch):
+    """What replaces the list of carried columns.
+
+    The old statement enumerated every column it had to keep, and the §4.8 mark
+    was the one missing from the list. The upsert keeps whatever it does not
+    mention, so this is the test that the set it mentions is still exactly
+    phone, name, email, source and updated_at — anything else that starts moving
+    is a column somebody added to that statement by mistake.
+    """
+    import aiosqlite
+
+    from core.repos import base as repos_base
+    from core.repos.schema import init_db
+    from core.repos.users import save_user, set_user_gender, set_user_language
+
+    monkeypatch.setattr(repos_base, "DB_PATH", str(tmp_path / "bot_data.db"))
+
+    async def scenario():
+        await init_db()
+        await save_user(CHAT, NUMBER, full_name="Оксана Петренко",
+                        email="o@example.com", source="ref_777")
+        await set_user_language(CHAT, "en")
+        await set_user_gender(CHAT, "m")
+        async with aiosqlite.connect(repos_base.DB_PATH) as db:
+            await db.execute(
+                "UPDATE users SET birthdate = '07-14', "
+                "  birthdate_checked_at = '2026-09-01 10:00:00', "
+                "  crm_checked_at = '2026-09-01 10:00:00' WHERE chat_id = ?",
+                (CHAT,))
+            await db.commit()
+            db.row_factory = aiosqlite.Row
+            before = dict(await (await db.execute(
+                "SELECT * FROM users WHERE chat_id = ?", (CHAT,))).fetchone())
+
+        await save_user(CHAT, "+380670000009")
+
+        async with aiosqlite.connect(repos_base.DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            after = dict(await (await db.execute(
+                "SELECT * FROM users WHERE chat_id = ?", (CHAT,))).fetchone())
+        return before, after
+
+    before, after = asyncio.run(scenario())
+
+    moved = {k for k in before if before[k] != after[k]}
+    # A subset, not an equality: `updated_at` is stamped to the second, so a
+    # write in the same second as the previous one leaves the string identical.
+    assert moved <= {"phone", "updated_at"}, f"these also moved: {moved}"
+    assert "phone" in moved and after["phone"] == "+380670000009"
+    # Spelled out as well as counted, because these are the ones that cost
+    # something when they go: a customer addressed in the wrong language or
+    # gender, greeted twice, or looked up in the CRM all over again.
+    assert (after["language"], after["gender"]) == ("en", "m")
+    assert after["birthdate"] == "07-14"
+    assert after["crm_checked_at"] == "2026-09-01 10:00:00"
+    assert after["source"] == "ref_777", "write-once, and a later call is later"
+    assert after["created_at"] == before["created_at"]
+    # The CRM name is what the support card is built from. REPLACE wrote NULL
+    # over it on every phone change; PgUserProfiles never did.
+    assert (after["full_name"], after["email"]) == ("Оксана Петренко",
+                                                    "o@example.com")

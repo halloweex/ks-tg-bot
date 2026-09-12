@@ -57,13 +57,15 @@ class SqliteUserProfiles:
         full_name: str | None = None,
         email: str | None = None,
     ) -> None:
-        """Reads the number back before writing, because the function
-        underneath is an INSERT OR REPLACE and needs the whole row.
+        """Reads the number back before writing, and now only for the guard.
 
-        The extra read is the price of not changing that function during an
-        engine migration; on Postgres this becomes a plain UPDATE of two
-        columns. A user who is not bound yet is left alone rather than created
-        with an empty phone — that row would be a user nobody can be.
+        The read used to be there because `save_user` was an INSERT OR REPLACE
+        and needed the whole row. It is an upsert that touches only what it is
+        given, so the number is no longer needed to protect the other columns —
+        what is left is the second reason: a user who is not bound yet must be
+        left alone rather than created with an empty phone, and that row would be
+        a user nobody can be. On Postgres the same guard is the WHERE clause of a
+        plain UPDATE.
         """
         phone = await get_user_phone(user_id)
         if not phone:
