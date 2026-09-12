@@ -129,12 +129,41 @@ async def cmd_emojiprobe(message: Message, config: AppConfig) -> None:
                 rich.para("a heading carrying a logo, as Довідка would need"),
             ]))))
 
+    # 4 and 5. The question the three steps above could not reach: nothing
+    #    refused, so nothing showed us how a refusal is worded — and that was
+    #    the half that decided whether a net is worth building.
+    #
+    #    An id Telegram does not know is the closest observable stand-in for the
+    #    day this bot loses its right to custom emoji. It is a stand-in and not
+    #    the thing itself: a lapsed right and an unknown id may well be
+    #    different errors. What it does settle is the shape — whether a
+    #    block-level emoji complaint comes back as prose, which
+    #    `_is_emoji_refusal` matches, or as a RICH_MESSAGE_* code, which it does
+    #    not. The 500-block ceiling came back as a code, which is why this is
+    #    worth asking at all.
+    bogus = RichTextCustomEmoji(custom_emoji_id="1", alternative_text=FALLBACK)
+    lines.append(await _step(
+        "4. an id Telegram does not know, inside a block",
+        bot.send_rich_message(
+            chat_id=chat_id,
+            rich_message=InputRichMessage(blocks=[
+                rich.para([bogus, " unknown id in a block"]),
+            ]))))
+
+    # 5. The same bad id in ordinary text, so the two wordings can be compared.
+    #    If they differ, the detector was written against one of them and the
+    #    other is the hole.
+    lines.append(await _step(
+        "5. the same unknown id in ordinary text (for comparison)",
+        bot.send_message(chat_id,
+                         f'{texts.custom_emoji("1", FALLBACK)} unknown id in text')))
+
     lines += [
         "",
-        "<i>Step 1 failing means this bot cannot use the emoji at all and "
-        "steps 2 and 3 answer nothing. Steps 2 and 3 succeeding mean the rule "
-        "in bot/rich.py is ours to relax. Them failing with a wording the "
-        "detector does not match means a net on _is_emoji_refusal would never "
-        "fire.</i>",
+        "<i>1-3 say whether a logo may live in a block at all. 4 and 5 say how "
+        "a refusal is worded, which is what decides whether a net built on "
+        "_is_emoji_refusal could ever fire. An unknown id is a stand-in for a "
+        "lapsed right, not the same thing: it settles the shape of the error, "
+        "not its exact text.</i>",
     ]
     await bot.send_message(chat_id, "\n".join(lines))
