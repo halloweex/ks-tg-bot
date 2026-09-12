@@ -146,7 +146,7 @@ async def open_settings(message: Message, state: FSMContext, t: Texts) -> None:
 @router.message(Command("menu"), _NOT_SHARING_PHONE)
 @_menu("BTN_MENU")
 async def restore_menu(message: Message, state: FSMContext, config: AppConfig,
-                       t: Texts) -> None:
+                       t: Texts, customer_name: str = "") -> None:
     """/menu, and «📋 Меню» — the single button older versions put on the
     keyboard.
 
@@ -171,7 +171,7 @@ async def restore_menu(message: Message, state: FSMContext, config: AppConfig,
     this bot has paid for more than once.
     """
     await state.clear()
-    await send_main_menu(message, t, config)
+    await send_main_menu(message, t, config, name=customer_name)
 
 
 @_menu("BTN_INVITE")

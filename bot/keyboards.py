@@ -139,7 +139,7 @@ def share_phone_kb(t: Texts, *, with_manager: bool = False) -> ReplyKeyboardMark
     )
 
 
-def main_menu_kb(t: Texts) -> ReplyKeyboardMarkup:
+def main_menu_kb(t: Texts, name: str = "") -> ReplyKeyboardMarkup:
     """The main menu, as the keyboard under the input field.
 
     It is a reply keyboard and not an inline one for a reason that has nothing
@@ -183,7 +183,11 @@ def main_menu_kb(t: Texts) -> ReplyKeyboardMarkup:
     return builder.as_markup(
         resize_keyboard=True,
         one_time_keyboard=False,
-        input_field_placeholder=t.MSG_MENU_PLACEHOLDER,
+        # The one line on this keyboard addressed at a person rather than at a
+        # screen, so it is the one that carries their name. `name` is the
+        # customer's Telegram first name and may be anything or nothing —
+        # Texts.menu_placeholder is what decides how much of it is usable.
+        input_field_placeholder=t.menu_placeholder(name),
     )
 
 

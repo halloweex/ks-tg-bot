@@ -69,6 +69,7 @@ async def process_new_contact(
     state: FSMContext,
     config: AppConfig,
     t: Texts,
+    customer_name: str = "",
 ) -> None:
     """Update the phone only from the user's OWN verified contact."""
     if message.contact and message.contact.user_id != (message.from_user.id if message.from_user else None):
@@ -85,7 +86,8 @@ async def process_new_contact(
     await save_user(message.chat.id, phone.e164)
     await state.clear()
     # Sending the menu keyboard replaces the share-phone one it is answering.
-    await send_main_menu(message, t, config, t.MSG_PHONE_CHANGED)
+    await send_main_menu(message, t, config, t.MSG_PHONE_CHANGED,
+                         name=customer_name)
 
 
 @router.message(StateFilter(None), F.contact)
@@ -93,6 +95,7 @@ async def contact_with_nobody_waiting_for_it(
     message: Message,
     config: AppConfig,
     t: Texts,
+    customer_name: str = "",
 ) -> None:
     """A number shared when no flow asked for one.
 
@@ -124,7 +127,8 @@ async def contact_with_nobody_waiting_for_it(
 
     await save_user(message.chat.id, phone.e164)
     track(message.chat.id, "phone_shared", source="stray_keyboard")
-    await send_main_menu(message, t, config, t.MSG_PHONE_CHANGED)
+    await send_main_menu(message, t, config, t.MSG_PHONE_CHANGED,
+                         name=customer_name)
 
 
 @router.message(SettingsStates.waiting_new_phone, F.text.in_(variants("BTN_SUPPORT")))
@@ -163,11 +167,15 @@ async def set_language(
     callback: CallbackQuery,
     callback_data: SettingsAction,
     config: AppConfig,
+    t: Texts,
+    customer_name: str = "",
 ) -> None:
     """Persist the chosen language and redraw the menu in it.
 
     `t` from the middleware still holds the OLD language — this request was
-    resolved before the choice was stored — so build a fresh one.
+    resolved before the choice was stored — so build a fresh one. It is taken
+    as an argument anyway, for the half of it that did not change: the
+    grammatical form the customer is addressed in.
     """
     chosen = normalize(callback_data.value)
     await set_user_language(callback.from_user.id, chosen)
@@ -177,6 +185,8 @@ async def set_language(
     # Both menus carry the button labels, so a language change has to send them
     # again — an edit cannot touch the keyboard under the input field, and the
     # menu in the message is the one this callback just overwrote.
-    t = Texts(chosen)
+    # The form travels with the language: `Texts(chosen)` alone would put a man
+    # back on the feminine copy for the length of this screen.
+    t = Texts(chosen, t.gender)
     await render(callback, t.MSG_LANGUAGE_SET)
-    await send_main_menu(callback.message, t, config)
+    await send_main_menu(callback.message, t, config, name=customer_name)

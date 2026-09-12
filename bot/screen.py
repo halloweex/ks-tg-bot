@@ -91,7 +91,8 @@ async def with_effect(message: Message, text: str, effect: str,
 
 
 async def send_main_menu(message: Message, t: Texts, config: AppConfig,
-                         intro: str = "", effect: str = "") -> None:
+                         intro: str = "", effect: str = "",
+                         name: str = "") -> None:
     """Put both menus on screen: the keyboard below, and the one in a message.
 
     Two messages because Telegram allows a message only one markup, and these
@@ -109,8 +110,14 @@ async def send_main_menu(message: Message, t: Texts, config: AppConfig,
     nothing updates the one somebody is looking at. The keys keep working for
     anyone who has not been sent a message since, because the handlers that
     match them are still there.
+
+    `name` is the customer's Telegram first name, for the line in the input
+    field. Passed in rather than read off `message`, and that is not fussiness:
+    the settings screen calls this with `callback.message`, which is a message
+    the **bot** sent, so `message.from_user` there is the bot itself. Every
+    caller takes it from whoever sent the update.
     """
-    below = main_menu_kb(t) if config.bottom_menu else ReplyKeyboardRemove()
+    below = main_menu_kb(t, name) if config.bottom_menu else ReplyKeyboardRemove()
     await with_effect(message, intro or t.MSG_MAIN_MENU, effect,
                       reply_markup=below)
     await message.answer(t.MSG_MENU_PICK,

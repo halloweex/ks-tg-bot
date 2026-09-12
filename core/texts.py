@@ -237,6 +237,9 @@ def shorten_name(name: str, limit: int = NAME_MAX_LEN) -> str:
 # "Dear Doer The Hidden Body Scrub - Dear Doer the Hidd…"
 _NAME_SPLIT = re.compile(r"\s+[-–—]\s+")
 _CYRILLIC = re.compile(r"[Ѐ-ӿ]")
+# The same alphabet, anchored: `product_label` asks "is there Cyrillic in this
+# string", `vocative` asks "is this string Cyrillic and nothing else".
+_CYRILLIC_WORD = re.compile(r"[Ѐ-ӿ’'-]+")
 # The brand, as far as the first word: the leading latin token, with a
 # "(Miniature)" marker in front of it skipped.
 _BRAND = re.compile(r"^(?:\(Miniature\)\s*)?([A-Za-z][\w:.'’]*)")
@@ -379,6 +382,67 @@ MSG_MAIN_MENU = "Чим допомогти?"
 # without costing a message — and the one place a pet name reads as warmth
 # rather than as familiarity, because it is not addressed at anything.
 MSG_MENU_PLACEHOLDER = "Красуне, обери дію"
+# The same line when we know what to call her. The name goes in as an
+# appositive — «красуне Анно» — so the pet name the owner asked for stays and
+# the greeting becomes hers rather than everybody's.
+#
+# Rendered through `Texts.menu_placeholder`, never formatted directly: the name
+# arrives from a Telegram profile, which is to say from a field a person can put
+# anything in, and the two functions below are what stands between that and the
+# input row.
+MSG_MENU_PLACEHOLDER_NAMED = "Красуне {name}, обери дію"
+
+#: Telegram's own limit on `input_field_placeholder` (Bot API: 1-64 characters).
+#: A longer one is a 400 on send, which costs the whole message the keyboard
+#: rides on — so the named line is abandoned rather than trimmed when it does
+#: not fit.
+PLACEHOLDER_MAX_LEN = 64
+#: How much of a name is worth showing. Long enough for any given name in this
+#: base; short enough that no placeholder built from one can approach the limit.
+NAME_MAX_LEN_IN_PLACEHOLDER = 20
+
+
+def first_name(raw: str) -> str:
+    """A name we can address somebody by, or "" if there is none in there.
+
+    `first_name` in a Telegram profile is a free-text field: people put their
+    full name in it, a shop name, a row of emoji, a phone number. What survives
+    here is the first whitespace-separated token, capped — and nothing at all if
+    it carries no letter, because «❤️❤️, обери дію» is not warmer than the line
+    without a name in it.
+    """
+    token = str(raw or "").strip().split()[:1]
+    if not token:
+        return ""
+    name = token[0][:NAME_MAX_LEN_IN_PLACEHOLDER].strip(" ,.;:!?-–—\"'()[]{}")
+    return name if any(char.isalpha() for char in name) else ""
+
+
+def vocative(name: str) -> str:
+    """A Ukrainian given name in the case you address somebody in.
+
+    Deliberately two rules and no dictionary: «-ія» becomes «-іє» (Наталія →
+    Наталіє) and a final «-а» becomes «-о» (Анна → Анно, and Микола → Миколо for
+    the masculine names that end that way). Between them they cover nearly every
+    name in this base, and both are regular enough to apply to a name nobody has
+    checked.
+
+    Everything else is left in the nominative on purpose. «Ілля» wants «Ілле»
+    and «Андрій» wants «Андрію», but the masculine declensions split on the stem
+    in ways a two-line function gets wrong, and a mangled name is worse than an
+    undeclined one — it reads as not knowing whose name it is.
+
+    Latin script is never touched: "Sara" is not a Ukrainian noun and "Saro" is
+    not a name.
+    """
+    if not name or not _CYRILLIC_WORD.fullmatch(name):
+        return name
+    lowered = name.lower()
+    if lowered.endswith("ія"):
+        return name[:-1] + "є"
+    if lowered.endswith("а"):
+        return name[:-1] + "о"
+    return name
 # Carries the menu that lives in a message rather than under the input field.
 # Its own line, because Telegram gives a message one keyboard and these are two
 # kinds of keyboard — so the menu always arrives as the second of two messages.

@@ -4,6 +4,10 @@ Precedence for the language: an explicit choice stored in the DB wins; otherwise
 the language Telegram reports for the user's app; otherwise Ukrainian. Handlers
 receive the result as `t` and never resolve it themselves.
 
+Their name rides along as `customer_name`, for the one string that uses it, and
+for the same reason: `event_from_user` is the sender of any update, while the
+message a callback hands back was sent by the bot.
+
 The form — which gender the Ukrainian copy addresses the reader in — rides the
 same rail and for the same reason: a handler that had to resolve it would be a
 handler that can forget to. It comes from one column, read in the same query as
@@ -51,6 +55,12 @@ class LanguageMiddleware(BaseMiddleware):
             lang = stored or normalize(user.language_code)
 
         data["lang"] = lang
+        # What to call them, for the one line that addresses a person rather
+        # than a screen. Resolved here for the same reason the language is: the
+        # settings screen renders the menu from a callback, where the obvious
+        # `callback.message.from_user` is the **bot**, and `event_from_user` is
+        # the only field that is the sender whatever the update is.
+        data["customer_name"] = (user.first_name or "") if user else ""
         # `form` turns a missing value into the default rather than raising or
         # guessing, which is what keeps a database hiccup above from changing
         # how anybody is addressed.

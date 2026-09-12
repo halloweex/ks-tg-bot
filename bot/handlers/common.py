@@ -63,6 +63,7 @@ async def cmd_start(
     t: Texts,
     lang: str,
     tg_lang: str,
+    customer_name: str = "",
 ) -> None:
     """Handle /start command — greet new users or welcome back returning ones."""
     # Always clear any active FSM state (e.g. user sends /start mid-onboarding)
@@ -121,7 +122,7 @@ async def cmd_start(
         # whatever the chat had before it — and the menu itself follows as
         # buttons in a message, which is the only kind that can hand the input
         # field to the inline list.
-        await send_main_menu(message, t, config, greeting)
+        await send_main_menu(message, t, config, greeting, name=customer_name)
         await _maybe_offer_language(message, t, lang, tg_lang)
         return
 

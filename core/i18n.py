@@ -119,6 +119,9 @@ EN: dict[str, str] = {
     ),
     "MSG_MAIN_MENU": "How can I help?",
     "MSG_MENU_PLACEHOLDER": "Choose an action",
+    # No pet name in English and no declension to get wrong — the name is simply
+    # who is being addressed.
+    "MSG_MENU_PLACEHOLDER_NAMED": "{name}, choose an action",
     "MSG_MENU_PICK": "Pick from the menu 👇",
     "MSG_WEBSITE_INTRO": "Our shop is right here 👇",
     "MSG_INFO_MENU": (
@@ -383,6 +386,8 @@ UK_MASCULINE: dict[str, str] = {
     # a customer reads — tests/test_brand_voice.py enforces that, and «вітаю
     # вас» would have failed it.
     "MSG_MENU_PLACEHOLDER": "О! Відчуваю харизму. Обери дію",
+    # The owner's line, with the name where he put it.
+    "MSG_MENU_PLACEHOLDER_NAMED": "О! Відчуваю харизму, {name}. Обери дію",
     "MSG_FAVOURITES_HEADER_ONCE": (
         "<b>🛍 Ти це вже купував</b>\n"
         "Натисни, щоб замовити ще раз 👇"
@@ -439,6 +444,10 @@ UK_NEUTRAL: dict[str, str] = {
     # No pet name for somebody we do not know. The line still says what the
     # field is for, which is the part that has to be there.
     "MSG_MENU_PLACEHOLDER": "Обери дію",
+    # A name is not a claim about gender, so this form keeps it: knowing what to
+    # call somebody and knowing how to decline a verb about them are two
+    # different pieces of knowledge, and we have the first one here.
+    "MSG_MENU_PLACEHOLDER_NAMED": "{name}, обери дію",
     "MSG_FAVOURITES_HEADER_ONCE": (
         "<b>🛍 Це вже було в твоїх замовленнях</b>\n"
         "Натисни, щоб замовити ще раз 👇"
@@ -597,6 +606,31 @@ class Texts:
         else:
             word = "товарів"
         return f"{count} {word}"
+
+    def menu_placeholder(self, name: str = "") -> str:
+        """The greyed-out line in the input field, addressed if we can address it.
+
+        A method rather than a key because three things have to happen in one
+        place: the name has to be made safe to show, declined if this language
+        declines names, and given up on if the result would not fit. A caller
+        formatting the string itself is a caller that will do two of the three.
+
+        No name, or nothing usable in it, gives exactly the line that was there
+        before names were — which is what everybody who has not set a Telegram
+        first name keeps seeing.
+        """
+        who = texts.first_name(name)
+        if self.lang == "uk":
+            who = texts.vocative(who)
+        if not who:
+            return self.MSG_MENU_PLACEHOLDER
+        line = self.MSG_MENU_PLACEHOLDER_NAMED.format(name=who)
+        # Telegram refuses a placeholder over 64 characters, and the refusal
+        # costs the message the keyboard rides on, not just the keyboard. The
+        # nameless line always fits.
+        if len(line) > texts.PLACEHOLDER_MAX_LEN:
+            return self.MSG_MENU_PLACEHOLDER
+        return line
 
     def currency(self, raw: str) -> str:
         """Currency label for this language, or the raw code if unmapped."""

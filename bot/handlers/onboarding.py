@@ -52,6 +52,7 @@ async def _register_user(
     t: Texts,
     keycrm: KeyCRMClient | None = None,
     genders: BuyerGenders | None = None,
+    customer_name: str = "",
 ) -> None:
     """Register the customer, then show them the menu.
 
@@ -98,7 +99,8 @@ async def _register_user(
     # With confetti, which the restock notification has had for a while and
     # this moment deserves more: it happens once per customer, and what it says
     # is "we found you". Refused ids fall back to a plain message (bot/screen).
-    await send_main_menu(message, t, config, t.MSG_PHONE_VERIFIED, effect=CONFETTI)
+    await send_main_menu(message, t, config, t.MSG_PHONE_VERIFIED, effect=CONFETTI,
+                         name=customer_name)
 
     # A customer the CRM has never heard of is a new one, and this is the
     # moment the offer means something. Said once, here — the empty orders and
@@ -117,6 +119,7 @@ async def process_contact(
     keycrm: KeyCRMClient,
     t: Texts,
     genders: BuyerGenders | None = None,
+    customer_name: str = "",
 ) -> None:
     """Register the user from their OWN shared contact (ownership-verified)."""
     if message.contact and message.contact.user_id != (message.from_user.id if message.from_user else None):
@@ -140,7 +143,7 @@ async def process_contact(
     # be read minutes later as if it were news.
     await typing(message)
     await _register_user(message, state, phone, config, t, keycrm=keycrm,
-                         genders=genders)
+                         genders=genders, customer_name=customer_name)
 
 
 @router.message(OnboardingStates.waiting_phone, F.text.in_(variants("BTN_SUPPORT")))
