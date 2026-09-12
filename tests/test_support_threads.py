@@ -348,7 +348,8 @@ def test_an_album_is_announced_once_and_every_part_forwarded(db, config, texts):
         "every photo must reach every destination")
     for destination in (SUPPORT_CHAT, ADMIN):
         assert sorted(m for c, m in bot.forwarded_to if c == destination) == [1, 2, 3]
-    # Metadata line and instruction once per destination, not once per photo.
+    # The metadata line and the line naming who the chat is answering: once per
+    # destination, not once per photo.
     assert len(bot.sent) == 4
     # The customer is told once.
     assert parts[0].answered == ["ok"] and parts[1].answered == []
@@ -985,3 +986,65 @@ def test_a_stranger_typing_in_their_own_chat_reaches_nobody(db):
 
     assert _queued_replies() == [], (
         "a chat that is neither support nor an admin's routed a message")
+
+
+# --- no reply at all, in the ordinary case -----------------------------------
+
+
+def test_a_request_arriving_into_a_quiet_chat_needs_no_reply_ever(db, texts):
+    """The shop takes one to four requests a day and has had a single hour, in
+    its whole history, with two different people in it. So the ordinary case is
+    one conversation, and in the ordinary case there is nothing to confuse a
+    bare line with — the request becomes the conversation on arrival."""
+    bot = _ForwardingBot()
+    asyncio.run(support.forward_to_support(
+        _customer_message(bot, message_id=81), _NoState(), _focus_config(),
+        texts))
+
+    assert asyncio.run(support_repo.current_focus(SUPPORT_CHAT)) == CUSTOMER
+
+    line = _manager_line(bot, text="вітаю, зараз підберемо")
+    asyncio.run(support.answer_without_a_reply(line, _focus_config()))
+
+    queued = _queued_replies()
+    assert [r["chat_id"] for r in queued] == [CUSTOMER]
+    assert "підберемо" in queued[0]["payload"]["text"]
+
+
+def test_the_arriving_request_says_who_the_chat_is_now_answering(db, texts):
+    """She has to be told, and told the name: a bare line reaching the wrong
+    person is a mistake only she can catch."""
+    bot = _ForwardingBot()
+    asyncio.run(support.forward_to_support(
+        _customer_message(bot, message_id=82), _NoState(), _focus_config(),
+        texts))
+
+    to_support = [m["text"] for m in bot.sent if m["chat_id"] == SUPPORT_CHAT]
+    assert any(str(CUSTOMER) in line for line in to_support), to_support
+    assert not any("переслане" in line for line in to_support), (
+        "the old instruction contradicts the mode it now arrives with")
+
+
+def test_the_second_of_two_requests_still_demands_a_reply(db, texts):
+    """The rare hour, and the only place a bare line could reach the wrong
+    person. Auto-focus must not apply here — that would be the feature choosing
+    for her at exactly the moment it cannot know."""
+    bot = _ForwardingBot()
+    asyncio.run(support.forward_to_support(
+        _customer_message(bot, message_id=83), _NoState(), _focus_config(),
+        texts))
+
+    other = CUSTOMER + 9
+    second = _customer_message(bot, message_id=84)
+    second.chat = SimpleNamespace(id=other)
+    second.from_user = SimpleNamespace(id=other, first_name="І", last_name="",
+                                       username="i")
+    asyncio.run(support.forward_to_support(second, _NoState(), _focus_config(),
+                                           texts))
+
+    assert asyncio.run(support_repo.current_focus(SUPPORT_CHAT)) is None, (
+        "the second request must not quietly become the conversation")
+
+    stray = _manager_line(bot, text="ось посилання")
+    asyncio.run(support.answer_without_a_reply(stray, _focus_config()))
+    assert _queued_replies() == [], "a line meant for one of two reached neither"

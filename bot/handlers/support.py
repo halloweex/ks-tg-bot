@@ -113,10 +113,11 @@ async def _relay_to(bot, destination: int, message: Message, op,
     )
     ids.append(forwarded.message_id)
 
-    if with_note:
-        instruction = await bot.send_message(
-            chat_id=destination, text=op.MSG_SUPPORT_REPLY_INSTRUCTION)
-        ids.append(instruction.message_id)
+    # The "reply to this message" instruction used to be sent here, with every
+    # request. It is gone: the caller now says who the chat is answering and
+    # how, and which of those two things to say depends on whether another
+    # conversation is already open — something this function cannot see. Saying
+    # both would contradict itself on the common path, where no reply is needed.
     return ids
 
 
@@ -194,15 +195,35 @@ async def forward_to_support(
         # Only when the focus is on somebody ELSE: a second message from the
         # same customer mid-conversation is the conversation, not a new one.
         focused = await current_focus(destination)
-        if focused is not None and focused != message.chat.id:
+        if focused is None:
+            # **Nobody else is being answered, so this request becomes the
+            # conversation and no reply gesture is needed at all.**
+            #
+            # Safe precisely because it is conditional. The shop takes one to
+            # four requests a day and has had a single hour, ever, with two
+            # different people in it — so this is the ordinary case, and in the
+            # ordinary case there is nothing to confuse it with.
+            await remember_focus(destination, message.chat.id)
+            note = op.MSG_SUPPORT_FOCUS_ON.format(
+                who=await describe(message.from_user, message.chat.id))
+        elif focused != message.chat.id:
+            # The rare hour, and the only place a bare line could reach the
+            # wrong person. Two people are in front of her; which one her next
+            # line belongs to is not the bot's to decide.
             await forget_focus(destination)
+            note = op.MSG_SUPPORT_FOCUS_OFF
+        else:
+            # The same customer again, mid-conversation. Nothing changes and
+            # nothing needs saying: she is already answering this person.
+            note = ""
+
+        if note:
             try:
-                await bot.send_message(destination,
-                                       op.MSG_SUPPORT_FOCUS_OFF)
+                await bot.send_message(destination, note)
             except TelegramAPIError:
                 # The relay itself got through; a notice about it is not worth
                 # failing the delivery that just succeeded.
-                logger.debug("Could not announce the focus reset to {}",
+                logger.debug("Could not announce the focus state to {}",
                              destination)
         # Registered per destination, because the id is only half the identity:
         # see core/repos/support.py. A reply in ANY of these chats reaches the

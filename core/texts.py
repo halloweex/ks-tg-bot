@@ -468,7 +468,7 @@ MSG_SUPPORT_REPLY_INSTRUCTION = "↩️ Відповідайте на перес
 # it. The name matters more than the instruction: a bare line goes to whoever
 # this says, and she is the only one who can notice it is the wrong person.
 MSG_SUPPORT_FOCUS_ON = (
-    "↩️ Далі пишіть без reply, все піде {who}.\n"
+    "↩️ Відповідайте просто текстом, все піде {who}.\n"
     "Щоб відповісти комусь іншому, зробіть reply на його повідомлення."
 )
 # And when a new request arrives while she is mid-conversation: two people are
