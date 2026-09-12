@@ -150,6 +150,12 @@ BUYER_GENDER_DSN=postgresql://ks_readonly:ПАРОЛЬ@ks-postgres:5432/ks
 запускается автодеплоем. Одна строка в `docker-compose.yml` в тот день, когда
 кто-то подтвердит `docker network ls | grep ks-data` глазами.
 
+**На этой установке грант не понадобился** (проверено 2026-09-12):
+`app.buyer_gender` создавал `ks_app`, поэтому `ALTER DEFAULT PRIVILEGES` её
+накрыл, и `has_table_privilege('ks_readonly', ...)` вернул `t` до первой попытки
+чтения. Абзац ниже остаётся для случая, когда таблицу пересоздадут руками из-под
+другой роли — симптом и лечение будут ровно такими.
+
 **Один грант может понадобиться.** `ALTER DEFAULT PRIVILEGES` в
 `postgres/initdb/30-app.sql` выдаёт SELECT только на таблицы, созданные `ks_app`.
 Если `app.buyer_gender` создавал кто-то другой, бот получит
@@ -159,6 +165,10 @@ BUYER_GENDER_DSN=postgresql://ks_readonly:ПАРОЛЬ@ks-postgres:5432/ks
 ```sql
 GRANT SELECT ON app.buyer_gender TO ks_readonly;
 ```
+
+**Включено 2026-09-12.** Первый свип: 15 чатов из 16 — 9 женских, 1 мужской
+(`16162`, `dictionary`/`high`/`given`), 5 без рода (зарегистрированы, не
+заказывали). Шестнадцатый — чат с общим номером, §4.8, в свип не попадает.
 
 **Проверка после включения** — в логе бота на старте:
 
