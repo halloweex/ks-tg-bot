@@ -15,7 +15,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
 from aiogram.methods import EditMessageText, SendMessage
 
 from bot import screen
@@ -548,3 +548,102 @@ def test_when_dropping_the_logos_does_not_help_the_first_refusal_is_raised():
 
     assert "DOCUMENT_INVALID" in raised.value.message
     assert len(calls) == 2
+
+
+# --- what the retry's own refusal means -------------------------------------
+#
+# Found by adversarial review of 544df8a, which introduced it. Three independent
+# lenses reached the same defect, and it is the one the whole net exists to
+# avoid: a duplicate screen on every tap.
+
+
+def test_not_modified_from_the_retry_reaches_the_double_tap_guard():
+    """The sequence, on the day this net exists for.
+
+    Her Premium lapses. She taps a screen carrying a logo: the edit is refused,
+    the retry strips the logos, the screen redraws without them. She taps the
+    same button again — the edit is refused for the logos again, and this time
+    the stripped retry is refused as «message is not modified», because it is
+    byte for byte what is already on screen.
+
+    That is a success from her side. Raising the FIRST refusal in its place
+    makes `render`'s guard miss, and render answers a missed guard by sending a
+    NEW message: one duplicate screen per tap, in the chat the one-live-screen
+    rule exists to keep clean."""
+    on_screen = {"text": "🚚 Доставка"}
+    calls: list[str] = []
+
+    async def make_request(bot, method):
+        calls.append(method.text)
+        if "tg-emoji" in method.text:
+            raise _bad_request("Bad Request: DOCUMENT_INVALID")
+        if method.text == on_screen["text"]:
+            raise _bad_request("Bad Request: message is not modified")
+        on_screen["text"] = method.text
+        return "edited"
+
+    method = EditMessageText(
+        chat_id=1, message_id=2,
+        text=f"{texts.custom_emoji('42', '🚚')} Доставка")
+
+    with pytest.raises(TelegramBadRequest) as raised:
+        asyncio.run(DropCustomEmoji()(make_request, None, method))
+
+    assert "message is not modified" in raised.value.message, (
+        "render's double-tap guard matches this wording and nothing else; "
+        "swapping it for the first refusal costs a duplicate screen per tap")
+    assert len(calls) == 2
+
+
+def test_any_other_refusal_from_the_retry_still_yields_the_first_one():
+    """Unchanged, and the reason the branch above is narrow: if stripping did
+    not help, the logos were not the problem and the first refusal is the true
+    diagnosis."""
+    make_request, calls = _refusing("Bad Request: DOCUMENT_INVALID",
+                                    then="Bad Request: chat not found")
+
+    with pytest.raises(TelegramBadRequest) as raised:
+        asyncio.run(DropCustomEmoji()(make_request, None, _carrying_a_logo()))
+
+    assert "DOCUMENT_INVALID" in raised.value.message
+    assert len(calls) == 2
+
+
+def test_a_rate_limit_on_the_retry_is_not_swapped_for_a_stale_400():
+    """Only TelegramBadRequest is caught around the retry. A pause is a real
+    answer about the second attempt, and the outbox knows how to wait on one —
+    replacing it with the first 400 would cost a message that only needed
+    time."""
+    calls: list = []
+
+    async def make_request(bot, method):
+        calls.append(method)
+        if len(calls) == 1:
+            raise _bad_request("Bad Request: DOCUMENT_INVALID")
+        raise TelegramRetryAfter(method=method, message="Too Many Requests",
+                                 retry_after=7)
+
+    with pytest.raises(TelegramRetryAfter) as raised:
+        asyncio.run(DropCustomEmoji()(make_request, None, _carrying_a_logo()))
+
+    assert raised.value.retry_after == 7
+
+
+def test_the_log_records_the_outcome_and_not_only_the_refusal(caplog):
+    """The commit that widened this promised the log would record the real
+    wording when it finally happens, and logged before the retry — which says
+    only what the exception would have said anyway. What is new is whether
+    stripping HELPED: that is what tells an emoji failure from any other 400."""
+    from loguru import logger
+
+    said: list[str] = []
+    sink = logger.add(lambda m: said.append(str(m)), level="WARNING")
+    try:
+        make_request, _calls = _refusing("Bad Request: DOCUMENT_INVALID")
+        asyncio.run(DropCustomEmoji()(make_request, None, _carrying_a_logo()))
+    finally:
+        logger.remove(sink)
+
+    assert any("DOCUMENT_INVALID" in line for line in said), said
+    assert any("after all" in line for line in said), (
+        "the line must say the strip worked, not merely that a refusal arrived")

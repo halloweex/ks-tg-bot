@@ -54,15 +54,26 @@ class DropCustomEmoji(BaseRequestMiddleware):
     """Send the message without its logos rather than not at all.
 
     Custom emoji are allowed to this bot because the owner has Telegram
-    Premium (core/emoji.py quotes the rule). That is a subscription, and a
-    subscription can lapse — on the day it does, every message carrying a
+    Premium (core/texts.py:100-123 quotes the rule, and notes that the ids are
+    only stable while the pack they come from is). That is a subscription, and
+    a subscription can lapse — on the day it does, every message carrying a
     `<tg-emoji>` would start failing, and the ones that matter here are a
     customer's delivery screen and their info pages.
 
     So the refusal is caught once, at the only place every outgoing call passes
     through, the tags are reduced to the plain emoji they already carry, and the
-    call is made again. Anything else Telegram says is re-raised untouched: this
-    must never turn some other 400 into a silent retry.
+    call is made again.
+
+    **What the retry's own failure means.** If it comes back "not modified", the
+    screen already shows the stripped version and that is a success — it is
+    re-raised so the caller's double-tap guard can see it. Any other refusal
+    means the logos were not the problem, so the FIRST error is raised instead:
+    it is the true diagnosis, and the retry is ours rather than the customer's.
+
+    Only `TelegramBadRequest` is caught around the retry. A rate limit or a
+    network failure on the second attempt is a real answer about the second
+    attempt, and the outbox knows how to wait on those — swapping it for a stale
+    400 would cost a message that was only ever going to need a pause.
     """
 
     async def __call__(
@@ -77,19 +88,38 @@ class DropCustomEmoji(BaseRequestMiddleware):
             plain = _without_custom_emoji(method) if _is_emoji_refusal(exc) else None
             if plain is None:
                 raise
-            # The wording is logged on every retry, deliberately: the vocabulary
-            # of this failure is not documented anywhere and was guessed wrong
-            # once already. The log is how the real one gets recorded when it
-            # finally happens.
-            logger.warning("Retrying without custom emoji after: {} ({})",
-                           exc.message, type(method).__name__)
+            logger.debug("Refused ({}), trying without the logos: {}",
+                         exc.message, type(method).__name__)
             try:
-                return await make_request(bot, plain)
-            except TelegramBadRequest:
+                result = await make_request(bot, plain)
+            except TelegramBadRequest as retried:
+                if _NOT_MODIFIED in retried.message.lower():
+                    # **The one answer from the retry that must survive.**
+                    #
+                    # Once a strip has succeeded, the screen already shows the
+                    # message without its logos. The next identical redraw is
+                    # refused for the logos again, and the stripped retry is
+                    # then refused as "not modified" — because it is, byte for
+                    # byte, what is already there.
+                    #
+                    # That is a success from the customer's side, and
+                    # `bot/screen.py::render` recognises this exact wording as
+                    # its double-tap guard. Replacing it with the first refusal
+                    # makes the guard miss, and render answers by sending a NEW
+                    # message: one duplicate screen per tap, on exactly the day
+                    # this net exists for.
+                    raise
                 # Dropping the logos did not help, so they were not the problem.
                 # The first refusal is the true one and the caller needs it,
                 # not a second-hand version of the same failure.
                 raise exc from None
+            # Logged after rather than before, because the outcome is the only
+            # new knowledge here. "Refused, and stripping fixed it" says the
+            # emoji were the cause; the refusal alone says nothing that the
+            # exception would not have said on its way up.
+            logger.warning("Custom emoji were the problem after all: {} ({})",
+                           exc.message, type(method).__name__)
+            return result
 
 
 # The one refusal that must never trigger a retry without the logos.
