@@ -235,6 +235,72 @@ def test_a_refusal_shows_the_signature_shape_and_never_the_signature():
     assert value not in said, "a signature value reached the log"
 
 
+def _real_points_body(email: str = KNOWN) -> bytes:
+    """The first body Rivo ever sent, redacted by the sampler on 2026-09-16 and
+    kept in tests/fixtures/rivo/. Minified, the way it arrives, with the email
+    pointed at a test chat."""
+    import json
+    from pathlib import Path
+    payload = json.loads((Path(__file__).parent / "fixtures" / "rivo"
+                          / "points_event_created.json").read_text(encoding="utf-8"))
+    payload["customer"]["email"] = email
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
+
+
+def _post_real(body: bytes, headers: dict, sample_dir=None):
+    """POST with Rivo's real headers; return (status, messages queued)."""
+    queue = _Queue()
+    app = build_app(path=PATH, secret=SECRET, chats=_Chats(),
+                    languages=_Languages(), queue=queue, sample_dir=sample_dir)
+
+    async def go() -> int:
+        async with TestClient(TestServer(app)) as client:
+            r = await client.post(PATH, data=body, headers=headers)
+            return r.status
+
+    return asyncio.run(go()), queue.sent
+
+
+def test_the_real_body_names_its_type_in_a_header_and_is_announced():
+    """No `event_type` in Rivo's real body — the type is `rivo-webhook-topic`.
+    Before this was read, the channel verified every call, answered 200, and
+    told no customer anything."""
+    body = _real_points_body()
+    headers = {**_standard(body, key=SECRET.encode()),
+               "rivo-webhook-topic": "points_event/created"}
+    status, sent = _post_real(body, headers)
+    assert status == 200
+    assert sent and sent[0]["chat_id"] == 777, "a real points event reached nobody"
+    assert "100" in sent[0]["text"]
+
+
+def test_without_the_topic_header_the_real_body_is_not_announced():
+    """Pins where the type comes from: the same body, no topic, no message."""
+    body = _real_points_body()
+    status, sent = _post_real(body, _standard(body, key=SECRET.encode()))
+    assert status == 200 and sent == []
+
+
+def test_a_body_that_names_its_own_type_is_not_overridden_by_the_header():
+    """The older API version puts `event_type` in the body; when both are
+    there, the body is the more specific of the two."""
+    body = _body("customer_vip_tier/upgraded")
+    headers = {**_standard(body, key=SECRET.encode()),
+               "rivo-webhook-topic": "points_redemption/created"}
+    status, sent = _post_real(body, headers)
+    assert status == 200 and sent, "the header overrode the body's own type"
+
+
+def test_a_real_points_event_is_not_mistaken_for_an_unreadable_one(tmp_path):
+    """With its type known, the real body is fully readable: no sample, no
+    🧪 message to the admins for every order."""
+    body = _real_points_body()
+    headers = {**_standard(body, key=SECRET.encode()),
+               "rivo-webhook-topic": "points_event/created"}
+    _post_real(body, headers, sample_dir=tmp_path)
+    assert list(tmp_path.glob("*.json")) == []
+
+
 def test_no_signature_is_refused():
     body = _body("balance_transaction/created")
     status, sent = call(body, None)

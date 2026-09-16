@@ -47,6 +47,7 @@ SIGNATURE_HEADER = "rivo-signature"
 WEBHOOK_SIGNATURE_HEADER = "rivo-webhook-signature"
 WEBHOOK_ID_HEADER = "rivo-webhook-id"
 WEBHOOK_TIMESTAMP_HEADER = "rivo-webhook-timestamp"
+WEBHOOK_TOPIC_HEADER = "rivo-webhook-topic"
 
 # Where a body we could not fully use is written down, so that the next real one
 # becomes a fixture instead of a memory.
@@ -423,12 +424,26 @@ def build_app(
                 _shape(received),
                 ", ".join(sorted({name.lower() for name in request.headers})))
             return web.Response(status=401, text="bad signature")
-        logger.info("Rivo webhook verified ({})", scheme)
+        topic = request.headers.get(WEBHOOK_TOPIC_HEADER, "")
+        logger.info("Rivo webhook verified ({}), topic {}", scheme, topic or "-")
 
         try:
             payload = await request.json()
         except ValueError:
             return web.Response(status=400, text="bad json")
+
+        # **The event type is in a header, not in the body.** Rivo's documented
+        # payloads carry `event_type` at the top level, and the parser reads it
+        # there. The first real body Rivo ever sent, on 2026-09-16 13:42 UTC,
+        # had twenty-one top-level keys and no `event_type` among them; the
+        # type came as `rivo-webhook-topic`. Without this line every event was
+        # "unknown" and ignored — the channel verified, answered 200, and never
+        # told a single customer anything. That body is now a fixture.
+        #
+        # Only filled in when absent: a body that names its own type is the
+        # older API version speaking, and it is the more specific of the two.
+        if isinstance(payload, dict) and not payload.get("event_type") and topic:
+            payload["event_type"] = topic
 
         # Kept before anything is decided, because the shape most worth having
         # is not the one that comes back as None. A points event with no signed
