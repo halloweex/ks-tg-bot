@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import asyncio
+import ipaddress
 import json
 import re
 from base64 import b64encode
@@ -28,7 +29,7 @@ from aiogram import Bot
 from aiohttp import web
 from loguru import logger
 
-from bot.alerts import tell_admins_once
+from bot.alerts import tell_admins
 
 from core.adapters.rivo.parse import is_unexplained, parse_event
 from core.ports.outbox import MessageQueue
@@ -70,6 +71,13 @@ ARRIVED = "rivo_webhook_arrived"
 # endpoint answered, the container was healthy, the deploy was green, and every
 # request was being handed to somebody else's application and answered 405.
 SILENCE_AFTER = timedelta(days=3)
+
+# And how long before it says so again. A channel nobody is calling stays that
+# way until somebody goes and looks, so the reminder is weekly rather than
+# hourly: an alert repeating faster than anybody can act on it is how alerts get
+# muted, and a muted alert looks exactly like coverage. Same reasoning as
+# `bot/sync.py`, a longer interval because a dead webhook is not an outage that
+# resolves itself.
 REALERT_AFTER = timedelta(days=7)
 WATCHDOG_INTERVAL_SECONDS = 60 * 60
 _SAFE_NAME = re.compile(r"[^a-z0-9_.-]+")
@@ -157,6 +165,33 @@ def _signature_matches(secret: str, body: bytes, received: str) -> bool:
     return hmac.compare_digest(expected, received)
 
 
+def _detail(request: web.Request) -> dict:
+    """Small, countable facts about one request — never the body, never who.
+
+    The arrival row used to carry `{}`, and a row that says only "somebody
+    called" cannot answer the question it exists for. On 2026-09-16 the single
+    arrival on record turned out to be our own verification curl from eight
+    minutes after the route was restored, and establishing that took the
+    neighbouring project's nginx log, which we do not own and which rotates.
+
+    `from_lan` is the one that settles it: nginx hands us `X-Real-IP`, and a
+    private address there means somebody on the box was testing, while a public
+    one means the internet called. No address is kept — only which of the two it
+    was, which is a fact about the channel rather than about a person.
+    """
+    seen_from = request.headers.get("X-Real-IP", "")
+    try:
+        from_lan = ipaddress.ip_address(seen_from).is_private
+    except ValueError:
+        from_lan = None
+    return {
+        "method": request.method,
+        "signed": SIGNATURE_HEADER in request.headers,
+        "bytes": request.content_length or 0,
+        "from_lan": from_lan,
+    }
+
+
 def build_app(
     *,
     path: str,
@@ -167,7 +202,7 @@ def build_app(
     forms: GenderForm | None = None,
     account_url: str = "",
     sample_dir: Path | None = None,
-    arrived: Callable[[], None] | None = None,
+    arrived: Callable[[dict], None] | None = None,
     kept: Callable[[str], None] | None = None,
 ) -> web.Application:
     """The aiohttp app with one route on it.
@@ -182,8 +217,10 @@ def build_app(
 
     `arrived` is called once per request, before anything is checked, so the
     watchdog below can tell "nobody is calling" from "somebody is calling and
-    being refused". A callable rather than a repository, for the reason at the
-    top of this file: this module knows nothing about databases.
+    being refused". It is handed the small dict `_detail` builds, so that a row
+    in the log can later be told apart from our own curl. A callable rather than
+    a repository, for the reason at the top of this file: this module knows
+    nothing about databases.
 
     `kept` is called with the path of a sample that was just written, once per
     shape. It exists because a file on a server that nobody is told about is
@@ -191,14 +228,26 @@ def build_app(
     """
 
     async def handle(request: web.Request) -> web.Response:
+        # First line of the function, deliberately, and above every check
+        # including the size guard and the method. A forged, oversized or
+        # wrong-method request is still proof that the path from the internet
+        # reaches this process, and that is the only thing the watchdog is
+        # asking about. The size guard used to sit above this, which made a
+        # body too large indistinguishable from a call that never came.
+        if arrived is not None:
+            arrived(_detail(request))
+
+        if request.method != "POST":
+            # This route is registered for every method on purpose. A GET here
+            # used to be answered by aiohttp's own 405 without ever reaching
+            # this function, leaving no trace anywhere — and 405 is exactly what
+            # the neighbouring project's FastAPI answers when our route is
+            # missing, which is how a 405 was read on 11.09. Those two must not
+            # look the same from the outside.
+            return web.Response(status=405, text="post only")
+
         if request.content_length and request.content_length > MAX_BODY:
             return web.Response(status=413, text="too large")
-
-        # Before the signature, deliberately. A forged request is still proof
-        # that the path from the internet reaches this process, and that is the
-        # only thing the watchdog is asking about.
-        if arrived is not None:
-            arrived()
 
         body = await request.read()
         received = request.headers.get(SIGNATURE_HEADER, "")
@@ -243,7 +292,9 @@ def build_app(
         return web.Response(text="ok")
 
     app = web.Application()
-    app.router.add_post(path, handle)
+    # Every method, not just POST: see the note in `handle`. What is watched is
+    # whether anything reaches this process at all.
+    app.router.add_route("*", path, handle)
     # Not on the secret path: something has to be pingable without knowing it.
     app.router.add_get("/health", health)
     return app
@@ -281,6 +332,7 @@ async def watch_for_silence(
         return
 
     since = started or datetime.now(timezone.utc)
+    alerted_at: datetime | None = None
     logger.info("Rivo webhook watchdog started (alerts after {})", SILENCE_AFTER)
 
     while True:
@@ -293,10 +345,19 @@ async def watch_for_silence(
             quiet_for = now - quiet_since
             if quiet_for < SILENCE_AFTER:
                 continue
-            await tell_admins_once(
-                bot, admin_ids, "rivo-silent",
+            if alerted_at is not None and now - alerted_at < REALERT_AFTER:
+                continue
+            # The number told to the admins is the whole gap since the last
+            # arrival, not the part of it this process happened to be awake
+            # for. `quiet_for` decides whether to speak, and starts at the
+            # deploy on purpose; but the stamp is printed right next to the
+            # number, and a number that disagrees with the stamp beside it
+            # teaches the reader to believe neither.
+            reported = (now - seen_at) if seen_at else quiet_for
+            await tell_admins(
+                bot, admin_ids,
                 "🔌 <b>Nothing has called the loyalty webhook</b> for "
-                f"{quiet_for.days} day(s)"
+                f"{reported.days} day(s)"
                 + (f" (last arrival {stamp} UTC)." if stamp
                    else " — and nothing ever has.")
                 + "\n\nRivo publishes constantly, so this is not a quiet week. "
@@ -306,6 +367,7 @@ async def watch_for_silence(
                 "created in Rivo under Settings → Webhooks.\n\n"
                 "A request with a wrong signature would count as an arrival, so "
                 "this means nobody is calling at all.")
+            alerted_at = now
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 — the watcher must outlive a bad poll

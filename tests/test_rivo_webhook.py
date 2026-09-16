@@ -16,7 +16,7 @@ from base64 import b64encode
 
 from aiohttp.test_utils import TestClient, TestServer
 
-from bot.webhooks import build_app
+from bot.webhooks import MAX_BODY, build_app
 from core.i18n import Texts
 
 SECRET = "b1778e9a7deda7d3a800437e8611d9c0"
@@ -422,9 +422,16 @@ def test_sampling_off_is_the_default(tmp_path):
 # everything it monitored was working.
 
 
-def _watch(last: str | None, *, up_for_days: float, admin_ids=(1,)):
-    """Run one poll of the watchdog and return what the admins were told."""
-    from datetime import datetime, timedelta, timezone
+def _watch(last: str | None, *, up_for_days: float, admin_ids=(1,),
+           rounds: int = 1, advance=None):
+    """Run `rounds` polls of the watchdog and return what the admins were told.
+
+    `advance` moves the watchdog's clock by that much before every poll after
+    the first, which is what a test about repeating — or not repeating — needs:
+    real time does not pass inside a test, and sleeping for a week to find out
+    whether the reminder comes back is not a test anybody runs.
+    """
+    from datetime import datetime as real_datetime, timedelta, timezone
 
     from bot import alerts, webhooks as mod
 
@@ -437,27 +444,51 @@ def _watch(last: str | None, *, up_for_days: float, admin_ids=(1,)):
     async def last_arrival():
         return last
 
+    box = {"now": real_datetime.now(timezone.utc)}
+
+    class _Clock(real_datetime):
+        """Subclassed rather than replaced wholesale: `_read_stamp` reaches for
+        `datetime.fromisoformat` through the same module global, and a stand-in
+        with only `now` on it would make every stamp unreadable — which is a
+        state this watchdog has its own behaviour for, and would quietly be the
+        state under test instead of the one the test names."""
+
+        @classmethod
+        def now(cls, tz=None):
+            return box["now"]
+
     async def go() -> None:
-        # One tick, then out: the loop is `sleep` then poll, so a zero sleep and
-        # a cancel on the second pass exercises exactly one poll.
+        # The loop is `sleep` then poll, so a zero sleep and a cancel one pass
+        # past the last requested round exercises exactly `rounds` polls.
         real_sleep = asyncio.sleep
         calls = {"n": 0}
 
         async def fake_sleep(_seconds):
             calls["n"] += 1
-            if calls["n"] > 1:
+            if calls["n"] > rounds:
                 raise asyncio.CancelledError
+            if advance is not None and calls["n"] > 1:
+                box["now"] = box["now"] + advance
             await real_sleep(0)
 
         mod.asyncio.sleep = fake_sleep
+        mod.datetime = _Clock
+        # `bot.alerts` keeps its own clock, and moving one without the other is
+        # how a test passes for the wrong reason: with real time frozen inside
+        # a test run, the shared ten-minute suppression in `tell_admins_once`
+        # swallows every repeat by itself, and a watchdog with no gate of its
+        # own looks identical to one that has it.
+        alerts.datetime = _Clock
         try:
             await mod.watch_for_silence(
                 _Bot(), list(admin_ids), last_arrival,
-                started=datetime.now(timezone.utc) - timedelta(days=up_for_days))
+                started=box["now"] - timedelta(days=up_for_days))
         except asyncio.CancelledError:
             pass
         finally:
             mod.asyncio.sleep = real_sleep
+            mod.datetime = real_datetime
+            alerts.datetime = real_datetime
 
     alerts._last_told.clear()
     asyncio.run(go())
@@ -521,6 +552,49 @@ def test_with_no_admins_it_declines_to_run_rather_than_alerting_nobody():
     assert _watch(_ago(30), up_for_days=30, admin_ids=()) == []
 
 
+def test_a_dead_channel_is_not_reported_every_hour():
+    """The watchdog polls hourly and the channel it watches stays dead until
+    somebody goes and looks, so without a gate of its own it would send the
+    same alert every hour — which is how an alert gets muted, and a muted alert
+    is indistinguishable from coverage.
+
+    This is what REALERT_AFTER is for. It sat in this module unread for its
+    first weeks, and nothing failed: every other test here runs a single poll,
+    and a single poll cannot tell a gate from no gate.
+    """
+    from datetime import timedelta
+
+    told = _watch(_ago(30), up_for_days=30, rounds=5,
+                  advance=timedelta(hours=1))
+    assert len(told) == 1, f"said it {len(told)} times in five hours"
+
+
+def test_it_says_it_again_after_the_reminder_interval():
+    """Once and then never again is the other way to lose an alert."""
+    from datetime import timedelta
+
+    from bot.webhooks import REALERT_AFTER
+
+    told = _watch(_ago(30), up_for_days=30, rounds=2,
+                  advance=REALERT_AFTER + timedelta(minutes=1))
+    assert len(told) == 2
+
+
+def test_the_day_count_agrees_with_the_stamp_printed_beside_it():
+    """Whether to speak is measured from the later of the last arrival and this
+    process starting — a fresh deploy must not alert about days it was not
+    running for. What gets *said* is the whole gap, because the last-arrival
+    stamp is printed right next to the number, and a number that contradicts
+    the stamp beside it teaches the reader to believe neither.
+
+    The live alert of 2026-09-16 said three days next to a stamp five days old:
+    three was the age of the deploy.
+    """
+    told = _watch(_ago(10), up_for_days=4, rounds=1)
+    assert told, "ten days of silence went unreported"
+    assert "for 10 day(s)" in told[0], told[0]
+
+
 def test_a_request_with_a_wrong_signature_still_counts_as_an_arrival():
     """Load-bearing, and a mutation caught it missing: moving the mark below
     the signature check passed every other test here.
@@ -531,10 +605,10 @@ def test_a_request_with_a_wrong_signature_still_counts_as_an_arrival():
     is calling and being refused" look identical. Those have different causes:
     the first is a route or a missing webhook, the second is a rotated signing
     key."""
-    arrivals: list[int] = []
+    arrivals: list[dict] = []
     app = build_app(path=PATH, secret=SECRET, chats=_Chats(),
                     languages=_Languages(), queue=_Queue(),
-                    arrived=lambda: arrivals.append(1))
+                    arrived=arrivals.append)
     body = _points_body(points_diff=22)
 
     async def go() -> int:
@@ -544,8 +618,75 @@ def test_a_request_with_a_wrong_signature_still_counts_as_an_arrival():
             return r.status
 
     assert asyncio.run(go()) == 401
-    assert arrivals == [1], (
+    assert len(arrivals) == 1, (
         "a refused request is still proof the path reaches this process")
+
+
+def _arrivals_for(method: str, *, headers=None, data=None):
+    """Send one request to the secret path and return (status, arrivals)."""
+    seen: list[dict] = []
+    app = build_app(path=PATH, secret=SECRET, chats=_Chats(),
+                    languages=_Languages(), queue=_Queue(),
+                    arrived=seen.append)
+
+    async def go() -> int:
+        async with TestClient(TestServer(app)) as client:
+            r = await client.request(method, PATH, data=data,
+                                     headers=headers or {})
+            return r.status
+
+    return asyncio.run(go()), seen
+
+
+def test_a_get_on_the_secret_path_counts_and_is_not_a_missing_route():
+    """405 is the answer the neighbouring project's application gives when our
+    route is gone from their nginx — that is how the route was found missing on
+    11.09. Our own framework answered a GET on the right path with the same 405
+    and recorded nothing, so the one number the diagnosis turns on meant two
+    opposite things. Now the request is counted before the method is judged."""
+    status, seen = _arrivals_for("GET")
+    assert status == 405
+    assert len(seen) == 1, "a GET reached this process and left no trace"
+    assert seen[0]["method"] == "GET"
+
+
+def test_a_body_too_large_counts_as_an_arrival():
+    """The size guard used to sit above the mark, so a body over the cap was a
+    call that never happened as far as the watchdog was concerned — the one
+    shape of real traffic most likely to be refused."""
+    status, seen = _arrivals_for(
+        "POST", data=b"x" * (MAX_BODY + 1),
+        headers={"rivo-signature": "wrong"})
+    assert status == 413
+    assert len(seen) == 1
+    assert seen[0]["bytes"] > MAX_BODY
+
+
+def test_the_arrival_says_enough_to_tell_a_real_call_from_our_own():
+    """An arrival row of `{}` cost a morning: the single arrival on record was
+    our own verification curl, and proving it took the neighbouring project's
+    nginx log — which we do not own and which rotates."""
+    _, seen = _arrivals_for("POST", data=b"{}",
+                            headers={"rivo-signature": "wrong",
+                                     "X-Real-IP": "172.18.0.1"})
+    assert seen[0] == {"method": "POST", "signed": True, "bytes": 2,
+                       "from_lan": True}
+
+    # A genuinely global address: Python counts the documentation ranges
+    # (203.0.113.0/24 and friends) as private, so the obvious example address
+    # would have made this assertion pass for the wrong reason.
+    _, outside = _arrivals_for("POST", data=b"{}",
+                               headers={"X-Real-IP": "8.8.8.8"})
+    assert outside[0]["from_lan"] is False, (
+        "a call from the internet must not look like a test from the box")
+    assert outside[0]["signed"] is False
+
+
+def test_an_unknown_caller_address_is_neither_lan_nor_internet():
+    """Absent or unparseable, it must not silently read as one of the two: the
+    whole value of the field is that it separates them."""
+    _, seen = _arrivals_for("POST", data=b"{}")
+    assert seen[0]["from_lan"] is None
 
 
 def test_a_kept_sample_is_announced_once_and_only_when_new(tmp_path):

@@ -210,7 +210,8 @@ async def main() -> None:
                         # fixture.
                         sample_dir=(Path(config.env.bot_db_path).parent
                                     / "rivo-samples"),
-                        arrived=lambda: track(None, webhooks.ARRIVED),
+                        arrived=lambda detail: track(
+                            None, webhooks.ARRIVED, **detail),
                         # One message per never-seen shape. Rivo is the only
                         # service here with no recorded payload, and that gap
                         # is how a null in a field nobody had seen cost a
