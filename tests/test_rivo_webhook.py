@@ -126,10 +126,9 @@ def _call_with(secret: str, body: bytes, signature: str) -> int:
     return asyncio.run(go())
 
 
-def test_each_webhook_can_sign_with_its_own_key():
-    """Rivo gives every webhook its own Secret Token and allows one webhook
-    per event type, so the four events this bot reads arrive under four keys.
-    One configured key would verify one of them and refuse the other three."""
+def test_any_key_in_the_list_verifies():
+    """Rivo's cabinet shows one key for the account, but the list is how a key
+    is rotated without a gap: the new one beside the old until Rivo switches."""
     body = _body("balance_transaction/created")
     keys = "first-key,second-key, third-key "
     for key in ("first-key", "second-key", "third-key"):
@@ -176,26 +175,183 @@ def test_the_headers_rivo_really_sends_are_verified():
     body = _body("balance_transaction/created")
     said = _said_info(lambda: call_with_headers(
         body, _standard(body, key=SECRET.encode())))
-    assert "verified (key=text content=id.ts.body base64)" in said, said
+    assert "verified (rivo-webhook-signature, path #1/1, key #1/1)" in said, said
 
 
-def test_every_reading_of_the_key_is_still_the_key():
-    """Rivo shows 64 hex characters and says nothing about how its signer reads
-    them. Each reading is tried; each is still the secret."""
+def test_only_the_scheme_rivo_was_measured_to_use_verifies():
+    """While the scheme was unknown the verifier tried several constructions and
+    logged which one matched. Eight test webhooks and eight real events matched
+    one — the key as text, `id.timestamp.body`, base64 — and the rest are gone.
+    Each of them, signed with the right key, is now refused."""
     body = _body("balance_transaction/created")
-    for key, label in ((SECRET.encode(), "text"),
-                       (bytes.fromhex(SECRET), "hex")):
-        status = call_with_headers(body, _standard(body, key=key))
-        assert status == 200, label
+    ts, wid = "1789563071", "msg_2mY8"
+    key = SECRET.encode()
+
+    def sig(k, content, enc="base64"):
+        d = hmac.new(k, content, hashlib.sha256).digest()
+        return b64encode(d).decode() if enc == "base64" else d.hex()
+
+    retired = {
+        "key read as hex": sig(bytes.fromhex(SECRET), wid.encode() + b"." + ts.encode() + b"." + body),
+        "ts.body": sig(key, ts.encode() + b"." + body),
+        "body alone under the new header": sig(key, body),
+        "hex encoding": sig(key, wid.encode() + b"." + ts.encode() + b"." + body, "hex"),
+    }
+    for name, value in retired.items():
+        headers = {"rivo-webhook-signature": "v1," + value,
+                   "rivo-webhook-id": wid, "rivo-webhook-timestamp": ts}
+        assert call_with_headers(body, headers) == 401, name
+
+    # With the id present, so the refusal is about the scheme and not about a
+    # missing header.
+    stripe = f"t={ts},v1=" + sig(key, ts.encode() + b"." + body, "hex")
+    assert call_with_headers(body, {"rivo-webhook-signature": stripe,
+                                    "rivo-webhook-id": wid,
+                                    "rivo-webhook-timestamp": ts}) == 401
 
 
-def test_a_stripe_style_header_is_read_too():
+def test_a_bare_signature_without_the_v1_label_is_read_too():
+    """Only the verdict was ever logged, never the header's spelling, so both
+    Standard Webhooks' `v1,<sig>` and a bare signature are read."""
     body = _body("balance_transaction/created")
-    ts = "1789563071"
-    digest = hmac.new(SECRET.encode(), ts.encode() + b"." + body,
-                      hashlib.sha256).hexdigest()
-    assert call_with_headers(body, {"rivo-webhook-signature": f"t={ts},v1={digest}",
-                                    "rivo-webhook-timestamp": ts}) == 200
+    headers = _standard(body, key=SECRET.encode(), label="")
+    assert call_with_headers(body, headers) == 200
+
+
+def test_the_new_signature_without_its_id_or_timestamp_is_refused():
+    """Both are inside what is signed; a request missing either cannot be
+    checked and is not waved through."""
+    body = _body("balance_transaction/created")
+    for drop in ("rivo-webhook-id", "rivo-webhook-timestamp"):
+        headers = _standard(body, key=SECRET.encode())
+        del headers[drop]
+        assert call_with_headers(body, headers) == 401, drop
+
+
+def _status_at(path_config: str, request_path: str) -> int:
+    app = build_app(path=path_config, secret=SECRET, chats=_Chats(),
+                    languages=_Languages(), queue=_Queue())
+    body = _body("balance_transaction/created")
+
+    async def go() -> int:
+        async with TestClient(TestServer(app)) as client:
+            r = await client.post(request_path, data=body,
+                                  headers={"rivo-signature": _sign(body)})
+            return r.status
+
+    return asyncio.run(go())
+
+
+def test_two_paths_both_work_while_the_cabinet_is_being_edited():
+    """The path leaked, and changing it means editing the URL in every Rivo
+    webhook by hand. The new path and the old one both answer until that is
+    done; with one path, whatever Rivo sent in between would be lost."""
+    config = "/rivo/new-secret-segment,/rivo/old-secret-segment"
+    assert _status_at(config, "/rivo/new-secret-segment") == 200
+    assert _status_at(config, "/rivo/old-secret-segment") == 200
+    assert _status_at(config, "/rivo/somebody-guessing") == 404
+
+
+def test_a_path_outside_rivo_is_never_a_route():
+    """`/rivo/` is what the neighbouring nginx forwards; the rule keeps a stray
+    `/` or `/health` in the file from becoming a route that takes webhooks."""
+    config = "/rivo/real-segment, /, /health, /rivo/, ,"
+    assert _status_at(config, "/rivo/real-segment") == 200
+    for stray in ("/", "/rivo/"):
+        assert _status_at(config, stray) in (404, 405), stray
+
+
+def test_a_valid_documented_signature_does_not_rescue_a_bad_new_one():
+    """The scheme is chosen by the header. Both use the same key; a request that
+    carries a garbage `rivo-webhook-signature` must not pass on a valid
+    `rivo-signature` sent beside it."""
+    body = _body("balance_transaction/created")
+    headers = {"rivo-webhook-signature": "v1,AAAA", "rivo-webhook-id": "x",
+               "rivo-webhook-timestamp": "1", "rivo-signature": _sign(body)}
+    assert call_with_headers(body, headers) == 401
+
+
+def test_a_key_rotation_shows_which_key_rivo_is_using():
+    """The rotation of the key goes through the scheme Rivo really uses, and the
+    old key is only removed once the log shows Rivo signing with the new one."""
+    body = _body("balance_transaction/created")
+
+    async def go(key: bytes) -> int:
+        # One app per event loop: aiohttp binds an application to the loop
+        # that first runs it.
+        app = build_app(path=PATH, secret="new-key,old-key", chats=_Chats(),
+                        languages=_Languages(), queue=_Queue())
+        async with TestClient(TestServer(app)) as client:
+            r = await client.post(PATH, data=body, headers=_standard(body, key=key))
+            return r.status
+
+    for key, number in ((b"old-key", "key #2/2"), (b"new-key", "key #1/2")):
+        said = _said_info(lambda: asyncio.run(go(key)))
+        assert number in said, said
+
+
+def test_a_header_that_is_not_utf8_is_refused_not_a_crash():
+    """It used to be a 500 with a traceback. A signature that cannot even be
+    encoded is a signature that does not match."""
+    from bot.webhooks import _verify
+    assert _verify(("k",), b"{}", webhook_signature="v1,\udce9", documented_signature="",
+                   webhook_id="x", timestamp="1") is None
+    assert _verify(("k",), b"{}", webhook_signature="", documented_signature="\udce9",
+                   webhook_id="", timestamp="") is None
+
+
+def test_a_path_pasted_twice_does_not_take_the_bot_down():
+    """aiohttp raises when the same route is registered twice, at startup, and
+    that is the whole bot — Telegram polling included — in a restart loop. The
+    easiest mistake to make during a rotation."""
+    config = "/rivo/same-segment, /rivo/same-segment"
+    assert _status_at(config, "/rivo/same-segment") == 200
+
+
+def test_pattern_syntax_in_a_path_is_never_a_wildcard():
+    """`/rivo/{x}` would be an aiohttp pattern matching every path under the
+    prefix; a quote, `?`, `#`, `%` or a trailing slash would be a route nothing
+    ever reaches. None of them becomes a route."""
+    config = "/rivo/{x},/rivo/real-segment,/rivo/typo/,/rivo/a?b,/rivo/\"quoted\""
+    assert _status_at(config, "/rivo/real-segment") == 200
+    assert _status_at(config, "/rivo/anything-at-all") == 404, "a pattern became a wildcard"
+
+
+def test_health_still_answers_beside_the_secret_paths():
+    app = build_app(path="/rivo/one,/rivo/two", secret=SECRET, chats=_Chats(),
+                    languages=_Languages(), queue=_Queue())
+
+    async def go() -> int:
+        async with TestClient(TestServer(app)) as client:
+            return (await client.get("/health")).status
+
+    assert asyncio.run(go()) == 200
+
+
+def test_the_secret_paths_never_reach_the_log():
+    """Counts, never values — at startup, on a refusal and on a verified call."""
+    body = _body("balance_transaction/created")
+    config = "/rivo/very-secret-new,/rivo/very-secret-old,/rivo/{bad}"
+    app_calls = []
+
+    def run():
+        app = build_app(path=config, secret=SECRET, chats=_Chats(),
+                        languages=_Languages(), queue=_Queue())
+
+        async def go():
+            async with TestClient(TestServer(app)) as client:
+                await client.post("/rivo/very-secret-old", data=body,
+                                  headers=_standard(body, key=SECRET.encode()))
+                await client.post("/rivo/very-secret-new", data=body,
+                                  headers={"rivo-webhook-signature": "v1,AAAA",
+                                           "rivo-webhook-id": "x",
+                                           "rivo-webhook-timestamp": "1"})
+        asyncio.run(go())
+
+    said = _said_info(run)
+    assert "serves 2 path(s)" in said and "path #2/2" in said, said
+    for secret in ("very-secret-new", "very-secret-old", "{bad}"):
+        assert secret not in said, f"{secret!r} reached the log"
 
 
 def test_the_new_headers_with_a_foreign_key_are_refused():

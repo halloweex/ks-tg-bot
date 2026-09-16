@@ -88,10 +88,12 @@ ALERTED = "rivo_silence_alerted"
 # publishes about thirty kinds of event for every customer of the shop, so days
 # of nothing is not a quiet week — it is a channel that is not connected.
 #
-# The number to beat is eleven: that is how long the route was gone in
-# September 2026 before anybody noticed, and nothing anywhere said a word. The
-# endpoint answered, the container was healthy, the deploy was green, and every
-# request was being handed to somebody else's application and answered 405.
+# The number to beat is five: that is how long the route was gone in September
+# 2026 — lost on the 6th, found on the 11th — before anybody noticed, and nothing
+# anywhere said a word. The endpoint answered, the container was healthy, the
+# deploy was green, and every request was being handed to somebody else's
+# application and answered 405. (Eleven, a number that circulated for a while,
+# is the days between setting the route up and losing it.)
 SILENCE_AFTER = timedelta(days=3)
 
 # And how long before it says so again. A channel nobody is calling stays that
@@ -211,6 +213,49 @@ MAX_BODY = 64 * 1024
 MAX_AGENT = 32
 
 
+_NOT_IN_A_PATH = frozenset('{}?#%"\' \t')
+
+
+def _paths(raw: str) -> tuple[str, ...]:
+    """The secret paths in `RIVO_WEBHOOK_PATH`, comma-separated.
+
+    Plural for the same reason a key can be: rotation without a gap. The path is
+    half of the lock, it leaked into a Telegram chat on 2026-09-16, and changing
+    it means changing the URL in every Rivo webhook by hand. With one path, the
+    events Rivo sends between the bot's restart and the last URL edited in the
+    cabinet land on a path that no longer exists and are lost. With two — the new
+    one first, the old one after it — both work until the cabinet is done, and
+    the old one is removed afterwards.
+
+    **Only `/rivo/…` entries are routes.** That is the prefix the neighbouring
+    nginx forwards, and the rule keeps a stray `/` or `/health` in the file from
+    becoming a route that answers anything. Blank entries are dropped.
+    """
+    parts = [part.strip() for part in raw.split(",") if part.strip()]
+    # Duplicates collapse, order kept. aiohttp refuses to register the same
+    # route twice with a RuntimeError at startup, and that takes the whole bot
+    # down — Telegram polling included — into a restart loop; a path pasted
+    # twice during a rotation is an easy mistake to make.
+    #
+    # Characters that are aiohttp pattern syntax or cannot be a literal path
+    # are refused: `/rivo/{x}` would become a wildcard over the whole prefix,
+    # and a quote, `?`, `#`, `%`, space or trailing slash would make a route
+    # that nothing ever reaches — a rotation that looks done and loses events.
+    kept = tuple(dict.fromkeys(
+        p for p in parts
+        if p.startswith("/rivo/") and len(p) > len("/rivo/")
+        and not p.endswith("/") and not any(c in p for c in _NOT_IN_A_PATH)))
+    if len(kept) != len(parts):
+        # How many, never which: these are secrets.
+        logger.warning("RIVO_WEBHOOK_PATH: {} entr(y/ies) ignored or duplicated "
+                       "— a path must start with /rivo/ and be a plain literal",
+                       len(parts) - len(kept))
+    if not kept:
+        logger.error("RIVO_WEBHOOK_PATH has no usable path: the webhook answers "
+                     "nothing, and only the silence watchdog will say so")
+    return kept
+
+
 def _secrets(raw: str) -> tuple[str, ...]:
     """The signing keys in `RIVO_WEBHOOK_SECRET`.
 
@@ -227,35 +272,13 @@ def _secrets(raw: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in raw.split(",") if part.strip())
 
 
-def _keys(secret: str) -> list[tuple[str, bytes]]:
-    """Every reasonable reading of one secret as HMAC key bytes, labelled.
-
-    Rivo's cabinet shows the key as 64 hex characters, and nothing says how its
-    signer reads them: as the text itself (what the old documented scheme did),
-    as the 32 bytes the hex spells, or base64-decoded the way Standard Webhooks
-    libraries read a `whsec_` secret. Each reading is still the secret — none of
-    them is a key anybody else holds.
-    """
-    keys = [("text", secret.encode("utf-8"))]
-    try:
-        keys.append(("hex", bytes.fromhex(secret)))
-    except ValueError:
-        pass
-    try:
-        keys.append(("base64", b64decode(secret.removeprefix("whsec_"),
-                                         validate=True)))
-    except (ValueError, binascii.Error):
-        pass
-    return [(label, key) for label, key in keys if key]
-
-
 def _offered(value: str) -> list[str]:
     """The signatures a header value carries, with any scheme labels removed.
 
-    Covers the three spellings in use: a bare signature, Standard Webhooks'
-    space-separated `v1,<sig>` list, and Stripe's `t=…,v1=<sig>`. A base64
-    signature ends in `=` padding, so a piece is only read as `label=value`
-    when the label is one of the known ones.
+    A bare signature or Standard Webhooks' space-separated `v1,<sig>` list —
+    which of the two Rivo writes was never logged, since only the verdict was,
+    so both are read. A base64 signature ends in `=` padding, so a piece is
+    only read as `label=value` when the label is one of the known ones.
     """
     found = [value.strip()]
     for token in value.split():
@@ -268,46 +291,62 @@ def _offered(value: str) -> list[str]:
     return [f for f in dict.fromkeys(found) if f]
 
 
-def _verify(secrets: tuple[str, ...], body: bytes, signature: str,
-            webhook_id: str, timestamp: str) -> str | None:
-    """Which signing scheme this request satisfies, or None for none of them.
+def _verify(secrets: tuple[str, ...], body: bytes, *, webhook_signature: str,
+            documented_signature: str, webhook_id: str,
+            timestamp: str) -> tuple[str, int] | None:
+    """Which of Rivo's two schemes this request satisfies, and with which key.
 
-    **Why several.** Rivo documents one scheme — base64 HMAC-SHA256 of the raw
-    body under `rivo-signature` — and on 2026-09-16 sent something else: a
-    `rivo-webhook-signature` beside an id and a timestamp, the Standard Webhooks
-    pattern, which usually signs `id.timestamp.body` and not the body alone. Its
-    exact construction is written down nowhere public, and the one honest way to
-    find it without handling the key is to let the process that already holds
-    the key try the plausible constructions and say which one matched.
+    Returns `(scheme, key number)` — the number counts from 1 in the order of
+    `RIVO_WEBHOOK_SECRET`, so a key rotation can see which key Rivo is using
+    before the old one is removed — or None.
 
-    **Why that is not weaker.** Every candidate is HMAC-SHA256 keyed with the
-    configured secret over content that contains the whole body. Forging any of
-    them needs the key; offering several only multiplies a forger's odds by the
-    number of candidates, against 2^256. The match is reported by label so that
-    this can later be narrowed to the one scheme Rivo actually uses.
+    **What Rivo sends**, measured on 2026-09-16: `rivo-webhook-signature` with a
+    `rivo-webhook-id` and a `rivo-webhook-timestamp` — the Standard Webhooks
+    convention — signed as HMAC-SHA256 over `id.timestamp.body`, keyed with the
+    secret exactly as the cabinet shows it, base64. None of this is on Rivo's
+    public pages. It was found by letting this process, which already holds the
+    key, try the plausible constructions and log which one matched: eight test
+    webhooks and then eight real `balance_transaction/created` events all
+    matched this one and no other. The candidates are gone; this is the scheme.
 
-    Every combination is computed every time, with no early return: which one
-    matched is none of a caller's business, and the clock would tell it.
+    **What Rivo documents**: `rivo-signature`, HMAC-SHA256 over the body alone,
+    base64. Never observed, still accepted — but **only when the request carries
+    no `rivo-webhook-signature` at all.** The scheme is chosen by the header, not
+    by trying both: both use the same key, and a request carrying a valid
+    documented signature beside a garbage new one must not pass on the half the
+    sender chose.
+
+    The id and the timestamp are inside what is signed, so neither can be moved
+    without breaking the signature. The topic header is not, and neither the
+    timestamp's age nor a repeated id is checked; see docs/loyalty-webhook.md.
+
+    Every key is tried every time, with no early return. A header that is not
+    valid UTF-8 is a signature that does not match, not a 500.
     """
-    offered = _offered(signature)
-    contents = [("body", body)]
-    if timestamp:
-        contents.append(("ts.body", timestamp.encode() + b"." + body))
-        if webhook_id:
-            contents.append(("id.ts.body", webhook_id.encode() + b"."
-                             + timestamp.encode() + b"." + body))
-    scheme = None
-    for secret in secrets:
-        for key_label, key in _keys(secret):
-            for content_label, content in contents:
-                digest = hmac.new(key, content, hashlib.sha256).digest()
-                for encoding, expected in (("base64", b64encode(digest).decode()),
-                                           ("hex", digest.hex())):
-                    for candidate in offered:
-                        if hmac.compare_digest(expected.encode(),
-                                               candidate.encode()) and scheme is None:
-                            scheme = f"key={key_label} content={content_label} {encoding}"
-    return scheme
+    try:
+        if webhook_signature:
+            if not (webhook_id and timestamp):
+                return None
+            signed = (webhook_id.encode() + b"." + timestamp.encode() + b"."
+                      + body)
+            offered = [c.encode() for c in _offered(webhook_signature)]
+            scheme = WEBHOOK_SIGNATURE_HEADER
+        elif documented_signature:
+            signed = body
+            offered = [documented_signature.encode()]
+            scheme = SIGNATURE_HEADER
+        else:
+            return None
+    except UnicodeError:
+        return None
+    matched = None
+    for number, secret in enumerate(secrets, start=1):
+        expected = b64encode(hmac.new(secret.encode("utf-8"), signed,
+                                      hashlib.sha256).digest())
+        for candidate in offered:
+            if hmac.compare_digest(expected, candidate) and matched is None:
+                matched = (scheme, number)
+    return matched
 
 
 def _shape(signature: str) -> str:
@@ -384,7 +423,7 @@ def build_app(
     arrived: Callable[[dict], None] | None = None,
     kept: Callable[[str], None] | None = None,
 ) -> web.Application:
-    """The aiohttp app with one route on it.
+    """The aiohttp app: one route per configured secret path, and `/health`.
 
     Everything it needs is passed in: this module knows Rivo's signature and
     Telegram's absence, and nothing about databases.
@@ -407,6 +446,7 @@ def build_app(
     """
 
     secrets = _secrets(secret)
+    paths = _paths(path)
     # How many, never which: the one line that lets somebody who just edited
     # the file confirm the bot read all of it.
     logger.info("Rivo webhook accepts {} signing key(s)", len(secrets))
@@ -436,10 +476,13 @@ def build_app(
         body = await request.read()
         received = (request.headers.get(WEBHOOK_SIGNATURE_HEADER)
                     or request.headers.get(SIGNATURE_HEADER, ""))
-        scheme = _verify(secrets, body, received,
-                         request.headers.get(WEBHOOK_ID_HEADER, ""),
-                         request.headers.get(WEBHOOK_TIMESTAMP_HEADER, "")
-                         ) if received else None
+        scheme = _verify(
+            secrets, body,
+            webhook_signature=request.headers.get(WEBHOOK_SIGNATURE_HEADER, ""),
+            documented_signature=request.headers.get(SIGNATURE_HEADER, ""),
+            webhook_id=request.headers.get(WEBHOOK_ID_HEADER, ""),
+            timestamp=request.headers.get(WEBHOOK_TIMESTAMP_HEADER, ""),
+        ) if received else None
         if scheme is None:
             # Deliberately terse and deliberately 401: an attacker learns
             # nothing about which half was wrong. The log is another matter —
@@ -457,7 +500,13 @@ def build_app(
                 ", ".join(sorted({name.lower() for name in request.headers})))
             return web.Response(status=401, text="bad signature")
         topic = request.headers.get(WEBHOOK_TOPIC_HEADER, "")
-        logger.info("Rivo webhook verified ({}), topic {}", scheme, topic or "-")
+        # Which path and which key, by number and never by value: removing the
+        # old path or the old key after a rotation is otherwise done blind.
+        path_number = (paths.index(request.path) + 1
+                       if request.path in paths else 0)
+        logger.info("Rivo webhook verified ({}, path #{}/{}, key #{}/{}), topic {}",
+                    scheme[0], path_number, len(paths), scheme[1], len(secrets),
+                    topic or "-")
 
         try:
             payload = await request.json()
@@ -508,7 +557,11 @@ def build_app(
     app = web.Application()
     # Every method, not just POST: see the note in `handle`. What is watched is
     # whether anything reaches this process at all.
-    app.router.add_route("*", path, handle)
+    for one in paths:
+        app.router.add_route("*", one, handle)
+    # After registering, not before: the line is the evidence a rotation step
+    # was taken, and it used to be written even when the next line crashed.
+    logger.info("Rivo webhook serves {} path(s)", len(paths))
     # Not on the secret path: something has to be pingable without knowing it.
     app.router.add_get("/health", health)
     return app
@@ -524,7 +577,7 @@ async def watch_for_silence(
     **The failure this exists for is the one that looks like success.** In
     September 2026 the `/rivo/` route disappeared from the neighbouring
     project's nginx when that config was rewritten, and every request was
-    proxied to their application and answered 405. For eleven days the endpoint
+    proxied to their application and answered 405. For five days the endpoint
     was up, the container was healthy, the deploys were green, and the loyalty
     channel was dead. Nothing in this system was capable of noticing, because
     everything it monitors was working.
@@ -653,7 +706,7 @@ async def watch_for_silence(
                 "Two things to check, in this order: that the route still exists "
                 "in the neighbouring project's nginx (their deploy has silently "
                 "dropped it three times — 06.09, 12.09 and 16.09 — and the first "
-                "one cost eleven days), and that the webhooks are still created "
+                "one went unnoticed for five days), and that the webhooks are still created "
                 "in Rivo under Settings → Webhooks.\n\n"
                 "A request with a wrong signature would still count as an "
                 "arrival, so nothing reached this process at all — it is not a "
