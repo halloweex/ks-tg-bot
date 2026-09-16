@@ -168,16 +168,41 @@ MAX_BODY = 64 * 1024
 MAX_AGENT = 32
 
 
-def _signature_matches(secret: str, body: bytes, received: str) -> bool:
+def _secrets(raw: str) -> tuple[str, ...]:
+    """The signing keys in `RIVO_WEBHOOK_SECRET`, one per Rivo webhook.
+
+    Plural because Rivo gives **every webhook its own Secret Token** — it is
+    shown when editing that webhook, not once for the account — and it allows
+    only one webhook per event type, so the four events this bot understands
+    arrive signed with four different keys. A single key would verify one of
+    them and answer the other three `401`. Found in Rivo's documentation on
+    2026-09-16, the day the webhooks were about to be created.
+
+    Comma-separated. **Blank entries are dropped, and that is a security rule,
+    not tidiness:** an HMAC with an empty key is something anybody can compute,
+    so a trailing comma left in the file must never become a key that verifies.
+    """
+    return tuple(part.strip() for part in raw.split(",") if part.strip())
+
+
+def _signature_matches(secrets: tuple[str, ...], body: bytes,
+                       received: str) -> bool:
     """HMAC-SHA256 of the raw body, base64, compared in constant time.
 
     The raw bytes, never a re-encoded parse of them: Rivo signs what they sent,
     and `json.dumps` of the parsed body differs from it by a space.
+
+    Every key is tried, every time, with no early return: which webhook's key
+    matched is none of a caller's business, and a loop that stopped at the
+    first match would tell it through the clock.
     """
-    expected = b64encode(
-        hmac.new(secret.encode("utf-8"), body, hashlib.sha256).digest()
-    ).decode("ascii")
-    return hmac.compare_digest(expected, received)
+    matched = False
+    for secret in secrets:
+        expected = b64encode(
+            hmac.new(secret.encode("utf-8"), body, hashlib.sha256).digest()
+        ).decode("ascii")
+        matched |= hmac.compare_digest(expected, received)
+    return matched
 
 
 def _detail(request: web.Request) -> dict:
@@ -251,6 +276,11 @@ def build_app(
     not a fixture, and collecting it is the entire point.
     """
 
+    secrets = _secrets(secret)
+    # How many, never which: the one line that lets somebody who just edited
+    # the file confirm the bot read all of it.
+    logger.info("Rivo webhook accepts {} signing key(s)", len(secrets))
+
     async def handle(request: web.Request) -> web.Response:
         # First line of the function, deliberately, and above every check
         # including the size guard and the method. A forged, oversized or
@@ -275,7 +305,7 @@ def build_app(
 
         body = await request.read()
         received = request.headers.get(SIGNATURE_HEADER, "")
-        if not received or not _signature_matches(secret, body, received):
+        if not received or not _signature_matches(secrets, body, received):
             # Deliberately terse and deliberately 401: an attacker learns
             # nothing about which half was wrong.
             logger.warning("Rivo webhook with a bad signature, from {}",

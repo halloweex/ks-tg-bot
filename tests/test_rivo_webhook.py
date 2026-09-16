@@ -96,6 +96,50 @@ def test_a_signed_event_reaches_the_customer():
     assert "22" in sent[0]["text"] and "527" in sent[0]["text"]
 
 
+def _call_with(secret: str, body: bytes, signature: str) -> int:
+    """POST one body at an app configured with `secret`, return the status."""
+    app = build_app(path=PATH, secret=secret, chats=_Chats(),
+                    languages=_Languages(), queue=_Queue())
+
+    async def go() -> int:
+        async with TestClient(TestServer(app)) as client:
+            r = await client.post(PATH, data=body,
+                                  headers={"rivo-signature": signature})
+            return r.status
+
+    return asyncio.run(go())
+
+
+def test_each_webhook_can_sign_with_its_own_key():
+    """Rivo gives every webhook its own Secret Token and allows one webhook
+    per event type, so the four events this bot reads arrive under four keys.
+    One configured key would verify one of them and refuse the other three."""
+    body = _body("balance_transaction/created")
+    keys = "first-key,second-key, third-key "
+    for key in ("first-key", "second-key", "third-key"):
+        assert _call_with(keys, body, _sign(body, key)) == 200, key
+
+
+def test_a_key_that_is_not_in_the_list_is_still_refused():
+    body = _body("balance_transaction/created")
+    assert _call_with("first-key,second-key", body,
+                      _sign(body, "somebody-else")) == 401
+
+
+def test_a_stray_comma_never_turns_into_a_key_anybody_has():
+    """An HMAC with an empty key is something anybody can compute. A trailing
+    comma or a blank between two commas must not become a key that verifies —
+    that would be a forged loyalty message for the price of a typo."""
+    body = _body("balance_transaction/created")
+    for keys in ("real-key,", "real-key, ,", ",real-key"):
+        assert _call_with(keys, body, _sign(body, "")) == 401, repr(keys)
+
+
+def test_one_key_still_works_exactly_as_before():
+    body = _body("balance_transaction/created")
+    assert _call_with(SECRET, body, _sign(body)) == 200
+
+
 def test_no_signature_is_refused():
     body = _body("balance_transaction/created")
     status, sent = call(body, None)
