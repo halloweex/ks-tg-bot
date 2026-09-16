@@ -152,6 +152,10 @@ PORT = 8081
 # webhook at all is dropped before it is read into memory.
 MAX_BODY = 64 * 1024
 
+# How much of the caller's User-Agent is kept on an arrival row. Enough to tell
+# `curl/8.7.1` from whatever Rivo calls itself, and not enough to be a log.
+MAX_AGENT = 32
+
 
 def _signature_matches(secret: str, body: bytes, received: str) -> bool:
     """HMAC-SHA256 of the raw body, base64, compared in constant time.
@@ -174,10 +178,18 @@ def _detail(request: web.Request) -> dict:
     minutes after the route was restored, and establishing that took the
     neighbouring project's nginx log, which we do not own and which rotates.
 
-    `from_lan` is the one that settles it: nginx hands us `X-Real-IP`, and a
-    private address there means somebody on the box was testing, while a public
-    one means the internet called. No address is kept — only which of the two it
-    was, which is a fact about the channel rather than about a person.
+    `agent` is the field that actually settles it, and it was added after the
+    first one did not. A verification curl run on the server still goes out to
+    the public URL and comes back through nginx, so it arrives from the box's
+    own public address and is indistinguishable from a real call by address
+    alone — measured, on the probe of 2026-09-16 07:00. The user agent is not:
+    `curl/8.x` and whatever Rivo sends are never the same string. Truncated,
+    because this is a label, not a log.
+
+    `from_lan` is kept for the other half of the question — whether the request
+    reached nginx from inside the machine at all, which is what a request to the
+    container rather than to the domain looks like. No address is stored, only
+    which of the two it was: a fact about the channel rather than about a person.
     """
     seen_from = request.headers.get("X-Real-IP", "")
     try:
@@ -189,6 +201,7 @@ def _detail(request: web.Request) -> dict:
         "signed": SIGNATURE_HEADER in request.headers,
         "bytes": request.content_length or 0,
         "from_lan": from_lan,
+        "agent": (request.headers.get("User-Agent") or "")[:MAX_AGENT],
     }
 
 

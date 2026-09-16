@@ -16,7 +16,7 @@ from base64 import b64encode
 
 from aiohttp.test_utils import TestClient, TestServer
 
-from bot.webhooks import MAX_BODY, build_app
+from bot.webhooks import MAX_AGENT, MAX_BODY, build_app
 from core.i18n import Texts
 
 SECRET = "b1778e9a7deda7d3a800437e8611d9c0"
@@ -668,9 +668,10 @@ def test_the_arrival_says_enough_to_tell_a_real_call_from_our_own():
     nginx log — which we do not own and which rotates."""
     _, seen = _arrivals_for("POST", data=b"{}",
                             headers={"rivo-signature": "wrong",
+                                     "User-Agent": "curl/8.7.1",
                                      "X-Real-IP": "172.18.0.1"})
     assert seen[0] == {"method": "POST", "signed": True, "bytes": 2,
-                       "from_lan": True}
+                       "from_lan": True, "agent": "curl/8.7.1"}
 
     # A genuinely global address: Python counts the documentation ranges
     # (203.0.113.0/24 and friends) as private, so the obvious example address
@@ -680,6 +681,16 @@ def test_the_arrival_says_enough_to_tell_a_real_call_from_our_own():
     assert outside[0]["from_lan"] is False, (
         "a call from the internet must not look like a test from the box")
     assert outside[0]["signed"] is False
+
+
+def test_the_caller_names_itself_and_the_name_is_kept_short():
+    """The address does not settle it: a check run on the server still goes out
+    to the public URL and comes back through nginx, so it arrives from the box's
+    own public address like any real call. Measured on the probe of 16.09, which
+    is why this field exists. The agent string is never the same."""
+    _, seen = _arrivals_for("POST", data=b"{}",
+                            headers={"User-Agent": "x" * (MAX_AGENT + 40)})
+    assert seen[0]["agent"] == "x" * MAX_AGENT, "a label, not a log"
 
 
 def test_an_unknown_caller_address_is_neither_lan_nor_internet():
