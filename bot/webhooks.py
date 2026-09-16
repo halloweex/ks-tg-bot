@@ -14,13 +14,14 @@ screenshot.
 """
 from __future__ import annotations
 
+import binascii
 import hashlib
 import hmac
 import asyncio
 import ipaddress
 import json
 import re
-from base64 import b64encode
+from base64 import b64decode, b64encode
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Awaitable, Callable
@@ -37,6 +38,15 @@ from core.ports.users import ChatsByEmail, GenderForm, LanguageChoice
 from core.usecases.loyalty import announce
 
 SIGNATURE_HEADER = "rivo-signature"
+
+# What Rivo actually sends, as opposed to what its documentation says. Measured
+# on 2026-09-16 13:11 UTC from the header names of its own test webhooks: no
+# `rivo-signature` at all, and instead a family that follows the Standard
+# Webhooks convention (an id, a timestamp, a signature, a topic, an API version),
+# which none of Rivo's public pages describe. Both are read; see `_verify`.
+WEBHOOK_SIGNATURE_HEADER = "rivo-webhook-signature"
+WEBHOOK_ID_HEADER = "rivo-webhook-id"
+WEBHOOK_TIMESTAMP_HEADER = "rivo-webhook-timestamp"
 
 # Where a body we could not fully use is written down, so that the next real one
 # becomes a fixture instead of a memory.
@@ -169,14 +179,13 @@ MAX_AGENT = 32
 
 
 def _secrets(raw: str) -> tuple[str, ...]:
-    """The signing keys in `RIVO_WEBHOOK_SECRET`, one per Rivo webhook.
+    """The signing keys in `RIVO_WEBHOOK_SECRET`.
 
-    Plural because Rivo gives **every webhook its own Secret Token** — it is
-    shown when editing that webhook, not once for the account — and it allows
-    only one webhook per event type, so the four events this bot understands
-    arrive signed with four different keys. A single key would verify one of
-    them and answer the other three `401`. Found in Rivo's documentation on
-    2026-09-16, the day the webhooks were about to be created.
+    Plural because Rivo's documentation says every webhook has its own Secret
+    Token. The cabinet itself, opened the same day, showed one key for the whole
+    account ("Your webhooks will be signed with …"), so in practice this holds
+    one entry. The list stays: it costs nothing, and it is also how a key is
+    rotated without a gap — the new one alongside the old until Rivo switches.
 
     Comma-separated. **Blank entries are dropped, and that is a security rule,
     not tidiness:** an HMAC with an empty key is something anybody can compute,
@@ -185,24 +194,111 @@ def _secrets(raw: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in raw.split(",") if part.strip())
 
 
-def _signature_matches(secrets: tuple[str, ...], body: bytes,
-                       received: str) -> bool:
-    """HMAC-SHA256 of the raw body, base64, compared in constant time.
+def _keys(secret: str) -> list[tuple[str, bytes]]:
+    """Every reasonable reading of one secret as HMAC key bytes, labelled.
 
-    The raw bytes, never a re-encoded parse of them: Rivo signs what they sent,
-    and `json.dumps` of the parsed body differs from it by a space.
-
-    Every key is tried, every time, with no early return: which webhook's key
-    matched is none of a caller's business, and a loop that stopped at the
-    first match would tell it through the clock.
+    Rivo's cabinet shows the key as 64 hex characters, and nothing says how its
+    signer reads them: as the text itself (what the old documented scheme did),
+    as the 32 bytes the hex spells, or base64-decoded the way Standard Webhooks
+    libraries read a `whsec_` secret. Each reading is still the secret — none of
+    them is a key anybody else holds.
     """
-    matched = False
+    keys = [("text", secret.encode("utf-8"))]
+    try:
+        keys.append(("hex", bytes.fromhex(secret)))
+    except ValueError:
+        pass
+    try:
+        keys.append(("base64", b64decode(secret.removeprefix("whsec_"),
+                                         validate=True)))
+    except (ValueError, binascii.Error):
+        pass
+    return [(label, key) for label, key in keys if key]
+
+
+def _offered(value: str) -> list[str]:
+    """The signatures a header value carries, with any scheme labels removed.
+
+    Covers the three spellings in use: a bare signature, Standard Webhooks'
+    space-separated `v1,<sig>` list, and Stripe's `t=…,v1=<sig>`. A base64
+    signature ends in `=` padding, so a piece is only read as `label=value`
+    when the label is one of the known ones.
+    """
+    found = [value.strip()]
+    for token in value.split():
+        for piece in token.split(","):
+            label, sep, rest = piece.partition("=")
+            if sep and label in ("v1", "v1a", "s", "sig", "signature"):
+                found.append(rest)
+            elif piece not in ("v1", "v1a") and not (sep and label == "t"):
+                found.append(piece)
+    return [f for f in dict.fromkeys(found) if f]
+
+
+def _verify(secrets: tuple[str, ...], body: bytes, signature: str,
+            webhook_id: str, timestamp: str) -> str | None:
+    """Which signing scheme this request satisfies, or None for none of them.
+
+    **Why several.** Rivo documents one scheme — base64 HMAC-SHA256 of the raw
+    body under `rivo-signature` — and on 2026-09-16 sent something else: a
+    `rivo-webhook-signature` beside an id and a timestamp, the Standard Webhooks
+    pattern, which usually signs `id.timestamp.body` and not the body alone. Its
+    exact construction is written down nowhere public, and the one honest way to
+    find it without handling the key is to let the process that already holds
+    the key try the plausible constructions and say which one matched.
+
+    **Why that is not weaker.** Every candidate is HMAC-SHA256 keyed with the
+    configured secret over content that contains the whole body. Forging any of
+    them needs the key; offering several only multiplies a forger's odds by the
+    number of candidates, against 2^256. The match is reported by label so that
+    this can later be narrowed to the one scheme Rivo actually uses.
+
+    Every combination is computed every time, with no early return: which one
+    matched is none of a caller's business, and the clock would tell it.
+    """
+    offered = _offered(signature)
+    contents = [("body", body)]
+    if timestamp:
+        contents.append(("ts.body", timestamp.encode() + b"." + body))
+        if webhook_id:
+            contents.append(("id.ts.body", webhook_id.encode() + b"."
+                             + timestamp.encode() + b"." + body))
+    scheme = None
     for secret in secrets:
-        expected = b64encode(
-            hmac.new(secret.encode("utf-8"), body, hashlib.sha256).digest()
-        ).decode("ascii")
-        matched |= hmac.compare_digest(expected, received)
-    return matched
+        for key_label, key in _keys(secret):
+            for content_label, content in contents:
+                digest = hmac.new(key, content, hashlib.sha256).digest()
+                for encoding, expected in (("base64", b64encode(digest).decode()),
+                                           ("hex", digest.hex())):
+                    for candidate in offered:
+                        if hmac.compare_digest(expected.encode(),
+                                               candidate.encode()) and scheme is None:
+                            scheme = f"key={key_label} content={content_label} {encoding}"
+    return scheme
+
+
+def _shape(signature: str) -> str:
+    """What a signature looks like, with nothing of what it says.
+
+    For the log line of a refusal: enough to recognise a scheme — its length, a
+    `v1,` or `t=` label, whether it is hex — and not one character of the value.
+    Labels come from a fixed list and are never copied out of the header: a
+    base64 signature can itself begin with `v1`.
+    """
+    if not signature:
+        return "absent"
+    labels = set()
+    for token in signature.split():
+        for piece in token.split(","):
+            if piece in ("v1", "v1a"):
+                labels.add(piece + ",")
+            elif piece.startswith("v1="):
+                labels.add("v1=")
+            elif piece.startswith("t="):
+                labels.add("t=")
+    hexish = all(c in "0123456789abcdefABCDEF" for c in signature)
+    return (f"{len(signature)} chars, {len(signature.split())} part(s), "
+            f"labels={sorted(labels) or 'none'}, hex={hexish}")
 
 
 def _detail(request: web.Request) -> dict:
@@ -234,7 +330,8 @@ def _detail(request: web.Request) -> dict:
         from_lan = None
     return {
         "method": request.method,
-        "signed": SIGNATURE_HEADER in request.headers,
+        "signed": (SIGNATURE_HEADER in request.headers
+                   or WEBHOOK_SIGNATURE_HEADER in request.headers),
         "bytes": request.content_length or 0,
         "from_lan": from_lan,
         "agent": (request.headers.get("User-Agent") or "")[:MAX_AGENT],
@@ -304,28 +401,29 @@ def build_app(
             return web.Response(status=413, text="too large")
 
         body = await request.read()
-        received = request.headers.get(SIGNATURE_HEADER, "")
-        if not received or not _signature_matches(secrets, body, received):
+        received = (request.headers.get(WEBHOOK_SIGNATURE_HEADER)
+                    or request.headers.get(SIGNATURE_HEADER, ""))
+        scheme = _verify(secrets, body, received,
+                         request.headers.get(WEBHOOK_ID_HEADER, ""),
+                         request.headers.get(WEBHOOK_TIMESTAMP_HEADER, "")
+                         ) if received else None
+        if scheme is None:
             # Deliberately terse and deliberately 401: an attacker learns
             # nothing about which half was wrong. The log is another matter —
             # it is read by whoever has to fix this, and they need both.
             #
-            # **Which headers arrived, by name, never by value.** On 2026-09-16
-            # Rivo reached this bot for the first time ever: four test
-            # webhooks, all refused, all with no `rivo-signature` header — the
-            # name its own documentation gives, character for character. From
-            # the old line alone there was no telling whether Rivo sends test
-            # webhooks unsigned, signs under another name, or uses a name with
-            # an underscore that nginx drops by default before it gets here.
-            # The names answer the first two at a glance; a signature-shaped
-            # name missing from a request that plainly came from Rivo answers
-            # the third.
+            # Header names and the signature's shape, never a value. Names are
+            # how Rivo's undocumented `rivo-webhook-signature` was found; the
+            # shape says which scheme a mismatch is written in.
             logger.warning(
-                "Rivo webhook refused, from {}: {}; headers sent: {}",
+                "Rivo webhook refused, from {}: {}; signature shape: {}; "
+                "headers sent: {}",
                 request.remote,
                 "no signature header" if not received else "signature did not match",
+                _shape(received),
                 ", ".join(sorted({name.lower() for name in request.headers})))
             return web.Response(status=401, text="bad signature")
+        logger.info("Rivo webhook verified ({})", scheme)
 
         try:
             payload = await request.json()

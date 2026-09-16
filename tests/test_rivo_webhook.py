@@ -21,7 +21,10 @@ from bot.webhooks import (ALERTED, ARRIVED, MAX_AGENT, MAX_BODY, WATCHING,
                           build_app)
 from core.i18n import Texts
 
-SECRET = "b1778e9a7deda7d3a800437e8611d9c0"
+# Obviously invented. The previous value here was the first half of the live
+# signing key, in a public repository — found on 2026-09-16 by comparing it
+# with the key shown in the Rivo cabinet.
+SECRET = "0123456789abcdef" * 4
 PATH = "/rivo/2f8c1d"
 KNOWN, UNKNOWN = "olya@example.com", "nobody@example.com"
 T = Texts("uk")
@@ -153,6 +156,85 @@ def test_one_key_still_works_exactly_as_before():
     assert _call_with(SECRET, body, _sign(body)) == 200
 
 
+def _standard(body: bytes, *, key: bytes, webhook_id="msg_2mY8", ts="1789563071",
+              content="id.ts.body", encoding="base64", label="v1,") -> dict:
+    """Headers the way Rivo actually sends them: `rivo-webhook-*`."""
+    signed = {"body": body,
+              "ts.body": ts.encode() + b"." + body,
+              "id.ts.body": webhook_id.encode() + b"." + ts.encode() + b"." + body}[content]
+    digest = hmac.new(key, signed, hashlib.sha256).digest()
+    value = b64encode(digest).decode() if encoding == "base64" else digest.hex()
+    return {"rivo-webhook-signature": label + value,
+            "rivo-webhook-id": webhook_id, "rivo-webhook-timestamp": ts}
+
+
+def test_the_headers_rivo_really_sends_are_verified():
+    """On 2026-09-16 13:11 UTC Rivo's own test webhooks carried no
+    `rivo-signature` — the only header its documentation names — and instead a
+    `rivo-webhook-signature` beside an id and a timestamp. The Standard Webhooks
+    construction signs `id.timestamp.body`, labelled `v1,`."""
+    body = _body("balance_transaction/created")
+    said = _said_info(lambda: call_with_headers(
+        body, _standard(body, key=SECRET.encode())))
+    assert "verified (key=text content=id.ts.body base64)" in said, said
+
+
+def test_every_reading_of_the_key_is_still_the_key():
+    """Rivo shows 64 hex characters and says nothing about how its signer reads
+    them. Each reading is tried; each is still the secret."""
+    body = _body("balance_transaction/created")
+    for key, label in ((SECRET.encode(), "text"),
+                       (bytes.fromhex(SECRET), "hex")):
+        status = call_with_headers(body, _standard(body, key=key))
+        assert status == 200, label
+
+
+def test_a_stripe_style_header_is_read_too():
+    body = _body("balance_transaction/created")
+    ts = "1789563071"
+    digest = hmac.new(SECRET.encode(), ts.encode() + b"." + body,
+                      hashlib.sha256).hexdigest()
+    assert call_with_headers(body, {"rivo-webhook-signature": f"t={ts},v1={digest}",
+                                    "rivo-webhook-timestamp": ts}) == 200
+
+
+def test_the_new_headers_with_a_foreign_key_are_refused():
+    body = _body("balance_transaction/created")
+    for content in ("body", "ts.body", "id.ts.body"):
+        headers = _standard(body, key=b"somebody-else", content=content)
+        assert call_with_headers(body, headers) == 401, content
+
+
+def test_a_signature_over_a_different_id_does_not_verify():
+    """The id and timestamp are inside what is signed: moving either must
+    break the signature, or a captured request could be replayed as another."""
+    body = _body("balance_transaction/created")
+    headers = _standard(body, key=SECRET.encode())
+    headers["rivo-webhook-id"] = "msg_somebody_else"
+    assert call_with_headers(body, headers) == 401
+
+
+def test_an_empty_signature_never_verifies():
+    body = _body("balance_transaction/created")
+    for value in ("v1,", "v1, ", "t=1,v1=", " "):
+        assert call_with_headers(body, {"rivo-webhook-signature": value,
+                                        "rivo-webhook-timestamp": "1",
+                                        "rivo-webhook-id": "x"}) == 401, repr(value)
+
+
+def test_a_refusal_shows_the_signature_shape_and_never_the_signature():
+    """A base64 signature can itself begin with `v1`, which is exactly how a
+    label-copying shape function would have printed one whole."""
+    body = _body("balance_transaction/created")
+    value = "v1Zq" + "A" * 40
+    said = _said(lambda: call_with_headers(
+        body, {"rivo-webhook-signature": "v1," + value,
+               "rivo-webhook-id": "x", "rivo-webhook-timestamp": "1"}))
+    assert "signature did not match" in said
+    assert "labels=['v1,']" in said, said
+    assert value not in said, "a signature value reached the log"
+
+
 def test_no_signature_is_refused():
     body = _body("balance_transaction/created")
     status, sent = call(body, None)
@@ -254,6 +336,18 @@ def _points_body(**fields) -> bytes:
     }
     payload.update(fields)
     return _raw(payload)
+
+
+def _said_info(fn) -> str:
+    """Like `_said`, from INFO up: a verified webhook is an INFO line."""
+    from loguru import logger
+    lines: list[str] = []
+    sink = logger.add(lambda m: lines.append(str(m)), level="INFO")
+    try:
+        fn()
+    finally:
+        logger.remove(sink)
+    return "\n".join(lines)
 
 
 def _said(fn) -> str:
