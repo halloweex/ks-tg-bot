@@ -301,6 +301,53 @@ def test_a_real_points_event_is_not_mistaken_for_an_unreadable_one(tmp_path):
     assert list(tmp_path.glob("*.json")) == []
 
 
+def _real_referral_body(referrer: str, referred: str) -> bytes:
+    """Rivo's real `referral/completed`, recorded and redacted on 2026-09-16:
+    no `customer`, a `referrer_customer` and a `referred_customer` instead."""
+    import json
+    from pathlib import Path
+    payload = json.loads((Path(__file__).parent / "fixtures" / "rivo"
+                          / "referral_completed.json").read_text(encoding="utf-8"))
+    payload["referrer_customer"]["email"] = referrer
+    payload["referred_customer"]["email"] = referred
+    payload["referred_email"] = referred
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
+
+
+def _referral_headers(body: bytes) -> dict:
+    return {**_standard(body, key=SECRET.encode()),
+            "rivo-webhook-topic": "referral/completed"}
+
+
+def test_a_real_referral_reaches_the_friend_who_shared_the_link():
+    body = _real_referral_body(referrer=KNOWN, referred=UNKNOWN)
+    status, sent = _post_real(body, _referral_headers(body))
+    assert status == 200
+    assert sent and sent[0]["chat_id"] == 777, "the referrer was not told"
+    assert "подруга" in sent[0]["text"]
+
+
+def test_a_referral_never_reaches_the_friend_who_ordered():
+    """The message says «твоя подруга зробила замовлення». Sent to the friend
+    it would thank her for a reward she did not earn — so when only she is
+    somebody this bot can reach, nobody is told anything."""
+    body = _real_referral_body(referrer=UNKNOWN, referred=KNOWN)
+    status, sent = _post_real(body, _referral_headers(body))
+    assert status == 200 and sent == [], "the referred friend got the referrer's message"
+
+
+def test_a_real_referral_is_fully_readable_now(tmp_path):
+    body = _real_referral_body(referrer=KNOWN, referred=UNKNOWN)
+    _post_real(body, _referral_headers(body), sample_dir=tmp_path)
+    assert list(tmp_path.glob("*.json")) == [], "a readable referral was sampled"
+
+
+def test_the_documented_referral_shape_still_works():
+    body = _body("referral/completed")
+    status, sent = call(body, _sign(body))
+    assert status == 200 and sent and sent[0]["chat_id"] == 777
+
+
 def test_no_signature_is_refused():
     body = _body("balance_transaction/created")
     status, sent = call(body, None)

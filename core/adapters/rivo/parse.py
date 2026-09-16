@@ -64,6 +64,26 @@ def _as_int(value: object) -> int:
         return 0
 
 
+def _addressee(payload: dict, kind: Kind) -> dict | None:
+    """Whose chat this event is for: the customer object to read an email from.
+
+    For every kind but one it is `customer`. A referral is the exception, and
+    the one that matters most to get right: Rivo's real `referral/completed`
+    (recorded on 2026-09-16) has no `customer` at all, but a `referrer_customer`
+    — who shared the link — and a `referred_customer` — the friend who ordered.
+    The message says «твоя подруга зробила замовлення», so it belongs to the
+    referrer, and **never** to the friend: sent to her, it would tell her that
+    she is her own friend, and hand her a thank-you for a reward she did not
+    earn. The documented shape, with a plain `customer`, is still accepted.
+    """
+    if kind is Kind.REFERRAL:
+        referrer = payload.get("referrer_customer")
+        if isinstance(referrer, dict):
+            return referrer
+    customer = payload.get("customer")
+    return customer if isinstance(customer, dict) else None
+
+
 def is_unexplained(payload: object) -> bool:
     """Whether this body is one we could not fully act on.
 
@@ -92,8 +112,8 @@ def is_unexplained(payload: object) -> bool:
     # no `customer` email for `parse_event` to address. It returns None for
     # that, and the sampler — which only asked about unknown types and unsigned
     # points — kept nothing, so the one body worth seeing left no trace at all.
-    customer = payload.get("customer")
-    if not isinstance(customer, dict) or not str(customer.get("email") or "").strip():
+    customer = _addressee(payload, kind)
+    if customer is None or not str(customer.get("email") or "").strip():
         return True
     return kind is Kind.POINTS and payload.get("points_diff") is None
 
@@ -111,8 +131,8 @@ def parse_event(payload: dict) -> LoyaltyEvent | None:
             logger.info("Rivo event type not announced: {}", event_type)
         return None
 
-    customer = payload.get("customer")
-    if not isinstance(customer, dict):
+    customer = _addressee(payload, kind)
+    if customer is None:
         return None
     email = str(customer.get("email") or "").strip()
     if not email:
