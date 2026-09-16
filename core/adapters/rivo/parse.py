@@ -87,6 +87,14 @@ def is_unexplained(payload: object) -> bool:
     kind = _KINDS.get(event_type)
     if kind is None:
         return True
+    # A third case, found on 2026-09-16 when Rivo's real `referral/completed`
+    # test bodies came back "ignored": a type this module knows, in a body with
+    # no `customer` email for `parse_event` to address. It returns None for
+    # that, and the sampler — which only asked about unknown types and unsigned
+    # points — kept nothing, so the one body worth seeing left no trace at all.
+    customer = payload.get("customer")
+    if not isinstance(customer, dict) or not str(customer.get("email") or "").strip():
+        return True
     return kind is Kind.POINTS and payload.get("points_diff") is None
 
 

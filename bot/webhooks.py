@@ -105,6 +105,35 @@ WATCHDOG_INTERVAL_SECONDS = 60 * 60
 _SAFE_NAME = re.compile(r"[^a-z0-9_.-]+")
 
 
+# String values kept as they are in a sample: enumerations and moments, which
+# describe the event rather than anybody in it. Everything else that is text is
+# replaced by its length. `*_at` keys are kept too — a timestamp is shape.
+_KEPT_STRINGS = frozenset({
+    "event_type", "source", "status", "state", "kind", "type", "currency",
+    "loyalty_status",
+})
+
+
+def _shape_only(value: object, key: str = "") -> object:
+    """A value with every piece of text in it reduced to its length.
+
+    Recursive, because the bodies that most need recording are the ones whose
+    people are not where the parser looks: Rivo's real `referral/completed` has
+    no top-level `customer`, and whoever referred and whoever was referred sit
+    somewhere else. A redaction that only knew `customer` would have written
+    both of them to disk verbatim.
+    """
+    if isinstance(value, dict):
+        return {k: _shape_only(v, str(k)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_shape_only(v, key) for v in value]
+    if isinstance(value, str):
+        if key in _KEPT_STRINGS or key.endswith("_at"):
+            return value
+        return f"<str:{len(value)}>"
+    return value
+
+
 def _redacted(payload: object) -> object:
     """The body with everything but the shape taken out of it.
 
@@ -113,10 +142,13 @@ def _redacted(payload: object) -> object:
     reads `email`, `points_tally` and `loyalty_status`; the first is replaced and
     the other two are kept, because whether they arrive as strings or numbers is
     exactly the kind of thing a fixture is for.
+
+    Everything else goes through `_shape_only`: numbers, nulls and structure
+    stay, text becomes its length unless it is an enumeration or a moment.
     """
     if not isinstance(payload, dict):
         return payload
-    out = {k: v for k, v in payload.items() if k != "customer"}
+    out = {k: _shape_only(v, str(k)) for k, v in payload.items() if k != "customer"}
     customer = payload.get("customer")
     if isinstance(customer, dict):
         out["customer"] = {

@@ -633,6 +633,49 @@ def test_nothing_a_customer_could_be_identified_by_reaches_the_disk(tmp_path):
         "what was dropped is named, so a shape change is still visible")
 
 
+def test_a_known_type_with_nobody_to_address_is_kept_and_not_announced(tmp_path):
+    """Rivo's real `referral/completed` came back "ignored" twice on 2026-09-16:
+    a type the parser knows, in a body with no `customer` email. The sampler
+    asked only about unknown types and unsigned points, so it kept nothing, and
+    the one body worth seeing left no trace."""
+    body = _raw({"event_type": "referral/completed",
+                 "advocate": {"email": KNOWN}, "referred": {"email": UNKNOWN}})
+    status, files = _with_samples(tmp_path, body)
+    assert status == 200
+    assert files == ["referral_completed.json"]
+
+
+def test_people_outside_customer_never_reach_the_disk(tmp_path):
+    """The bodies most worth recording are the ones whose people are not where
+    the parser looks — and a redaction that only knew `customer` would write
+    them out verbatim: the friend who referred, the friend who was referred."""
+    import json as _json
+
+    body = _raw({
+        "event_type": "referral/completed",
+        "source": "referral",
+        "created_at": "2026-09-16T14:10:20Z",
+        "reward_points": 200,
+        "referred_email": "anna@example.com",
+        "advocate": {"email": "olya@example.com", "first_name": "Оля",
+                     "phone": "+380670000000", "id": 42},
+        "referrals": [{"name": "Ганна Коваль", "code": "OLYA-7Q"}],
+    })
+    _with_samples(tmp_path, body)
+    written = (tmp_path / "referral_completed.json").read_text()
+
+    for secret in ("anna@example.com", "olya@example.com", "Оля",
+                   "380670000000", "Ганна", "OLYA-7Q"):
+        assert secret not in written, f"{secret!r} was written to disk"
+
+    kept = _json.loads(written)
+    assert kept["event_type"] == "referral/completed" and kept["source"] == "referral"
+    assert kept["created_at"] == "2026-09-16T14:10:20Z", "a moment is shape"
+    assert kept["reward_points"] == 200 and kept["advocate"]["id"] == 42
+    assert kept["advocate"]["email"] == "<str:16>", "the key stays, the text goes"
+    assert kept["referrals"][0]["code"] == "<str:7>"
+
+
 def test_a_body_with_a_bad_signature_is_never_sampled(tmp_path):
     """Anything reaching the sampler has already passed the HMAC, so nothing
     written there came from anywhere but Rivo. Without this, the endpoint is a
