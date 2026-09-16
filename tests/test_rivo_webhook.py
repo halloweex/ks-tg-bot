@@ -86,6 +86,19 @@ def call(body: bytes, signature: str | None) -> tuple[int, list[dict]]:
     return asyncio.run(go()), queue.sent
 
 
+def call_with_headers(body: bytes, headers: dict) -> int:
+    """POST one body with exactly these headers, and return the status."""
+    app = build_app(path=PATH, secret=SECRET, chats=_Chats(),
+                    languages=_Languages(), queue=_Queue())
+
+    async def go() -> int:
+        async with TestClient(TestServer(app)) as client:
+            response = await client.post(PATH, data=body, headers=headers)
+            return response.status
+
+    return asyncio.run(go())
+
+
 # --- the locks --------------------------------------------------------------
 
 def test_a_signed_event_reaches_the_customer():
@@ -254,6 +267,27 @@ def _said(fn) -> str:
     finally:
         logger.remove(sink)
     return "\n".join(lines)
+
+
+def test_a_refusal_names_the_headers_that_did_arrive_and_never_their_values():
+    """Rivo's first four calls were refused with no `rivo-signature` header,
+    and the log could not say what they carried instead. The names are what
+    tells "unsigned" from "signed under another name"; the values stay out,
+    because one of them may be a signature and a log is not a vault."""
+    body = _body("balance_transaction/created")
+    said = _said(lambda: call_with_headers(
+        body, {"X-Rivo-Hmac-Sha256": "c2VjcmV0LXNpZ25hdHVyZQ==",
+               "Content-Type": "application/json"}))
+    assert "no signature header" in said
+    assert "x-rivo-hmac-sha256" in said, said
+    assert "c2VjcmV0LXNpZ25hdHVyZQ==" not in said, "a header value reached the log"
+
+
+def test_a_signature_that_does_not_match_is_told_apart_from_a_missing_one():
+    body = _body("balance_transaction/created")
+    said = _said(lambda: call(body, _sign(body, "some-other-key")))
+    assert "signature did not match" in said
+    assert "rivo-signature" in said
 
 
 def test_an_unsigned_points_event_is_not_announced_but_is_said_out_loud():

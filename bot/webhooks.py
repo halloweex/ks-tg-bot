@@ -307,9 +307,24 @@ def build_app(
         received = request.headers.get(SIGNATURE_HEADER, "")
         if not received or not _signature_matches(secrets, body, received):
             # Deliberately terse and deliberately 401: an attacker learns
-            # nothing about which half was wrong.
-            logger.warning("Rivo webhook with a bad signature, from {}",
-                           request.remote)
+            # nothing about which half was wrong. The log is another matter —
+            # it is read by whoever has to fix this, and they need both.
+            #
+            # **Which headers arrived, by name, never by value.** On 2026-09-16
+            # Rivo reached this bot for the first time ever: four test
+            # webhooks, all refused, all with no `rivo-signature` header — the
+            # name its own documentation gives, character for character. From
+            # the old line alone there was no telling whether Rivo sends test
+            # webhooks unsigned, signs under another name, or uses a name with
+            # an underscore that nginx drops by default before it gets here.
+            # The names answer the first two at a glance; a signature-shaped
+            # name missing from a request that plainly came from Rivo answers
+            # the third.
+            logger.warning(
+                "Rivo webhook refused, from {}: {}; headers sent: {}",
+                request.remote,
+                "no signature header" if not received else "signature did not match",
+                ", ".join(sorted({name.lower() for name in request.headers})))
             return web.Response(status=401, text="bad signature")
 
         try:
