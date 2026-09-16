@@ -239,7 +239,13 @@ async def main() -> None:
             loops.append(spawn(
                 webhooks.watch_for_silence(
                     bot, config.env.admin_ids,
-                    lambda: last_seen(webhooks.ARRIVED)),
+                    # One journal of named moments, read and written the same
+                    # way: when the last call arrived, when this bot first
+                    # started watching, when the admins were last told. The
+                    # last two live in the database because a deploy must not
+                    # reset them — see the docstring.
+                    last_seen,
+                    lambda event, **meta: track(None, event, **meta)),
                 name="rivo_watchdog"))
 
         # Which form of Ukrainian each customer is addressed in. Only when

@@ -13,10 +13,12 @@ import hashlib
 import hmac
 import json
 from base64 import b64encode
+from datetime import datetime, timedelta, timezone
 
 from aiohttp.test_utils import TestClient, TestServer
 
-from bot.webhooks import MAX_AGENT, MAX_BODY, build_app
+from bot.webhooks import (ALERTED, ARRIVED, MAX_AGENT, MAX_BODY, WATCHING,
+                          build_app)
 from core.i18n import Texts
 
 SECRET = "b1778e9a7deda7d3a800437e8611d9c0"
@@ -422,16 +424,33 @@ def test_sampling_off_is_the_default(tmp_path):
 # everything it monitored was working.
 
 
-def _watch(last: str | None, *, up_for_days: float, admin_ids=(1,),
-           rounds: int = 1, advance=None):
-    """Run `rounds` polls of the watchdog and return what the admins were told.
+def _journal(*, arrived: str | None = None, watching: str | None = None,
+             alerted: str | None = None) -> dict:
+    """The events table as this watchdog sees it: one stamp per named moment.
+
+    A dict rather than a fake repository, because that is all the watchdog asks
+    of the database — three questions of the form "when did this last happen",
+    and two answers it writes back. Passing the same dict to two runs is what a
+    restart looks like from in here, and that is the whole point of the change
+    it pins.
+    """
+    j = {}
+    for key, value in ((ARRIVED, arrived), (WATCHING, watching), (ALERTED, alerted)):
+        if value is not None:
+            j[key] = value
+    return j
+
+
+def _watch(journal: dict, *, admin_ids=(1,), rounds: int = 1, advance=None,
+           note_fails: bool = False, unreadable: tuple = (), deliver: bool = True):
+    """Run `rounds` polls of the watchdog against `journal`, which it mutates.
 
     `advance` moves the watchdog's clock by that much before every poll after
     the first, which is what a test about repeating — or not repeating — needs:
     real time does not pass inside a test, and sleeping for a week to find out
     whether the reminder comes back is not a test anybody runs.
     """
-    from datetime import datetime as real_datetime, timedelta, timezone
+    from datetime import datetime as real_datetime, timezone
 
     from bot import alerts, webhooks as mod
 
@@ -439,12 +458,27 @@ def _watch(last: str | None, *, up_for_days: float, admin_ids=(1,),
 
     class _Bot:
         async def send_message(self, chat_id, text, **kw):
+            if not deliver:
+                # What an admin who blocked the bot looks like from in here.
+                raise RuntimeError("chat not found")
             told.append(text)
 
-    async def last_arrival():
-        return last
-
     box = {"now": real_datetime.now(timezone.utc)}
+
+    async def when(event: str):
+        if event in unreadable:
+            raise RuntimeError("database is locked")
+        return journal.get(event)
+
+    def note(event: str, **meta) -> None:
+        if note_fails:
+            # Production's `note` is fire-and-forget and swallows its own write
+            # errors, so a lost write looks exactly like this from here: the
+            # call returns, and nothing is recorded.
+            return
+        # The spelling SQLite writes, because that is what `_read_stamp` has to
+        # read back when the next process starts.
+        journal[event] = box["now"].strftime("%Y-%m-%d %H:%M:%S")
 
     class _Clock(real_datetime):
         """Subclassed rather than replaced wholesale: `_read_stamp` reaches for
@@ -473,16 +507,16 @@ def _watch(last: str | None, *, up_for_days: float, admin_ids=(1,),
 
         mod.asyncio.sleep = fake_sleep
         mod.datetime = _Clock
-        # `bot.alerts` keeps its own clock, and moving one without the other is
-        # how a test passes for the wrong reason: with real time frozen inside
-        # a test run, the shared ten-minute suppression in `tell_admins_once`
-        # swallows every repeat by itself, and a watchdog with no gate of its
-        # own looks identical to one that has it.
+        # `bot.alerts` keeps its own clock. The watchdog no longer goes through
+        # the suppression that reads it — it has its own, in the journal — but
+        # the patch stays: with real time frozen inside a test run, that shared
+        # ten-minute window would swallow every repeat by itself, and a
+        # watchdog with no gate at all would look identical to one that has it.
+        # That is how the first version of the repeat test passed against the
+        # unfixed code.
         alerts.datetime = _Clock
         try:
-            await mod.watch_for_silence(
-                _Bot(), list(admin_ids), last_arrival,
-                started=box["now"] - timedelta(days=up_for_days))
+            await mod.watch_for_silence(_Bot(), list(admin_ids), when, note)
         except asyncio.CancelledError:
             pass
         finally:
@@ -502,13 +536,13 @@ def _ago(days: float) -> str:
 
 
 def test_a_channel_that_went_quiet_for_days_is_reported():
-    told = _watch(_ago(5), up_for_days=10)
+    told = _watch(_journal(arrived=_ago(5), watching=_ago(10)))
     assert told, "five days of silence went unreported"
     assert "loyalty webhook" in told[0]
 
 
 def test_a_channel_that_is_being_called_says_nothing():
-    told = _watch(_ago(0.5), up_for_days=10)
+    told = _watch(_journal(arrived=_ago(0.5), watching=_ago(10)))
     assert told == []
 
 
@@ -519,23 +553,28 @@ def test_the_boundary_is_where_the_constant_says_it_is():
     from bot.webhooks import SILENCE_AFTER
 
     days = SILENCE_AFTER.days
-    assert _watch(_ago(days - 0.1), up_for_days=30) == [], (
+    assert _watch(_journal(arrived=_ago(days - 0.1), watching=_ago(30))) == [], (
         "alerted before the silence was long enough")
-    assert _watch(_ago(days + 0.1), up_for_days=30), (
+    assert _watch(_journal(arrived=_ago(days + 0.1), watching=_ago(30))), (
         "stayed quiet past the threshold")
 
 
-def test_a_fresh_deploy_does_not_alert_about_the_days_before_it(): 
-    """Silence is measured from whichever is later, the last arrival or the
-    moment this process came up. Without that a restart alerts immediately
-    about a week it was not running for, which is not news and is how an alert
-    gets muted."""
-    told = _watch(_ago(30), up_for_days=0.2)
-    assert told == []
+def test_a_fresh_install_does_not_alert_about_the_days_before_it():
+    """A database this has never run against — a new install, or a restored
+    volume. Silence is measured from whichever is later, the last arrival or
+    the moment this bot first started watching, and on the first run that
+    moment is now: a bot must not open by reporting a week it did not exist for.
+
+    Note what this is NOT, any more: a fresh *deploy*. That used to land here
+    too, and it is why the watchdog could never reach three days on a week when
+    anybody was working."""
+    journal = _journal(arrived=_ago(30))
+    assert _watch(journal) == []
+    assert WATCHING in journal, "the moment it started watching was not kept"
 
 
 def test_a_channel_that_has_never_been_called_is_reported_as_such():
-    told = _watch(None, up_for_days=10)
+    told = _watch(_journal(watching=_ago(10)))
     assert told and "nothing ever has" in told[0], (
         "never called and gone quiet are different facts")
 
@@ -544,12 +583,131 @@ def test_an_unreadable_timestamp_alerts_rather_than_silencing():
     """A stamp this cannot parse must read as "no arrival", which alerts —
     never as "now", which would mute the watchdog on exactly the day its input
     changed shape."""
-    told = _watch("not a timestamp", up_for_days=10)
+    told = _watch(_journal(arrived="not a timestamp", watching=_ago(10)))
     assert told
 
 
 def test_with_no_admins_it_declines_to_run_rather_than_alerting_nobody():
-    assert _watch(_ago(30), up_for_days=30, admin_ids=()) == []
+    assert _watch(_journal(arrived=_ago(30), watching=_ago(30)),
+                  admin_ids=()) == []
+
+
+def test_the_clock_outlives_a_restart():
+    """The change this file exists to pin, and the bug it replaces.
+
+    The baseline used to be the moment the *process* came up, so every deploy
+    set the silence back to zero. On any week with daily deploys the count
+    could never reach three days, and the watchdog was decorative — the single
+    alert it has ever sent came after the longest quiet stretch of the year.
+    """
+    journal = _journal(arrived=_ago(30))
+    assert _watch(journal) == [], "a first run must not alert about the past"
+
+    # Four days and several deploys later. Each of those processes is brand
+    # new; the moment the first one wrote down is not.
+    journal[WATCHING] = seeded = _ago(4)
+    told = _watch(journal)
+
+    assert told, ("a restart reset the clock, so a bot anybody is working on "
+                  "can never notice a dead channel")
+    # And it must not have moved the moment while reading it. Within one run an
+    # overwrite is invisible — `since` is already in hand — so without this the
+    # suite stays green against a watchdog that re-stamps the baseline on every
+    # start, which is the pre-change bug wearing the new code.
+    assert journal[WATCHING] == seeded, "the baseline was rewritten on startup"
+
+
+def test_the_alert_does_not_come_back_with_every_deploy():
+    """The other half, and it has to land in the same change: a baseline that
+    survives a restart while the memory of having spoken does not is the hourly
+    spam again, one deploy at a time."""
+    journal = _journal(arrived=_ago(30), watching=_ago(30))
+    assert _watch(journal), "expected the first alert"
+    assert ALERTED in journal, "the moment of the alert was not kept"
+
+    assert _watch(journal) == [], "a redeploy sent the same alert again"
+
+
+def test_a_restarted_bot_still_speaks_up_once_the_week_is_out():
+    """And it must not go permanently quiet either: the suppression is an
+    interval, not a latch, and it is read back from the journal rather than
+    from a variable that a deploy resets."""
+    from datetime import datetime, timedelta, timezone
+
+    from bot.webhooks import REALERT_AFTER
+
+    stale = (datetime.now(timezone.utc) - REALERT_AFTER - timedelta(hours=1))
+    journal = _journal(arrived=_ago(30), watching=_ago(30),
+                       alerted=stale.strftime("%Y-%m-%d %H:%M:%S"))
+    assert _watch(journal), "stayed quiet a week past the last reminder"
+
+
+def test_a_lost_write_does_not_bring_the_hourly_alert_back():
+    """The journal is fire-and-forget and swallows its own write errors, so a
+    durable gate alone is a downgrade from the local variable it replaced: one
+    lost write and the weekly reminder is hourly again, for good. Both memories,
+    and the later of the two wins."""
+    told = _watch(_journal(arrived=_ago(30), watching=_ago(30)), rounds=5,
+                  advance=timedelta(hours=1), note_fails=True)
+    assert len(told) == 1, f"said it {len(told)} times with the journal broken"
+
+
+def test_a_second_outage_is_not_swallowed_by_the_first_reminder():
+    """The reminder interval must not span two different outages. Somebody
+    called after the last alert, so the channel came back and died again — and
+    that is news, not a repeat. Waiting out the rest of the week would swallow
+    exactly the pattern this alert tells the reader to expect."""
+    told = _watch(_journal(arrived=_ago(4), watching=_ago(30),
+                           alerted=_ago(5)))
+    assert told, "a fresh outage was suppressed as a repeat of the old one"
+
+
+def test_a_baseline_it_cannot_read_neither_kills_it_nor_moves_it():
+    """The one read on the startup path sits outside the loop that promises
+    never to raise. And it must not answer a failed read by writing a second
+    baseline: `when` is MAX(created_at), so a second row moves the clock
+    forward — the very bug this watchdog was fixed for."""
+    journal = _journal(arrived=_ago(30), watching=_ago(30))
+    told = _watch(journal, unreadable=(WATCHING,))
+
+    assert told == [], "a fresh process cannot know the channel was quiet"
+    assert journal[WATCHING] == _ago(30), (
+        "a failed read overwrote the baseline it could not see")
+
+
+def test_a_baseline_it_cannot_parse_is_not_replaced_by_a_second_one():
+    """`_read_stamp` folds "absent" and "unreadable" into the same None, which
+    is right for the arrival — a stamp it cannot read must alert rather than
+    reassure — and wrong here: the journal is read with MAX(created_at), so
+    answering an unreadable baseline with a second row moves the clock forward,
+    which is the bug this watchdog was fixed for."""
+    journal = _journal(arrived=_ago(30), watching="not a timestamp")
+    _watch(journal)
+    assert journal[WATCHING] == "not a timestamp", (
+        "wrote a second baseline over one it merely could not read")
+
+
+def test_an_alert_nobody_received_is_not_recorded_as_sent():
+    """Recording it would buy a week of silence on the strength of a message
+    that reached no one — and unlike before, that mistake now outlives the
+    restart that used to clear it."""
+    journal = _journal(arrived=_ago(30), watching=_ago(30))
+    told = _watch(journal, deliver=False, rounds=2, advance=timedelta(hours=1))
+
+    assert told == []
+    assert ALERTED not in journal, "counted as told when nobody was told"
+
+
+def test_a_baseline_from_the_future_does_not_mute_it_for_ever():
+    """A clock that stepped forward once writes a moment that no restart would
+    ever correct, because the baseline is only written when it is absent."""
+    from bot.webhooks import SILENCE_AFTER
+
+    ahead = (datetime.now(timezone.utc) + timedelta(days=5)).strftime(
+        "%Y-%m-%d %H:%M:%S")
+    told = _watch(_journal(watching=ahead), rounds=2,
+                  advance=SILENCE_AFTER + timedelta(hours=1))
+    assert told, "a stamp from the future silenced it permanently"
 
 
 def test_a_dead_channel_is_not_reported_every_hour():
@@ -564,7 +722,7 @@ def test_a_dead_channel_is_not_reported_every_hour():
     """
     from datetime import timedelta
 
-    told = _watch(_ago(30), up_for_days=30, rounds=5,
+    told = _watch(_journal(arrived=_ago(30), watching=_ago(30)), rounds=5,
                   advance=timedelta(hours=1))
     assert len(told) == 1, f"said it {len(told)} times in five hours"
 
@@ -575,22 +733,22 @@ def test_it_says_it_again_after_the_reminder_interval():
 
     from bot.webhooks import REALERT_AFTER
 
-    told = _watch(_ago(30), up_for_days=30, rounds=2,
+    told = _watch(_journal(arrived=_ago(30), watching=_ago(30)), rounds=2,
                   advance=REALERT_AFTER + timedelta(minutes=1))
     assert len(told) == 2
 
 
 def test_the_day_count_agrees_with_the_stamp_printed_beside_it():
-    """Whether to speak is measured from the later of the last arrival and this
-    process starting — a fresh deploy must not alert about days it was not
-    running for. What gets *said* is the whole gap, because the last-arrival
-    stamp is printed right next to the number, and a number that contradicts
-    the stamp beside it teaches the reader to believe neither.
+    """Whether to speak is measured from the later of the last arrival and the
+    moment this bot first started watching. What gets *said* is the whole gap,
+    because the last-arrival stamp is printed right next to the number, and a
+    number that contradicts the stamp beside it teaches the reader to believe
+    neither.
 
-    The live alert of 2026-09-16 said three days next to a stamp five days old:
+    The live alert of 2026-09-16 said three days next to a stamp four days old:
     three was the age of the deploy.
     """
-    told = _watch(_ago(10), up_for_days=4, rounds=1)
+    told = _watch(_journal(arrived=_ago(10), watching=_ago(4)))
     assert told, "ten days of silence went unreported"
     assert "for 10 day(s)" in told[0], told[0]
 

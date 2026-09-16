@@ -62,6 +62,17 @@ MAX_SAMPLES = 30
 # the only thing being watched for.
 ARRIVED = "rivo_webhook_arrived"
 
+# The two moments the watchdog below keeps for itself, written to the same
+# journal and read back the same way. They live in the database rather than in
+# the process because both of them are older than any one process: a deploy
+# lands several times on a busy day, and a watchdog whose memory starts over
+# with each one is a watchdog for a bot nobody is working on.
+#
+# `WATCHING` is written exactly once, the first time this runs against a
+# database. `ALERTED` is written each time the admins are told.
+WATCHING = "rivo_watch_started"
+ALERTED = "rivo_silence_alerted"
+
 # How long the silence has to last before the admins hear about it. Rivo
 # publishes about thirty kinds of event for every customer of the shop, so days
 # of nothing is not a quiet week — it is a channel that is not connected.
@@ -315,8 +326,8 @@ def build_app(
 
 async def watch_for_silence(
     bot: Bot, admin_ids: list[int],
-    last_arrival: Callable[[], Awaitable[str | None]],
-    *, started: datetime | None = None,
+    when: Callable[[str], Awaitable[str | None]],
+    note: Callable[..., None],
 ) -> None:
     """Tell the admins when nothing has called the webhook for days.
 
@@ -331,11 +342,33 @@ async def watch_for_silence(
     So what is watched is not an error — there is no error to watch. It is
     **silence**, the same thing `bot/sync.py` watches for the order sweep and
     for the same reason: a channel that stopped being called raises nothing.
+    The parity stops at the idea, though: that watchdog still keeps both of its
+    own moments in the process, which is nearly harmless there because its
+    threshold is fifteen minutes and no deploy outlives one.
 
-    `started` is the moment this process came up, and silence is measured from
-    whichever is later, it or the last arrival. Without it a fresh deploy would
-    alert immediately about the days before it was running, which is not news
-    and is how an alert gets muted.
+    **Both of its own moments outlive the process.** Silence is measured from
+    whichever is later, the last arrival or the moment this bot first started
+    watching — and that second moment used to be the start of the *process*,
+    which quietly made the watchdog useless on exactly the weeks somebody was
+    working: three days without a single deploy is not a week of active
+    development, so the count reset before it could ever reach the threshold.
+    The one alert it has ever sent came after four quiet days in September. The
+    moment is now written down on the first run and read back on every later
+    one; likewise the moment of the last alert, without which a redeploy would
+    hand the admins the same message again an hour later.
+
+    The cost of that, stated plainly: if the bot itself is off for a week, the
+    gap it reports afterwards is the true gap since anybody called, not the part
+    of it that this bot could have heard. That is the right way round. A channel
+    nobody called while we were not listening is still a channel nobody called,
+    and the alternative is what we had — an alarm that resets itself whenever
+    anyone touches the repository.
+
+    `when` answers "when did this named moment last happen"; `note` records that
+    it has happened now. Two callables rather than a repository, for the reason
+    at the top of this file: this module knows nothing about databases. They are
+    the same pair the arrival counter uses, so the journal is one table and one
+    spelling of a timestamp.
 
     It never raises. An alert that takes down the loop that noticed turns one
     broken thing into two.
@@ -344,30 +377,83 @@ async def watch_for_silence(
         logger.warning("No admin ids configured — a dead webhook will be silent")
         return
 
-    since = started or datetime.now(timezone.utc)
-    alerted_at: datetime | None = None
-    logger.info("Rivo webhook watchdog started (alerts after {})", SILENCE_AFTER)
+    # The one read on the startup path, and it is guarded: everything below
+    # promises never to raise, and a watchdog that dies on a locked database
+    # while the loop it protects never starts is the worst of both.
+    unwritten = False
+    try:
+        raw = await when(WATCHING)
+        since = _read_stamp(raw)
+        # Absent and unreadable are different facts, and only the first of them
+        # invites a write. `_read_stamp` folds both to None on purpose — for the
+        # arrival, where "cannot read it" must alert rather than reassure — so
+        # the raw value is what decides here.
+        unwritten = raw is None
+    except Exception as exc:  # noqa: BLE001 — see above
+        logger.warning("Rivo watchdog could not read its baseline: {}", exc)
+        since = None
+    if since is None:
+        # A database this has never run against — a new install, or a restored
+        # volume. Start the clock now, so that a fresh bot does not open with an
+        # alert about the days before it existed.
+        since = datetime.now(timezone.utc)
+        # Written down only when the journal is known to be empty. `when` reads
+        # MAX(created_at), so a second row does not sit harmlessly beside the
+        # first — it moves the baseline forward, which is the very bug this is
+        # here to fix. A read that merely failed leaves the journal alone and
+        # lets the next process find the real moment.
+        if unwritten:
+            note(WATCHING)
+    # A baseline in the future would mute this for as long as the clock took to
+    # catch up, and because the moment is only ever written when absent, no
+    # restart would correct it. Clamped here rather than in the loop on purpose:
+    # pinning it once gives a fixed moment the gap can grow from, while clamping
+    # every poll would hold the gap at zero forever, which is the same mute
+    # wearing a different hat.
+    since = min(since, datetime.now(timezone.utc))
+    logger.info("Rivo webhook watchdog started (watching since {}, alerts "
+                "after {})", since, SILENCE_AFTER)
+
+    # The journal is the memory that survives a deploy; this is the one that
+    # cannot be lost. `note` is fire-and-forget and swallows its own write
+    # errors, so a failed write would otherwise turn the weekly reminder back
+    # into an hourly one — the exact spam this whole change exists to end, and
+    # a regression against the local variable the journal replaced. Both, and
+    # the later of the two wins.
+    spoke_at: datetime | None = None
 
     while True:
         await asyncio.sleep(WATCHDOG_INTERVAL_SECONDS)
         try:
             now = datetime.now(timezone.utc)
-            stamp = await last_arrival()
+            stamp = await when(ARRIVED)
             seen_at = _read_stamp(stamp)
             quiet_since = max(seen_at, since) if seen_at else since
             quiet_for = now - quiet_since
             if quiet_for < SILENCE_AFTER:
                 continue
-            if alerted_at is not None and now - alerted_at < REALERT_AFTER:
+
+            alerted_at = _read_stamp(await when(ALERTED))
+            if spoke_at and (alerted_at is None or spoke_at > alerted_at):
+                alerted_at = spoke_at
+            # The reminder interval must not span two different outages. If
+            # anything called after the last alert, the channel came back and
+            # died again, and that second death is news — waiting out the rest
+            # of the week would swallow exactly the pattern the alert text
+            # tells the reader to expect.
+            spoke_since_then = seen_at is not None and (
+                alerted_at is None or seen_at > alerted_at)
+            if (alerted_at is not None and not spoke_since_then
+                    and now - alerted_at < REALERT_AFTER):
                 continue
             # The number told to the admins is the whole gap since the last
-            # arrival, not the part of it this process happened to be awake
-            # for. `quiet_for` decides whether to speak, and starts at the
-            # deploy on purpose; but the stamp is printed right next to the
-            # number, and a number that disagrees with the stamp beside it
-            # teaches the reader to believe neither.
+            # arrival, not the part of it that falls after this bot first
+            # started watching. `quiet_for` decides whether to speak; but the
+            # stamp is printed right next to the number, and a number that
+            # disagrees with the stamp beside it teaches the reader to believe
+            # neither.
             reported = (now - seen_at) if seen_at else quiet_for
-            await tell_admins(
+            delivered = await tell_admins(
                 bot, admin_ids,
                 "🔌 <b>Nothing has called the loyalty webhook</b> for "
                 f"{reported.days} day(s)"
@@ -375,12 +461,29 @@ async def watch_for_silence(
                    else " — and nothing ever has.")
                 + "\n\nRivo publishes constantly, so this is not a quiet week. "
                 "Two things to check, in this order: that the route still exists "
-                "in the neighbouring project's nginx (it was silently removed "
-                "once, and cost eleven days), and that the webhooks are still "
-                "created in Rivo under Settings → Webhooks.\n\n"
-                "A request with a wrong signature would count as an arrival, so "
-                "this means nobody is calling at all.")
-            alerted_at = now
+                "in the neighbouring project's nginx (their deploy has silently "
+                "dropped it three times — 06.09, 12.09 and 16.09 — and the first "
+                "one cost eleven days), and that the webhooks are still created "
+                "in Rivo under Settings → Webhooks.\n\n"
+                "A request with a wrong signature would still count as an "
+                "arrival, so nothing reached this process at all — it is not a "
+                "call being refused. One caveat before you touch anybody's "
+                "nginx: if this bot was itself down for part of that window, "
+                "some of the silence is ours.")
+            if not delivered:
+                # Nobody heard it, so it did not happen. Recording it anyway
+                # would buy silence for a week on the strength of a message
+                # that reached no one — and unlike before, that mistake would
+                # now outlive the restart that used to clear it.
+                logger.warning("Rivo silence alert reached no admin; will try "
+                               "again next round")
+                continue
+            spoke_at = now
+            # What it knew when it spoke. The row's existence is the fact the
+            # suppression reads, but a bare `{}` is what made the arrival row
+            # useless in September, and this one is read by a human wondering
+            # why the reminder did or did not come.
+            note(ALERTED, days=reported.days, ever=seen_at is not None)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 — the watcher must outlive a bad poll
