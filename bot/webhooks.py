@@ -35,9 +35,14 @@ from bot.alerts import tell_admins
 from core.adapters.rivo.parse import is_unexplained, parse_event
 from core.ports.outbox import MessageQueue
 from core.ports.users import ChatsByEmail, GenderForm, LanguageChoice
+from core.ports.webhooks import DeliveryLedger
 from core.usecases.loyalty import announce
 
 SIGNATURE_HEADER = "rivo-signature"
+
+# The source signed messages are remembered under in the ledger, so that another
+# sender's messages could never collide with Rivo's.
+DELIVERY_SOURCE = "rivo"
 
 # What Rivo actually sends, as opposed to what its documentation says. Measured
 # on 2026-09-16 13:11 UTC from the header names of its own test webhooks: no
@@ -317,8 +322,9 @@ def _verify(secrets: tuple[str, ...], body: bytes, *, webhook_signature: str,
     sender chose.
 
     The id and the timestamp are inside what is signed, so neither can be moved
-    without breaking the signature. The topic header is not, and neither the
-    timestamp's age nor a repeated id is checked; see docs/loyalty-webhook.md.
+    without breaking the signature. The topic header is not. A repeated signed
+    message is recognised by `_handled_once`, keyed by the hash of those bytes;
+    the timestamp's age is not checked. See docs/loyalty-webhook.md.
 
     Every key is tried every time, with no early return. A header that is not
     valid UTF-8 is a signature that does not match, not a 500.
@@ -410,6 +416,73 @@ def _detail(request: web.Request) -> dict:
     }
 
 
+async def _handled_once(
+    deliveries: DeliveryLedger, digest: str, delivery_id: str,
+    work: Callable[[], Awaitable[web.Response]],
+) -> web.Response:
+    """Run `work` for a signed message unless it was, or is being, handled.
+
+    `done` → 200 `duplicate`: the sender is answered, and stops. `busy` → 503
+    `in progress`: another attempt holds it and may still fail, so the sender
+    must retry rather than be told it is done — that exact answer, given by the
+    first version of this, is how a retry arriving mid-handling could lose a
+    customer's message. `claimed` → do the work, then mark it done.
+
+    If the work raises — anything, cancellation included — the claim is given
+    back so the next retry is handled; if even that fails, the lease expires on
+    its own. If marking it done fails after the work succeeded, the message was
+    already queued; a later repeat may be handled again, and the outbox's
+    per-day dedup key is what stops a second message.
+    """
+    try:
+        state = await deliveries.claim(DELIVERY_SOURCE, digest, delivery_id)
+    except Exception as exc:  # noqa: BLE001 — availability over deduplication
+        # Fail open. Before the ledger existed a verified webhook never touched
+        # the database on its way to "ignored", and a locked or full disk must
+        # not now turn every delivery — most of which concern nobody — into a
+        # 500 that a sender may answer by disabling the endpoint. Handled
+        # without the ledger: a replay in this window is not recognised, and the
+        # outbox's per-day dedup key still stops a same-day second message.
+        logger.warning("Rivo delivery ledger unavailable, handling {} without it: {}",
+                       delivery_id or "-", exc)
+        return await work()
+    if state == "done":
+        logger.info("Rivo delivery {} already handled — a repeat, dropped",
+                    delivery_id or "-")
+        return web.Response(text="duplicate")
+    if state == "busy":
+        logger.info("Rivo delivery {} is being handled by another attempt — "
+                    "asked the sender to retry", delivery_id or "-")
+        return web.Response(status=503, text="in progress")
+    try:
+        response = await work()
+    except BaseException:
+        try:
+            await deliveries.release(DELIVERY_SOURCE, digest)
+        except Exception as exc:  # noqa: BLE001 — the original error matters more
+            logger.warning("Rivo delivery {} could not be released after a "
+                           "failure; its claim expires with the lease: {}",
+                           delivery_id or "-", exc)
+        raise
+    if response.status >= 400:
+        # Not handled, whatever the work says: give the claim back so a retry is
+        # taken. Today the work only answers 200; this keeps a future 4xx/5xx
+        # from being remembered as done.
+        try:
+            await deliveries.release(DELIVERY_SOURCE, digest)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Rivo delivery {} answered {} and could not be released: {}",
+                           delivery_id or "-", response.status, exc)
+        return response
+    try:
+        await deliveries.complete(DELIVERY_SOURCE, digest)
+    except Exception as exc:  # noqa: BLE001 — the work is done; do not undo the 200
+        logger.warning("Rivo delivery {} was handled but not marked done; a repeat "
+                       "after the lease may be handled again: {}",
+                       delivery_id or "-", exc)
+    return response
+
+
 def build_app(
     *,
     path: str,
@@ -422,6 +495,7 @@ def build_app(
     sample_dir: Path | None = None,
     arrived: Callable[[dict], None] | None = None,
     kept: Callable[[str], None] | None = None,
+    deliveries: DeliveryLedger | None = None,
 ) -> web.Application:
     """The aiohttp app: one route per configured secret path, and `/health`.
 
@@ -504,9 +578,13 @@ def build_app(
         # old path or the old key after a rotation is otherwise done blind.
         path_number = (paths.index(request.path) + 1
                        if request.path in paths else 0)
-        logger.info("Rivo webhook verified ({}, path #{}/{}, key #{}/{}), topic {}",
-                    scheme[0], path_number, len(paths), scheme[1], len(secrets),
-                    topic or "-")
+        # The delivery id too: whether Rivo's ids are unique per event and
+        # stable across retries was never measured, and the log is where it
+        # will be. Not a secret; it is the sender's reference.
+        logger.info("Rivo webhook verified ({}, path #{}/{}, key #{}/{}), topic {}, "
+                    "delivery {}", scheme[0], path_number, len(paths), scheme[1],
+                    len(secrets), topic or "-",
+                    request.headers.get(WEBHOOK_ID_HEADER, "") or "-")
 
         try:
             payload = await request.json()
@@ -526,6 +604,23 @@ def build_app(
         if isinstance(payload, dict) and not payload.get("event_type") and topic:
             payload["event_type"] = topic
 
+        # **A signed message is handled once.** Keyed by the hash of exactly
+        # what was signed — `id.timestamp.body` — so a replay is recognised
+        # whatever it does to the unsigned topic header or to the id/timestamp
+        # boundary, and nothing depends on Rivo's ids being unique, which nobody
+        # has measured. Only for the scheme that signs an id and a timestamp;
+        # the documented one has neither. core/ports/webhooks.py has the rest.
+        if deliveries is None or scheme[0] != WEBHOOK_SIGNATURE_HEADER:
+            return await _handle_verified(payload)
+        delivery_id = request.headers.get(WEBHOOK_ID_HEADER, "")
+        digest = hashlib.sha256(
+            delivery_id.encode() + b"." +
+            request.headers.get(WEBHOOK_TIMESTAMP_HEADER, "").encode() + b"." +
+            body).hexdigest()
+        return await _handled_once(deliveries, digest, delivery_id,
+                                   lambda: _handle_verified(payload))
+
+    async def _handle_verified(payload: object) -> web.Response:
         # Kept before anything is decided, because the shape most worth having
         # is not the one that comes back as None. A points event with no signed
         # amount parses into a perfectly good event that `announce` then drops,

@@ -44,10 +44,20 @@ Otherwise the next deploy overwrites it, which is usually what you want.
 ### What a rollback does not undo
 
 **Database migrations.** `init_db()` runs on every start and moves the schema
-forward, never back (`bot/db.py`, `_MIGRATIONS`). Rolling the image back to a
+forward, never back (`core/repos/schema.py`, `_MIGRATIONS`). Rolling the image back to a
 build that predates a migration leaves the schema ahead of the code. Whether
 that is survivable depends on the migration; additive ones are, a table rebuild
 is not.
+
+**A rolled-back database keeps its newer version number.** The older image
+starts and runs no migrations; `user_version` is not put back. Builds from the
+commit that added migration 21 onwards say so in the log ("Database schema is at
+version N, ahead of this code"); `sha-62dbf19` and older start **silently** — check
+`PRAGMA user_version` rather than waiting for the line. So if a migration is reverted in
+git, the next migration written must take the next free number above the one
+the production database reached — reuse the reverted number and it will never
+run there, silently, the same way "no such column" reached production on
+2026-08-26.
 
 So: before deploying anything that adds a migration, take a backup and know
 which snapshot you would restore. `deploy/backup.sh` runs nightly and

@@ -41,8 +41,12 @@ _KINDS: dict[str, Kind] = {
     "customer_vip_tier/upgraded": Kind.TIER,
     "notification/points_expiry_warning": Kind.EXPIRING,
     "notification/points_expiry_last_chance": Kind.EXPIRING,
-    "notification/credits_expiry_warning": Kind.EXPIRING,
-    "notification/credits_expiry_last_chance": Kind.EXPIRING,
+    # Not the two `credits_expiry` events, although they were here once. The
+    # EXPIRING message says «бали скоро згорять» and shows `points_tally`; for a
+    # credits event both would be wrong — the customer told her points are
+    # expiring, with her points balance, about store credit. Unmapped they are
+    # "not announced", and the sampler keeps the first body if a webhook for
+    # them is ever created — which is when a text of their own can be written.
     "referral/completed": Kind.REFERRAL,
 }
 

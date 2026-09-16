@@ -9,6 +9,8 @@ customer nobody here knows.
 from __future__ import annotations
 
 import asyncio
+
+import pytest
 import hashlib
 import hmac
 import json
@@ -502,6 +504,281 @@ def test_the_documented_referral_shape_still_works():
     body = _body("referral/completed")
     status, sent = call(body, _sign(body))
     assert status == 200 and sent and sent[0]["chat_id"] == 777
+
+
+class _Ledger:
+    """DeliveryLedger in memory: three states, keyed by digest, as promised."""
+
+    def __init__(self):
+        self.state: dict[tuple[str, str], str] = {}
+        self.released: list[str] = []
+        self.completed: list[str] = []
+
+    async def claim(self, source, digest, delivery_id):
+        key = (source, digest)
+        if key not in self.state:
+            self.state[key] = "busy"
+            return "claimed"
+        return "done" if self.state[key] == "done" else "busy"
+
+    async def complete(self, source, digest):
+        self.state[(source, digest)] = "done"
+        self.completed.append(digest)
+
+    async def release(self, source, digest):
+        if self.state.get((source, digest)) != "done":
+            self.state.pop((source, digest), None)
+        self.released.append(digest)
+
+
+def _deliver_all(requests, *, ledger, queue=None):
+    """POST each (body, headers) in order to one app; return (results, queue)."""
+    queue = queue or _Queue()
+    out: list[tuple[int, str]] = []
+
+    async def go():
+        app = build_app(path=PATH, secret=SECRET, chats=_Chats(),
+                        languages=_Languages(), queue=queue, deliveries=ledger)
+        async with TestClient(TestServer(app)) as client:
+            for body, headers in requests:
+                r = await client.post(PATH, data=body, headers=headers)
+                out.append((r.status, await r.text()))
+
+    asyncio.run(go())
+    return out, queue
+
+
+def _signed(body, *, webhook_id="msg_1", ts="1789563071", topic=None):
+    headers = _standard(body, key=SECRET.encode(), webhook_id=webhook_id, ts=ts)
+    if topic:
+        headers["rivo-webhook-topic"] = topic
+    return headers
+
+
+def test_a_signed_message_sent_twice_is_handled_once():
+    """A captured request replayed — or Rivo retrying one it already got a 200
+    for — reaches the customer once. 200 for the repeat, so a sender stops."""
+    body = _body("balance_transaction/created")
+    headers = _signed(body)
+    results, queue = _deliver_all([(body, headers), (body, headers)], ledger=_Ledger())
+    assert results == [(200, "ok"), (200, "duplicate")]
+    assert len(queue.sent) == 1
+
+
+def test_a_replay_with_a_swapped_topic_is_the_same_signed_message():
+    """The topic header is not signed. Changing it does not change the bytes the
+    delivery is remembered by."""
+    body = _real_points_body()
+    first = _signed(body, topic="points_event/created")
+    replay = {**first, "rivo-webhook-topic": "customer_vip_tier/upgraded"}
+    results, queue = _deliver_all([(body, first), (body, replay)], ledger=_Ledger())
+    assert [r[1] for r in results] == ["ok", "duplicate"] and len(queue.sent) == 1
+
+
+def test_moving_the_id_timestamp_boundary_does_not_make_a_replay_new():
+    """`evt.123` + `456` and `evt` + `123.456` sign the same bytes. An id-keyed
+    ledger would have treated the second as a new delivery."""
+    body = _body("balance_transaction/created")
+    first = _signed(body, webhook_id="evt.123", ts="456")
+    shifted = {**first, "rivo-webhook-id": "evt", "rivo-webhook-timestamp": "123.456"}
+    results, queue = _deliver_all([(body, first), (body, shifted)], ledger=_Ledger())
+    assert [r[1] for r in results] == ["ok", "duplicate"] and len(queue.sent) == 1
+
+
+def test_two_events_that_share_an_id_are_both_handled():
+    """Nobody has measured that Rivo's ids are unique per event. Were one reused
+    — a subscription id, a fixed id for the Test button — an id-keyed ledger
+    would drop every later event for a month without a word."""
+    first = _body("balance_transaction/created", points=10)
+    second = _body("balance_transaction/created", points=20)
+    results, queue = _deliver_all(
+        [(first, _signed(first, webhook_id="same")),
+         (second, _signed(second, webhook_id="same"))], ledger=_Ledger())
+    assert [r[1] for r in results] == ["ok", "ok"] and len(queue.sent) == 2
+
+
+def test_a_copy_arriving_mid_handling_is_asked_to_retry_not_told_done():
+    """The first version answered "duplicate" here — and if the first attempt
+    then failed, nobody was left to send the message. `busy` is a 503, which a
+    sender retries."""
+    gate = {"entered": None, "release": None}
+
+    class _SlowQueue(_Queue):
+        async def queue(self, *args, **kwargs):
+            gate["entered"].set()
+            await gate["release"].wait()
+            return await super().queue(*args, **kwargs)
+
+    body = _body("balance_transaction/created")
+    headers = _signed(body, webhook_id="msg_slow")
+    queue = _SlowQueue()
+
+    async def go():
+        gate["entered"], gate["release"] = asyncio.Event(), asyncio.Event()
+        app = build_app(path=PATH, secret=SECRET, chats=_Chats(),
+                        languages=_Languages(), queue=queue, deliveries=_Ledger())
+        async with TestClient(TestServer(app)) as client:
+            first = asyncio.ensure_future(client.post(PATH, data=body, headers=headers))
+            await asyncio.wait_for(gate["entered"].wait(), 10)
+            # Bounded: a copy that is let into the handling blocks on the gate,
+            # and without a timeout that regression hangs for minutes instead
+            # of failing.
+            try:
+                copy = await asyncio.wait_for(
+                    client.post(PATH, data=body, headers=headers), 5)
+            except asyncio.TimeoutError:
+                gate["release"].set()
+                await first
+                raise AssertionError("a copy mid-handling was let into the handling")
+            gate["release"].set()
+            done = await first
+            later = await client.post(PATH, data=body, headers=headers)
+            return ((copy.status, await copy.text()),
+                    (done.status, await done.text()),
+                    (later.status, await later.text()))
+
+    copy, done, later = asyncio.run(go())
+    assert copy == (503, "in progress"), "a copy mid-handling was told it was done"
+    assert done == (200, "ok") and later == (200, "duplicate")
+    assert len(queue.sent) == 1
+
+
+def test_a_delivery_whose_handling_failed_is_handled_on_the_retry():
+    class _FlakyQueue(_Queue):
+        def __init__(self):
+            super().__init__()
+            self.calls = 0
+
+        async def queue(self, *args, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("database is locked")
+            return await super().queue(*args, **kwargs)
+
+    ledger = _Ledger()
+    body = _body("balance_transaction/created")
+    headers = _signed(body, webhook_id="msg_retry")
+    results, queue = _deliver_all([(body, headers), (body, headers)],
+                                  ledger=ledger, queue=_FlakyQueue())
+    assert results[0][0] == 500
+    assert results[1] == (200, "ok"), "the retry of a failed delivery was dropped"
+    assert len(ledger.released) == 1 and len(queue.sent) == 1
+
+
+def test_a_cancelled_handling_gives_its_claim_back():
+    """Cancellation is not an Exception. A release guarded by `except Exception`
+    would leave the claim held until the lease ran out."""
+    from bot.webhooks import _handled_once
+
+    ledger = _Ledger()
+
+    async def work():
+        raise asyncio.CancelledError
+
+    async def go():
+        with pytest.raises(asyncio.CancelledError):
+            await _handled_once(ledger, "digest-x", "msg_x", work)
+
+    asyncio.run(go())
+    assert ledger.released == ["digest-x"]
+    assert asyncio.run(ledger.claim("rivo", "digest-x", "msg_x")) == "claimed"
+
+
+def test_a_refused_request_never_takes_a_claim():
+    """Otherwise anybody could send garbage first and have the genuine delivery
+    answered busy or done."""
+    body = _body("balance_transaction/created")
+    good = _signed(body, webhook_id="msg_burn")
+    forged = {**good, "rivo-webhook-signature": "v1,AAAA"}
+    results, queue = _deliver_all([(body, forged), (body, good)], ledger=_Ledger())
+    assert [r[0] for r in results] == [401, 200]
+    assert results[1][1] == "ok" and len(queue.sent) == 1
+
+
+def test_the_documented_scheme_is_not_deduplicated_even_with_an_id_header():
+    """Only the scheme that signs the id and timestamp is keyed; an unsigned id
+    header next to a documented signature must not decide anything."""
+    body = _body("balance_transaction/created")
+    headers = {"rivo-signature": _sign(body), "rivo-webhook-id": "msg_doc"}
+    results, _ = _deliver_all([(body, headers), (body, headers)], ledger=_Ledger())
+    assert [r[1] for r in results] == ["ok", "ok"]
+
+
+def test_the_same_body_signed_as_two_deliveries_is_handled_twice():
+    """The key is the signed bytes, id and timestamp included. A body-only key
+    would merge two genuine deliveries whose bodies happen to match."""
+    body = _body("balance_transaction/created")
+    results, queue = _deliver_all(
+        [(body, _signed(body, webhook_id="msg_a", ts="100")),
+         (body, _signed(body, webhook_id="msg_b", ts="200"))], ledger=_Ledger())
+    assert [r[1] for r in results] == ["ok", "ok"] and len(queue.sent) == 2
+
+
+def test_a_ledger_that_fails_does_not_fail_the_webhook():
+    """Fail open. Before the ledger a verified webhook never touched the
+    database; a locked or full disk must not turn every delivery into a 500."""
+    class _BrokenLedger(_Ledger):
+        async def claim(self, *args):
+            raise RuntimeError("database is locked")
+
+    body = _body("balance_transaction/created")
+    results, queue = _deliver_all([(body, _signed(body))], ledger=_BrokenLedger())
+    assert results == [(200, "ok")] and len(queue.sent) == 1
+
+
+def test_a_response_that_is_not_a_success_is_not_remembered_as_done():
+    from aiohttp import web
+    from bot.webhooks import _handled_once
+
+    ledger = _Ledger()
+
+    async def work():
+        return web.Response(status=500, text="nope")
+
+    response = asyncio.run(_handled_once(ledger, "digest-500", "msg", work))
+    assert response.status == 500
+    assert ledger.completed == [] and ledger.released == ["digest-500"]
+
+
+def test_replays_are_dropped_end_to_end_on_the_real_ledger(tmp_path, monkeypatch):
+    """Through HTTP and SQLite together, not a fake: the only test that fails if
+    the ledger and the handler disagree about the contract."""
+    from core.repos import base as repos_base
+    from core.repos.deliveries import SqliteDeliveryLedger
+    from core.repos.schema import init_db
+
+    monkeypatch.setattr(repos_base, "DB_PATH", str(tmp_path / "bot_data.db"))
+    asyncio.run(init_db())
+    body = _body("balance_transaction/created")
+    headers = _signed(body, webhook_id="msg_real")
+    results, queue = _deliver_all([(body, headers), (body, headers)],
+                                  ledger=SqliteDeliveryLedger())
+    assert results == [(200, "ok"), (200, "duplicate")] and len(queue.sent) == 1
+
+
+def test_production_wires_the_ledger_in():
+    """Remove `deliveries=` from bot/__main__.py and nothing else fails: the
+    endpoint works, and replays are quietly accepted again. Checked in the
+    source, the way this repo checks other wiring that no test would exercise."""
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse((Path(__file__).parents[1] / "bot" / "__main__.py").read_text())
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+             and getattr(n.func, "attr", "") == "build_app"]
+    assert calls, "build_app is no longer called from bot/__main__.py"
+    keywords = {k.arg for k in calls[0].keywords}
+    assert "deliveries" in keywords, "the delivery ledger is not wired into the endpoint"
+
+
+def test_a_credits_expiry_is_not_announced_as_points():
+    """The EXPIRING text says «бали скоро згорять» and shows the points balance;
+    for a credits event both would be wrong. Unmapped, it is not announced."""
+    for kind in ("notification/credits_expiry_warning",
+                 "notification/credits_expiry_last_chance"):
+        body = _body(kind)
+        status, sent = call(body, _sign(body))
+        assert status == 200 and sent == [], kind
 
 
 def test_no_signature_is_refused():

@@ -13,6 +13,7 @@ from core.config import load_config
 from core.repos.base import configure as configure_db
 from core.adapters.shopify.discounts import ShopifyDiscounts
 from core.repos.catalogue import SqliteOfferCache
+from core.repos.deliveries import SqliteDeliveryLedger
 from core.repos.outbox import SqliteMessageQueue
 from core.repos.referrals import SqliteReferralLedger
 from core.repos.stock import SqliteRestockWatchlist, SqliteStockSnapshot
@@ -212,6 +213,10 @@ async def main() -> None:
                                     / "rivo-samples"),
                         arrived=lambda detail: track(
                             None, webhooks.ARRIVED, **detail),
+                        # A signed message is handled once: a captured request
+                        # sent again is recognised by the hash of its signed
+                        # bytes (id.timestamp.body) and dropped.
+                        deliveries=SqliteDeliveryLedger(),
                         # One message per never-seen shape. Rivo is the only
                         # service here with no recorded payload, and that gap
                         # is how a null in a field nobody had seen cost a

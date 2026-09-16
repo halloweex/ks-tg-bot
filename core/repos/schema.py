@@ -336,6 +336,22 @@ CREATE TABLE IF NOT EXISTS outbox (
 """
 
 
+# Signed webhook messages handled, or being handled, so a replay is recognised
+# and a retry is not lost. See core/ports/webhooks.py for why the key is the hash
+# of the signed bytes and not the delivery id, and why there are three states.
+# `received_at` doubles as the lease start while `done_at` is NULL. Rows older
+# than the retention in core/repos/deliveries.py are pruned on claim.
+_CREATE_WEBHOOK_DELIVERIES = """
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    source        TEXT NOT NULL,
+    signed_digest TEXT NOT NULL,
+    delivery_id   TEXT NOT NULL DEFAULT '',
+    received_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    done_at       TEXT,
+    PRIMARY KEY (source, signed_digest)
+);
+"""
+
 # How far the incremental sync has read, and whether it is still reading. One
 # row per source. See core/repos/sync_state.py for what each column means and
 # why the alert reads last_success_at rather than last_error.
@@ -418,7 +434,7 @@ CREATE INDEX IF NOT EXISTS ix_referrals_referrer ON referrals(referrer_chat_id);
 # It could not express this change (SQLite cannot alter a UNIQUE constraint),
 # and it silently swallowed real failures — a full disk logged success.
 
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 
 
 async def _columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -747,6 +763,22 @@ async def _migration_19_support_focus(db: aiosqlite.Connection) -> None:
     await db.execute(_CREATE_SUPPORT_FOCUS)
 
 
+async def _migration_21_webhook_deliveries(db: aiosqlite.Connection) -> None:
+    """Remember which signed webhook messages were handled, so a replay is dropped.
+
+    Rivo's first real events arrived on 2026-09-16 signed over
+    `id.timestamp.body`, and nothing kept them: a captured request could be sent
+    again — with a different, unsigned topic header — and would have been
+    handled again.
+
+    `_add_late_columns` first, like every migration here: an installation that
+    upgrades takes this path, and it is the one that must also receive any late
+    column (tests/test_sync_state.py says why that cost production once).
+    """
+    await _add_late_columns(db)
+    await db.execute(_CREATE_WEBHOOK_DELIVERIES)
+
+
 async def _migration_20_gender(db: aiosqlite.Connection) -> None:
     """One column for the form a customer is addressed in.
 
@@ -779,6 +811,7 @@ _MIGRATIONS: tuple[tuple[int, str, object], ...] = (
      _migration_18_threads_know_their_chat),
     (19, "who the support chat is answering", _migration_19_support_focus),
     (20, "the form a customer is addressed in", _migration_20_gender),
+    (21, "webhook deliveries already handled", _migration_21_webhook_deliveries),
 )
 
 
@@ -786,6 +819,16 @@ async def _migrate(db: aiosqlite.Connection) -> None:
     """Bring an existing database up to SCHEMA_VERSION."""
     cursor = await db.execute("PRAGMA user_version")
     version = (await cursor.fetchone())[0]
+    if version > SCHEMA_VERSION:
+        # A rollback: a newer image migrated this database and an older one is
+        # starting on it. Survivable for additive migrations, and deliberately
+        # not a refusal to start — but said out loud, because the next migration
+        # written after a revert must take the next free number, not the one
+        # that was reverted, or it will never run here (deploy/README.md).
+        logger.warning("Database schema is at version {}, ahead of this code at {} "
+                       "— rolled back? Migrations are not re-run; the next one "
+                       "must be numbered above {}", version, SCHEMA_VERSION, version)
+        return
     if version >= SCHEMA_VERSION:
         return
     for target, name, run in _MIGRATIONS:
@@ -835,6 +878,7 @@ async def init_db() -> None:
         await db.execute(_CREATE_FSM_STATE)
         await db.execute(_CREATE_SUPPORT_ALBUMS)
         await db.execute(_CREATE_SYNC_STATE)
+        await db.execute(_CREATE_WEBHOOK_DELIVERIES)
         await db.execute(_CREATE_USER_CRM_BUYERS)
         await db.execute(_CREATE_OUTBOX)
         await db.execute(_CREATE_OFFERS)

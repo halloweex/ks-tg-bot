@@ -39,6 +39,8 @@ from core.repos.stock import SqliteRestockWatchlist, SqliteStockSnapshot
 from core.repos.sync_state import SqliteSyncJournal
 from core.ports.users import (GenderForm, KnownBirthdays, LanguageChoice,
                               MailingList)
+from core.ports.webhooks import DeliveryLedger
+from core.repos.deliveries import SqliteDeliveryLedger
 from core.repos.outbox import SqliteMessageQueue, SqlitePendingMessages
 from core.repos.users import (SqliteCustomerDirectory, SqliteGenderForm,
                              SqliteKnownBirthdays, SqliteLanguageChoice,
@@ -71,6 +73,7 @@ PAIRS = [
     (BroadcastJournal, SqliteBroadcastJournal),
     (CustomerDirectory, SqliteCustomerDirectory),
     (SyncJournal, SqliteSyncJournal),
+    (DeliveryLedger, SqliteDeliveryLedger),
 ]
 
 
@@ -125,4 +128,4 @@ def test_every_port_in_the_migration_is_covered_here():
                        MessageQueue, PendingMessages, LanguageChoice, MailingList,
                        KnownBirthdays, StockSnapshot, RestockWatchlist,
                        ReferralLedger, BroadcastJournal, CustomerDirectory,
-                       SyncJournal, GenderForm}
+                       SyncJournal, GenderForm, DeliveryLedger}
