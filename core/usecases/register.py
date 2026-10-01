@@ -52,13 +52,17 @@ async def _sync_orders(
     keycrm: OrderSource | None,
     directory: CustomerDirectory,
     uow: UnitOfWork,
-) -> None:
+) -> bool:
     """Fetch this number's orders and cache them (best-effort).
 
+    Returns False when the number turned out to be several people's (§4.8):
+    nothing the CRM says about it may then be put on this chat — the orders,
+    the cards, and the name on whichever card its search lists first.
+
     Deliberately not core.usecases.sync_orders, which is the same scenario plus
-    a buyer-profile write. Registration already fetches the profile separately
-    and one line earlier; routing it through the other function would give this
-    flow a second write it does not currently do. Merging the two is a change in
+    a buyer-profile write. Registration fetches the profile separately, right
+    after this; routing it through the other function would give this flow a
+    second write it does not currently do. Merging the two is a change in
     behaviour and waits for someone to decide it is the right one — see
     docs/move-status.md.
 
@@ -67,11 +71,11 @@ async def _sync_orders(
     conflict rule that could not be exercised.
     """
     if not keycrm:
-        return
+        return True
 
     orders = await keycrm.get_orders_by_phone(phone)
     if not orders:
-        return
+        return True
 
     if shared_by_several_people(orders):
         # §4.8. The same refusal as core/usecases/sync_orders.py, and this is
@@ -87,7 +91,7 @@ async def _sync_orders(
         # Durable, because the window sweep matches by number every two minutes
         # and would otherwise resume the leak on its own.
         await directory.mark_shared(chat_id)
-        return
+        return False
 
     # Which CRM buyer cards this number is. Only a by-number request can answer
     # that, and this is the first one a customer ever causes — the window sweep
@@ -99,6 +103,7 @@ async def _sync_orders(
     # wrong answer.
     await directory.remember(chat_id, {o.buyer_id for o in orders})
     await uow.orders.upsert(user_id, [order_row(o, chat_id) for o in orders])
+    return True
 
 
 async def register_customer(
@@ -119,8 +124,24 @@ async def register_customer(
     async with unit() as uow:
         user_id = await uow.users.bind_phone(chat_id, phone, source=source)
 
-        # Enrich profile with KeyCRM buyer data (best-effort)
-        if keycrm:
+        # Sync orders into local cache (best-effort, don't block onboarding)
+        linkable = False
+        try:
+            linkable = await _sync_orders(chat_id, user_id, number, keycrm,
+                                          directory, uow)
+        except Exception:
+            logger.debug("Order sync on registration failed for {}", phone)
+
+        # Enrich profile with KeyCRM buyer data (best-effort). After the orders
+        # and only when they were not refused: the profile is the first order's
+        # buyer card, and on a number several people hold (§4.8) that can be
+        # somebody else's — whose name the greeting then says to this customer,
+        # and whose name the support card shows a manager. It ran first until
+        # 2026-10-01, so the refusal kept the orders off the chat and let the
+        # name through. A CRM that failed above has proved nothing either way,
+        # and the name waits for the next by-number refresh, which writes it
+        # after the same check.
+        if keycrm and linkable:
             try:
                 buyer = await keycrm.get_buyer_by_phone(number)
                 if buyer:
@@ -130,11 +151,5 @@ async def register_customer(
                     )
             except Exception:
                 logger.debug("Buyer profile sync failed for {}", phone)
-
-        # Sync orders into local cache (best-effort, don't block onboarding)
-        try:
-            await _sync_orders(chat_id, user_id, number, keycrm, directory, uow)
-        except Exception:
-            logger.debug("Order sync on registration failed for {}", phone)
 
         await uow.commit()

@@ -178,6 +178,29 @@ def test_registration_refuses_to_link_a_shared_number(writes):
     assert writes.bound == [CHAT], "they are still registered — only unlinked"
 
 
+class SharedNumberCRMWithAName(SharedNumberCRM):
+    """The same CRM, answering the profile lookup the way the live one does.
+
+    `get_buyer_by_phone` is the same by-number search with `limit=1`, so on a
+    shared number it returns whichever card's order comes first. The fake above
+    answers None, which is why the registration door kept writing that name for
+    as long as the screen door was tested for it and this one was not.
+    """
+
+    async def get_buyer_by_phone(self, phone: str) -> dict | None:
+        return {"full_name": "Somebody Else", "email": "else@example.com"}
+
+
+def test_registration_takes_no_name_off_a_shared_number(writes):
+    """The greeting says this name to the customer and the support card shows
+    it to a manager, so a stranger's card is a stranger's name on both."""
+    asyncio.run(register_customer(CHAT, PHONE, SharedNumberCRMWithAName(),
+                                  writes, _factory(writes)))
+
+    assert writes.profiles == [], "nor a name and an email off a stranger's card"
+    assert writes.shared == [CHAT]
+
+
 @pytest.mark.parametrize("run", [
     pytest.param(
         lambda w: asyncio.run(sync_orders(CHAT, NUMBER, SharedNumberCRM(), w,
