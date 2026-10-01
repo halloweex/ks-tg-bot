@@ -86,7 +86,8 @@ class KeyCRMClient:
         """Every order this phone has, oldest page last.
 
         Phone is normalized before querying: '+' prefix and formatting chars are stripped.
-        KeyCRM filter[buyer_phone] does exact match, so normalization is critical.
+        Not because the filter needs it: measured on 2026-10-01 against a live
+        number, filter[buyer_phone] found the same orders for 380…, +380… and 0….
 
         Pages until the envelope says there are no more. Until it did, the
         request asked for 50 and read `last_page` never, so a customer with more
