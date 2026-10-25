@@ -226,6 +226,25 @@ ACTIVATION_DAYS: int = 7
 #: arrived an hour ago has not failed to sign up yet.
 ACTIVATION_COHORT_DAYS: int = 28
 
+#: Somebody silent this long after their last press is counted as having left
+#: after it. A week: the shop's order cycle is days, not weeks, and a customer
+#: who has not opened the bot for seven days is not between two orders.
+SILENCE_DAYS: int = 7
+#: A visit ends when nothing is pressed for this long.
+SESSION_GAP_MINUTES: int = 30
+#: Rows in the press table, the ones people leave after first.
+TOP_TAPS: int = 30
+
+#: Events that belong to getting in, not to using the bot.
+ONBOARDING_EVENTS: frozenset[str] = frozenset({
+    "start", "contact_shared", "contact_rejected", "registered", "phone_shared",
+    "opted_in", "opted_out", "language_changed", "referral_arrived"})
+#: Presses that are the same steps seen from the tap journal.
+ONBOARDING_TAPS: frozenset[str] = frozenset({"/start", "contact", "key:share_phone"})
+#: The entry funnel, in order.
+ENTRY_STEPS: tuple[str, ...] = ("started", "touched_share", "registered", "acted",
+                                "came_back")
+
 
 @dataclass(frozen=True)
 class ActivityDay:
@@ -248,6 +267,29 @@ class ActivityWeek:
     new: int
     #: Active that week and first seen before it. `new + returning == active`.
     returning: int
+
+
+@dataclass(frozen=True)
+class TapRow:
+    """One button, command or kind of message, over the window."""
+    what: str
+    #: What the person saw — the most frequent label recorded for `what`.
+    label: str
+    presses: int
+    people: int
+    #: Visits that ended on this press: nothing was pressed for
+    #: SESSION_GAP_MINUTES after it. The visit still going on is not counted.
+    session_exits: int
+    #: People whose last press this was and who have done nothing at all for
+    #: SILENCE_DAYS since.
+    left_after: int
+
+
+@dataclass(frozen=True)
+class EntryStep:
+    """How many of the people first seen in the window reached this step."""
+    key: str
+    people: int
 
 
 @dataclass(frozen=True)
@@ -278,6 +320,16 @@ class ActivityReport:
     activation: float | None
     daily: list[ActivityDay] = field(default_factory=list)
     weekly: list[ActivityWeek] = field(default_factory=list)
+    #: Kyiv date of the first press recorded in the window, or None. Presses
+    #: were not recorded before the tap journal shipped (2026-10-25).
+    taps_since: str | None = None
+    silence_days: int = SILENCE_DAYS
+    session_gap_minutes: int = SESSION_GAP_MINUTES
+    #: People with presses in the window who have been silent SILENCE_DAYS.
+    left_total: int = 0
+    taps: list[TapRow] = field(default_factory=list)
+    #: ENTRY_STEPS over the people first seen in the window.
+    entry: list[EntryStep] = field(default_factory=list)
 
 
 def _utc(raw: str | None) -> datetime | None:
@@ -380,6 +432,17 @@ async def activity_report(
     converted = sum(1 for chat_id in cohort
                     if chat_id in regs and regs[chat_id] - seen[chat_id] <= window)
 
+    window_start = (datetime.combine(first_day, time(0), tzinfo=SHOP_TZ)
+                    .astimezone(timezone.utc))
+    trail: dict[int, list[tuple[datetime, str, str, str]]] = defaultdict(list)
+    for chat_id, event, what, label, raw in await log.events_since(
+            since=window_start.strftime("%Y-%m-%d %H:%M:%S"), exclude=exclude):
+        moment = _utc(raw)
+        if moment is not None:
+            trail[chat_id].append((moment, event, what, label))
+    taps, left_total, taps_since = _press_table(trail, now)
+    entry = _entry_funnel(trail, seen, regs, window_start)
+
     return ActivityReport(
         version=ACTIVITY_VERSION,
         generated_at=now.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -403,4 +466,77 @@ async def activity_report(
         activation=_share(converted, len(cohort)),
         daily=daily,
         weekly=weekly,
+        taps_since=_shop_day(taps_since).isoformat() if taps_since else None,
+        left_total=left_total,
+        taps=taps,
+        entry=entry,
     )
+
+
+def _press_table(
+    trail: dict[int, list[tuple[datetime, str, str, str]]], now: datetime,
+) -> tuple[list[TapRow], int, datetime | None]:
+    """Which presses end visits, and which ones people leave after."""
+    gap = timedelta(minutes=SESSION_GAP_MINUTES)
+    silent_since = now - timedelta(days=SILENCE_DAYS)
+    presses: Counter = Counter()
+    people: dict[str, set[int]] = defaultdict(set)
+    labels: dict[str, Counter] = defaultdict(Counter)
+    exits: Counter = Counter()
+    left: Counter = Counter()
+    first: datetime | None = None
+    for chat_id, events in trail.items():
+        pressed = [(m, what, label) for m, event, what, label in events
+                   if event == "tap" and what]
+        if not pressed:
+            continue
+        first = min(first, pressed[0][0]) if first else pressed[0][0]
+        for moment, what, label in pressed:
+            presses[what] += 1
+            people[what].add(chat_id)
+            labels[what][label or what] += 1
+        for (moment, what, _), nxt in zip(pressed, pressed[1:] + [None]):
+            if nxt is None:
+                if now - moment > gap:          # the last visit is over
+                    exits[what] += 1
+            elif nxt[0] - moment > gap:
+                exits[what] += 1
+        if events[-1][0] < silent_since:        # nothing at all since
+            left[pressed[-1][1]] += 1
+    rows = [TapRow(what=what, label=labels[what].most_common(1)[0][0],
+                   presses=presses[what], people=len(people[what]),
+                   session_exits=exits[what], left_after=left[what])
+            for what in presses]
+    rows.sort(key=lambda r: (-r.left_after, -r.session_exits, -r.presses, r.what))
+    return rows[:TOP_TAPS], sum(left.values()), first
+
+
+def _entry_funnel(
+    trail: dict[int, list[tuple[datetime, str, str, str]]],
+    seen: dict[int, datetime], regs: dict[int, datetime], window_start: datetime,
+) -> list[EntryStep]:
+    """How far the people first seen in the window got."""
+    reached: Counter = Counter()
+    for chat_id, first in seen.items():
+        if first < window_start:
+            continue
+        events = trail.get(chat_id, [])
+        names = {event for _, event, _, _ in events}
+        whats = {what for _, event, what, _ in events if event == "tap"}
+        if "start" not in names and "/start" not in whats:
+            continue
+        reached["started"] += 1
+        if names & {"contact_shared", "contact_rejected"} or "contact" in whats:
+            reached["touched_share"] += 1
+        registered = regs.get(chat_id)
+        if registered is None:
+            continue
+        reached["registered"] += 1
+        after = [(m, event, what) for m, event, what, _ in events if m >= registered]
+        if any((event not in ONBOARDING_EVENTS and event != "tap")
+               or (event == "tap" and what not in ONBOARDING_TAPS)
+               for _, event, what in after):
+            reached["acted"] += 1
+        if any(_shop_day(m) > _shop_day(registered) for m, _, _ in after):
+            reached["came_back"] += 1
+    return [EntryStep(key=step, people=reached[step]) for step in ENTRY_STEPS]

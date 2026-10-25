@@ -177,6 +177,22 @@ async def registered(exclude: Sequence[int]) -> list[tuple[int, str]]:
         return [(row[0], row[1]) for row in await cursor.fetchall()]
 
 
+async def events_since(since: str, exclude: Sequence[int]) -> list[tuple[int, str, str, str, str]]:
+    """(chat_id, event, what, label, created_at) for person events since `since`."""
+    clause, params = _not_in("chat_id", exclude)
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT chat_id, event,"
+            "       CASE WHEN event = 'tap' THEN coalesce(json_extract(meta, '$.what'), '') ELSE '' END,"
+            "       CASE WHEN event = 'tap' THEN coalesce(json_extract(meta, '$.label'), '') ELSE '' END,"
+            "       created_at"
+            "  FROM events WHERE chat_id IS NOT NULL AND created_at >= ?" + clause +
+            " ORDER BY created_at, id",
+            (since, *params),
+        )
+        return [(r[0], r[1], r[2], r[3], r[4]) for r in await cursor.fetchall()]
+
+
 async def log_starts() -> str | None:
     """The first event that carries a person, or None for an empty log."""
     async with connect() as db:
@@ -199,6 +215,11 @@ class SqliteActivityLog:
 
     async def registered(self, *, exclude: Sequence[int]) -> list[tuple[int, str]]:
         return await registered(exclude)
+
+    async def events_since(
+        self, *, since: str, exclude: Sequence[int]
+    ) -> list[tuple[int, str, str, str, str]]:
+        return await events_since(since, exclude)
 
     async def log_starts(self) -> str | None:
         return await log_starts()

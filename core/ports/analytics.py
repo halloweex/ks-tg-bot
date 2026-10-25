@@ -182,6 +182,18 @@ class ActivityLog(Protocol):
         """
         ...
 
+    async def events_since(
+        self, *, since: str, exclude: Sequence[int]
+    ) -> list[tuple[int, str, str, str, str]]:
+        """(chat_id, event, what, label, UTC timestamp), oldest first.
+
+        Every event that carries a person from `since` on. `what` and `label`
+        are the two fields of a `tap` (bot/taps.py) and empty for every other
+        event. For the questions only a sequence answers: which press ended a
+        visit, and how far into onboarding a newcomer got.
+        """
+        ...
+
     async def log_starts(self) -> str | None:
         """When the first event carrying a person was recorded, or None.
 

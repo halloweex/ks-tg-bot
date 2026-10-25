@@ -9,6 +9,7 @@ time — because a hard-coded +3 passes every test written in July.
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -191,3 +192,98 @@ def test_an_empty_database_answers_with_zeros_and_no_shares(db):
     assert report.log_starts is None
     assert report.activation is None and report.stickiness is None
     assert all(d.active == 0 for d in report.daily)
+
+
+# --- which press people leave after ------------------------------------------
+
+def _tap(chat_id: int, at: str, what: str, label: str = "") -> None:
+    async def go() -> None:
+        async with repos_base.connect() as conn:
+            await conn.execute(
+                "INSERT INTO events (chat_id, event, meta, created_at) VALUES (?, 'tap', ?, ?)",
+                (chat_id, json.dumps({"what": what, "label": label or what}), at))
+            await conn.commit()
+    asyncio.run(go())
+
+
+def _row(report, what):
+    [row] = [r for r in report.taps if r.what == what]
+    return row
+
+
+def test_a_visit_ends_on_the_last_press_before_half_an_hour_of_nothing(db):
+    _tap(1, "2026-10-24 09:00:00", "menu:open_orders", "📦 Замовлення")
+    _tap(1, "2026-10-24 09:05:00", "ord:open", "Замовлення ##.##")
+    _tap(1, "2026-10-24 12:00:00", "menu:open_favourites")     # a new visit
+    report = _report()
+    assert _row(report, "ord:open").session_exits == 1
+    assert _row(report, "menu:open_orders").session_exits == 0
+    assert _row(report, "menu:open_favourites").session_exits == 1
+    assert _row(report, "ord:open").label == "Замовлення ##.##"
+
+
+def test_somebody_silent_for_a_week_left_after_their_last_press(db):
+    _tap(1, "2026-10-15 09:00:00", "menu:open_orders")
+    _tap(1, "2026-10-15 09:01:00", "menu:open_info")             # left after this
+    _tap(2, "2026-10-15 09:00:00", "menu:open_info")
+    _tap(2, "2026-10-25 09:00:00", "menu:open_orders")           # still here
+    report = _report()
+    assert _row(report, "menu:open_info").left_after == 1
+    assert _row(report, "menu:open_orders").left_after == 0
+    assert report.left_total == 1
+    assert report.taps[0].what == "menu:open_info", "the rows people leave after come first"
+
+
+def test_any_later_event_means_they_did_not_leave(db):
+    """A press is the last *press*; an inline panel opened later is still use."""
+    _tap(1, "2026-10-15 09:00:00", "menu:open_info")
+    _event(1, "2026-10-24 09:00:00", "favourites_inline_opened")
+    assert _report().left_total == 0
+
+
+def test_presses_and_people_are_counted_apart(db):
+    for minute in range(3):
+        _tap(1, f"2026-10-24 09:0{minute}:00", "ord:page")
+    _tap(2, "2026-10-24 09:00:00", "ord:page")
+    row = _row(_report(), "ord:page")
+    assert (row.presses, row.people) == (4, 2)
+
+
+def test_the_press_table_says_when_recording_began(db):
+    assert _report().taps_since is None
+    _tap(1, "2026-10-25 12:00:00", "/start")
+    assert _report().taps_since == "2026-10-25"
+
+
+def test_presses_outside_the_window_are_not_counted(db):
+    _tap(1, "2026-09-01 09:00:00", "menu:open_info")
+    assert _report(days=14).taps == []
+
+
+# --- the entry funnel ------------------------------------------------------------
+
+def test_the_entry_funnel_follows_one_newcomer_to_each_step(db):
+    # 1: all the way, and back on another day
+    _event(1, "2026-10-20 09:00:00", "start")
+    _event(1, "2026-10-20 09:00:30", "contact_shared")
+    _registered(1, "2026-10-20 09:00:31")
+    _tap(1, "2026-10-20 09:01:00", "menu:open_orders")
+    _tap(1, "2026-10-22 18:00:00", "key:orders")
+    # 2: registered, then nothing but the menu that registration draws
+    _event(2, "2026-10-21 09:00:00", "start")
+    _event(2, "2026-10-21 09:00:20", "contact_shared")
+    _registered(2, "2026-10-21 09:00:21")
+    # 3: typed the number, never pressed the button
+    _event(3, "2026-10-21 10:00:00", "start")
+    _event(3, "2026-10-21 10:00:30", "contact_rejected")
+    # 4: pressed /start and nothing else
+    _event(4, "2026-10-22 10:00:00", "start")
+    steps = {s.key: s.people for s in _report().entry}
+    assert steps == {"started": 4, "touched_share": 3, "registered": 2,
+                     "acted": 1, "came_back": 1}
+
+
+def test_somebody_first_seen_before_the_window_is_not_a_newcomer(db):
+    _event(1, "2026-08-01 09:00:00", "start")
+    _event(1, "2026-10-24 09:00:00", "start")
+    assert {s.key: s.people for s in _report(days=14).entry}["started"] == 0
