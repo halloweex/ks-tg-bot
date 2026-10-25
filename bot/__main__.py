@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import asdict
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher
@@ -23,8 +24,9 @@ from core.repos.buyer_gender import PgBuyerGenders
 from core.repos.users import (SqliteChatsByEmail, SqliteCustomerDirectory,
                               SqliteGenderForm, SqliteKnownBirthdays,
                               SqliteLanguageChoice)
-from core.repos.events import last_seen
+from core.repos.events import SqliteActivityLog, last_seen
 from core.repos.schema import init_db
+from core.usecases.analytics import activity_report
 from bot.analytics import track
 from bot.fsm_storage import SQLiteStorage
 from bot.alerts import check_support_chat, tell_admins_once
@@ -56,6 +58,12 @@ from bot.catalogue import watch as watch_catalogue
 from bot.stock import watch as watch_stock
 from bot.sync import watch as watch_orders, watch_for_silence
 from bot.tasks import drain, spawn
+
+
+async def _activity(days: int, admin_ids: list[int]) -> dict:
+    """The activity readout as JSON, for GET /internal/activity."""
+    return asdict(await activity_report(SqliteActivityLog(), days=days,
+                                        exclude=admin_ids))
 
 
 async def main() -> None:
@@ -188,12 +196,18 @@ async def main() -> None:
         # The only door into this bot from outside Telegram, and it opens only
         # when both halves of the lock are configured: the signing key from
         # Rivo and the secret segment of the path we hand them.
-        if config.env.rivo_webhook_secret and config.env.rivo_webhook_path:
+        #
+        # The same server carries the counts the analytics service charts, so
+        # it starts when either half is configured; each half registers its
+        # own routes only when its own settings are there.
+        rivo_on = bool(config.env.rivo_webhook_secret
+                       and config.env.rivo_webhook_path)
+        if rivo_on or config.env.internal_api_token:
             loops.append(spawn(
                 webhooks.serve(
                     webhooks.build_app(
-                        path=config.env.rivo_webhook_path,
-                        secret=config.env.rivo_webhook_secret,
+                        path=config.env.rivo_webhook_path or "",
+                        secret=config.env.rivo_webhook_secret or "",
                         chats=SqliteChatsByEmail(),
                         languages=SqliteLanguageChoice(),
                         queue=SqliteMessageQueue(),
@@ -233,10 +247,14 @@ async def main() -> None:
                                 "the tests have been running on bodies "
                                 "assembled from the documentation."),
                             name="rivo_sample_alert"),
+                        # Counts only; the admins are not customers.
+                        activity=lambda days: _activity(days, config.env.admin_ids),
+                        internal_token=config.env.internal_api_token,
                     ),
                     webhooks.PORT,
                 ),
                 name="rivo_webhooks"))
+        if rivo_on:
             # And the half that matters more than the endpoint: a watcher for
             # the day nobody calls it. The route vanished from the neighbouring
             # project's nginx in September and stayed gone for eleven days while

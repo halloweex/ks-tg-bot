@@ -213,6 +213,19 @@ PORT = 8081
 # webhook at all is dropped before it is read into memory.
 MAX_BODY = 64 * 1024
 
+# The second door, and it is not a door from outside. The analytics service
+# next door draws a chart of who uses this bot; it asks here, over the docker
+# network both containers share, and gets counts — never a phone, a name or a
+# chat id. Two locks again: a bearer token every caller must present, and a
+# refusal of anything that came through nginx, which is how the internet
+# arrives. Nginx forwards only /rivo/ today (see the neighbouring project's
+# nginx.conf), so the second lock is for the day that changes.
+INTERNAL_ACTIVITY = "/internal/activity"
+PROXY_HEADERS = ("X-Real-IP", "X-Forwarded-For")
+DEFAULT_ACTIVITY_DAYS = 90
+MIN_ACTIVITY_DAYS = 7
+MAX_ACTIVITY_DAYS = 180
+
 # How much of the caller's User-Agent is kept on an arrival row. Enough to tell
 # `curl/8.7.1` from whatever Rivo calls itself, and not enough to be a log.
 MAX_AGENT = 32
@@ -485,8 +498,8 @@ async def _handled_once(
 
 def build_app(
     *,
-    path: str,
-    secret: str,
+    path: str = "",
+    secret: str = "",
     chats: ChatsByEmail,
     languages: LanguageChoice,
     queue: MessageQueue,
@@ -496,8 +509,15 @@ def build_app(
     arrived: Callable[[dict], None] | None = None,
     kept: Callable[[str], None] | None = None,
     deliveries: DeliveryLedger | None = None,
+    activity: Callable[[int], Awaitable[dict]] | None = None,
+    internal_token: str | None = None,
 ) -> web.Application:
     """The aiohttp app: one route per configured secret path, and `/health`.
+
+    Rivo's routes exist only when both its path and its key are given, and the
+    internal activity route only when both `activity` and `internal_token` are:
+    each half of the server can be on without the other. See `INTERNAL_ACTIVITY`
+    for the second one.
 
     Everything it needs is passed in: this module knows Rivo's signature and
     Telegram's absence, and nothing about databases.
@@ -519,11 +539,13 @@ def build_app(
     not a fixture, and collecting it is the entire point.
     """
 
-    secrets = _secrets(secret)
-    paths = _paths(path)
-    # How many, never which: the one line that lets somebody who just edited
-    # the file confirm the bot read all of it.
-    logger.info("Rivo webhook accepts {} signing key(s)", len(secrets))
+    rivo = bool(path and secret)
+    secrets = _secrets(secret) if rivo else ()
+    paths = _paths(path) if rivo else ()
+    if rivo:
+        # How many, never which: the one line that lets somebody who just
+        # edited the file confirm the bot read all of it.
+        logger.info("Rivo webhook accepts {} signing key(s)", len(secrets))
 
     async def handle(request: web.Request) -> web.Response:
         # First line of the function, deliberately, and above every check
@@ -649,14 +671,46 @@ def build_app(
     async def health(_request: web.Request) -> web.Response:
         return web.Response(text="ok")
 
+    async def internal_activity(request: web.Request) -> web.Response:
+        # Through nginx means from the internet. The neighbouring nginx sets
+        # both headers on everything it forwards, and today it forwards only
+        # /rivo/ — this is the lock for the day somebody widens that.
+        if any(header in request.headers for header in PROXY_HEADERS):
+            raise web.HTTPNotFound()
+        supplied = request.headers.get("Authorization", "")
+        # Bytes, not str: compare_digest raises TypeError on a non-ASCII str,
+        # which would turn a junk header into a 500 instead of a 401.
+        if not hmac.compare_digest(supplied.encode(),
+                                   f"Bearer {internal_token}".encode()):
+            return web.Response(status=401, text="unauthorized")
+        try:
+            days = int(request.query.get("days", DEFAULT_ACTIVITY_DAYS))
+        except ValueError:
+            return web.Response(status=400, text="days must be a whole number")
+        if not MIN_ACTIVITY_DAYS <= days <= MAX_ACTIVITY_DAYS:
+            return web.Response(
+                status=400,
+                text=f"days must be {MIN_ACTIVITY_DAYS}..{MAX_ACTIVITY_DAYS}")
+        try:
+            payload = await activity(days)
+        except Exception:  # noqa: BLE001 — logged here, answered as a status
+            logger.exception("Internal activity report failed")
+            return web.Response(status=500, text="report failed")
+        return web.json_response(payload)
+
     app = web.Application()
     # Every method, not just POST: see the note in `handle`. What is watched is
     # whether anything reaches this process at all.
     for one in paths:
         app.router.add_route("*", one, handle)
-    # After registering, not before: the line is the evidence a rotation step
-    # was taken, and it used to be written even when the next line crashed.
-    logger.info("Rivo webhook serves {} path(s)", len(paths))
+    if rivo:
+        # After registering, not before: the line is the evidence a rotation
+        # step was taken, and it used to be written even when the next line
+        # crashed.
+        logger.info("Rivo webhook serves {} path(s)", len(paths))
+    if activity is not None and internal_token:
+        app.router.add_get(INTERNAL_ACTIVITY, internal_activity)
+        logger.info("Internal activity endpoint serves {}", INTERNAL_ACTIVITY)
     # Not on the secret path: something has to be pingable without knowing it.
     app.router.add_get("/health", health)
     return app

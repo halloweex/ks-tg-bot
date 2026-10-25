@@ -30,6 +30,11 @@ class EnvSettings(BaseSettings):
     # only Telegram can reach.
     rivo_webhook_secret: str | None = None
     rivo_webhook_path: str | None = None
+    # Bearer token for GET /internal/activity, the counts the analytics service
+    # next door charts (bot/webhooks.py). Unset and the route does not exist.
+    # Any long random string — `openssl rand -hex 32` — set to the same value
+    # in that service's .env.
+    internal_api_token: str | None = None
     admin_user_ids: str = ""
     # One key or several, comma-separated. Six legal entities ship orders, but
     # any one key tracks any parcel when the phone is supplied (measured), so one
