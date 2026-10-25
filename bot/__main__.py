@@ -47,6 +47,7 @@ from core.adapters.shopify.catalog import ShopifyStorefront
 from core.adapters.telegram.profile import TelegramProfiles
 from core.adapters.novaposhta.client import NovaPoshtaClient
 from bot.middlewares import DropCustomEmoji, LanguageMiddleware
+from bot.taps import TapJournal
 from bot import profile
 from bot.outbox import watch as watch_outbox
 from bot import webhooks
@@ -307,6 +308,11 @@ async def main() -> None:
     # can just use the injected `t`.
     dp.message.middleware(LanguageMiddleware())
     dp.callback_query.middleware(LanguageMiddleware())
+    # Outer, so it sees every update before any filter decides who handles it:
+    # the question is what people press, including what nothing answers
+    # (bot/taps.py).
+    dp.message.outer_middleware(TapJournal())
+    dp.callback_query.outer_middleware(TapJournal())
 
     # On the way out, not on the way in: the one place every API call passes
     # through, so a lapsed Premium subscription costs the logos in a message
