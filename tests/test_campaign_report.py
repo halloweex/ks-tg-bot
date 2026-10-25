@@ -9,6 +9,7 @@ sample of two.
 from __future__ import annotations
 
 import asyncio
+from datetime import date
 
 import pytest
 
@@ -63,13 +64,23 @@ def _ordered(chat_id: int, at: str) -> None:
     asyncio.run(go())
 
 
+# The rows below are dated in September 2026, spelled as production spells
+# them, and the report looks back from SQLite's own `now`. A fixed 30-day window
+# made every test here start failing on 2026-10-10, when the sends aged out of
+# it — nothing in the code had changed. The window now always reaches back past
+# the fixtures; what each test is about is the order of a send and a purchase,
+# never how far back the report looks.
+_DAYS_SINCE_FIXTURES = (date.today() - date(2026, 9, 1)).days + 1
+
+
 def _outcomes(**kw):
-    kw.setdefault("days", 30)
+    kw.setdefault("days", _DAYS_SINCE_FIXTURES)
     kw.setdefault("window_days", 7)
     return asyncio.run(campaign_outcomes(**kw))
 
 
 def _report(**kw):
+    kw.setdefault("days", _DAYS_SINCE_FIXTURES)
     return asyncio.run(campaign_report(SqliteCampaignOutcomes(), **kw))
 
 
