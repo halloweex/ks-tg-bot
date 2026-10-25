@@ -25,7 +25,7 @@ import inspect
 
 import pytest
 
-from core.ports.analytics import UsageStats
+from core.ports.analytics import ActivityLog, UsageStats
 from core.ports.outbox import MessageQueue, PendingMessages
 from core.ports.repositories import (BroadcastJournal, CustomerDirectory,
                                      OfferCache, OrderCache, ReferralLedger,
@@ -33,7 +33,7 @@ from core.ports.repositories import (BroadcastJournal, CustomerDirectory,
                                      UnitOfWork, UserProfiles)
 from core.repos.broadcast import SqliteBroadcastJournal
 from core.repos.catalogue import SqliteOfferCache
-from core.repos.events import SqliteUsageStats
+from core.repos.events import SqliteActivityLog, SqliteUsageStats
 from core.repos.referrals import SqliteReferralLedger
 from core.repos.stock import SqliteRestockWatchlist, SqliteStockSnapshot
 from core.repos.sync_state import SqliteSyncJournal
@@ -61,6 +61,7 @@ PAIRS = [
     (UnitOfWork, SqlUnitOfWork),
     (OfferCache, SqliteOfferCache),
     (UsageStats, SqliteUsageStats),
+    (ActivityLog, SqliteActivityLog),
     (MessageQueue, SqliteMessageQueue),
     (GenderForm, SqliteGenderForm),
     (PendingMessages, SqlitePendingMessages),
@@ -128,4 +129,4 @@ def test_every_port_in_the_migration_is_covered_here():
                        MessageQueue, PendingMessages, LanguageChoice, MailingList,
                        KnownBirthdays, StockSnapshot, RestockWatchlist,
                        ReferralLedger, BroadcastJournal, CustomerDirectory,
-                       SyncJournal, GenderForm, DeliveryLedger}
+                       SyncJournal, GenderForm, DeliveryLedger, ActivityLog}

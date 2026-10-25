@@ -114,10 +114,11 @@ def test_an_admin_gets_a_readout_even_from_an_empty_database(db):
     assert message.kwargs["parse_mode"] == "HTML"
 
 
-def test_the_readout_has_all_five_sections(db):
+def test_the_readout_has_all_six_sections(db):
     text = _text()
-    for heading in ("Funnel (unique users)", "Order lookups", "Retention",
-                    "Events, last", "Proactive, last"):
+    for heading in ("Funnel (unique users)", "Activity (Kyiv days",
+                    "Order lookups", "Retention", "Events, last",
+                    "Proactive, last"):
         assert heading in text, heading
 
 
@@ -293,3 +294,14 @@ def test_the_readout_says_plainly_that_a_tap_cannot_be_counted(db):
     text = _text()
     assert "no click column" in text
     assert "unmeasurable, never zero" in text
+
+
+def test_the_activity_section_leaves_the_admin_out(db):
+    """The same numbers the analytics service charts, and like there the admin
+    testing their own bot is not a user."""
+    _event(ADMIN, "start")
+    _event(CUSTOMER, "start")
+
+    activity = _section(_text(), "Activity (Kyiv days")
+    assert activity[0] == "users: 1, registered: 0"
+    assert activity[2] == "active: 1 in 7 days, 1 in 30 days"

@@ -19,10 +19,11 @@ from bot.callbacks import BroadcastAction
 from bot.analytics import track
 from core.config import AppConfig
 from core.repos.campaigns import SqliteCampaignOutcomes
-from core.usecases.analytics import campaign_report, usage_report
+from core.usecases.analytics import (activity_report, campaign_report,
+                                     usage_report)
 from core.usecases.broadcast import start_broadcast
 from core.repos.broadcast import SqliteBroadcastJournal
-from core.repos.events import SqliteUsageStats
+from core.repos.events import SqliteActivityLog, SqliteUsageStats
 from core.repos.outbox import SqliteMessageQueue
 from core.repos.users import (SqliteMailingList, get_broadcast_recipients,
                               get_user_language, opt_out_user)
@@ -237,6 +238,19 @@ async def cmd_stats(message: Message, config: AppConfig) -> None:
     for step in report.funnel:
         share = f"  {step.share:.0f}%" if step.share is not None else ""
         lines.append(f"  {labels.get(step.key, step.key)}: {step.users}{share}")
+
+    # The same function and windows as the chart in the analytics service, so
+    # the two readouts cannot disagree. Kyiv days and no admins, unlike the
+    # sections around it, which count UTC windows and everybody.
+    activity = await activity_report(SqliteActivityLog(), days=7,
+                                     exclude=config.env.admin_ids)
+    lines += ["", "<b>Activity (Kyiv days, admins excluded)</b>",
+              f"  users: {activity.users_total}, registered: "
+              f"{activity.registered_total}",
+              f"  registered, last 7 days: {activity.registered_7d} "
+              f"(the 7 before: {activity.registered_prev_7d})",
+              f"  active: {activity.wau} in {activity.wau_days} days, "
+              f"{activity.mau} in {activity.mau_days} days"]
 
     lines += ["", "<b>Order lookups</b>"]
     if report.miss_rate is not None:

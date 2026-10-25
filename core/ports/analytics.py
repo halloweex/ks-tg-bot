@@ -122,6 +122,71 @@ class UsageStats(Protocol):
 
 
 @runtime_checkable
+class ActivityLog(Protocol):
+    """Who was in the bot and when, at the grain the activity readout needs.
+
+    Separate from `UsageStats` for the reason `CampaignOutcomes` is: a fifth
+    method there would force every implementer of the four-question readout to
+    answer this one too. And separate in kind: `UsageStats` answers counts over
+    "now minus N days", this hands back moments, because the readout that asks
+    buckets them into the shop's days (Europe/Kyiv) and SQLite has no time
+    zones to do that with.
+
+    **Rows, not counts, and still small.** One row per person per *hour* they
+    did anything, not per event: Kyiv's offset from UTC is a whole number of
+    hours in both seasons, so the UTC hour fixes the Kyiv date exactly, and the
+    deduplication stays in SQL where it is cheap. The other two lists are one
+    row per person, all time — hundreds of rows today.
+
+    **Activity is any event that carries a person.** Every `track()` call with a
+    `chat_id` is made by a handler answering something that person did; the
+    rows without one are the bot's own bookkeeping (the Rivo watchdog). Which
+    people do not count — the admins testing their own bot — is the caller's
+    judgement, hence `exclude`.
+
+    Timestamps go out as the store spells them, UTC, for the reason
+    `core/repos/events.py::last_seen` gives: the spelling belongs to whoever
+    stores it, and the reader is the one place that parses it.
+    """
+
+    async def active_hours(
+        self, *, since: str, exclude: Sequence[int]
+    ) -> list[tuple[int, str]]:
+        """(chat_id, 'YYYY-MM-DD HH' in UTC), once per person per hour.
+
+        `since` is a UTC timestamp in the store's own spelling
+        ('YYYY-MM-DD HH:MM:SS'); rows before it are not returned.
+        """
+        ...
+
+    async def first_seen(self, *, exclude: Sequence[int]) -> list[tuple[int, str]]:
+        """(chat_id, UTC timestamp) of each person's earliest trace, all time.
+
+        The earlier of their first event and their registration. Both, because
+        the event log starts on 2026-07-30 and the first registrations are two
+        days older: a person known only from `users` is still a person who was
+        new on the day they registered.
+        """
+        ...
+
+    async def registered(self, *, exclude: Sequence[int]) -> list[tuple[int, str]]:
+        """(chat_id, UTC timestamp of registration), all time.
+
+        From the registration row, not from the `registered` event: the event is
+        fire-and-forget and may be lost, the row is what registration is.
+        """
+        ...
+
+    async def log_starts(self) -> str | None:
+        """When the first event carrying a person was recorded, or None.
+
+        Everything before it is invisible to the activity counts, and a chart
+        that does not say so reads that gap as a quiet month.
+        """
+        ...
+
+
+@runtime_checkable
 class CampaignOutcomes(Protocol):
     """What the proactive messages did, for the campaign section of the readout.
 

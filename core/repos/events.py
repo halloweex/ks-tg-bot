@@ -115,6 +115,79 @@ async def returning_users(days: int = 30) -> tuple[int, int]:
         return ((row[1] or 0), (row[0] or 0))
 
 
+def _not_in(column: str, exclude: Sequence[int]) -> tuple[str, tuple[int, ...]]:
+    """` AND column NOT IN (?, …)` and its parameters, or nothing to add."""
+    ids = tuple(int(i) for i in exclude)
+    if not ids:
+        return "", ()
+    return f" AND {column} NOT IN ({', '.join('?' * len(ids))})", ids
+
+
+async def active_hours(since: str, exclude: Sequence[int]) -> list[tuple[int, str]]:
+    """(chat_id, UTC hour) once per person per hour with any event since `since`."""
+    clause, params = _not_in("chat_id", exclude)
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT DISTINCT chat_id, strftime('%Y-%m-%d %H', created_at) "
+            "  FROM events "
+            " WHERE chat_id IS NOT NULL AND created_at >= ?" + clause,
+            (since, *params),
+        )
+        return [(row[0], row[1]) for row in await cursor.fetchall()]
+
+
+async def first_seen(exclude: Sequence[int]) -> list[tuple[int, str]]:
+    """(chat_id, earliest of first event and registration), all time."""
+    clause, params = _not_in("chat_id", exclude)
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT chat_id, MIN(t) FROM ("
+            "  SELECT chat_id, MIN(created_at) AS t FROM events"
+            "   WHERE chat_id IS NOT NULL GROUP BY chat_id"
+            "  UNION ALL"
+            "  SELECT chat_id, created_at AS t FROM users"
+            ") WHERE 1 = 1" + clause + " GROUP BY chat_id",
+            params,
+        )
+        return [(row[0], row[1]) for row in await cursor.fetchall()]
+
+
+async def registered(exclude: Sequence[int]) -> list[tuple[int, str]]:
+    """(chat_id, registration time) for everybody with a registration row."""
+    clause, params = _not_in("chat_id", exclude)
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT chat_id, created_at FROM users WHERE 1 = 1" + clause, params)
+        return [(row[0], row[1]) for row in await cursor.fetchall()]
+
+
+async def log_starts() -> str | None:
+    """The first event that carries a person, or None for an empty log."""
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT MIN(created_at) FROM events WHERE chat_id IS NOT NULL")
+        row = await cursor.fetchone()
+        return row[0] if row else None
+
+
+class SqliteActivityLog:
+    """Implements core.ports.analytics.ActivityLog against today's database."""
+
+    async def active_hours(
+        self, *, since: str, exclude: Sequence[int]
+    ) -> list[tuple[int, str]]:
+        return await active_hours(since, exclude)
+
+    async def first_seen(self, *, exclude: Sequence[int]) -> list[tuple[int, str]]:
+        return await first_seen(exclude)
+
+    async def registered(self, *, exclude: Sequence[int]) -> list[tuple[int, str]]:
+        return await registered(exclude)
+
+    async def log_starts(self) -> str | None:
+        return await log_starts()
+
+
 class SqliteUsageStats:
     """Implements core.ports.analytics.UsageStats against today's database.
 
