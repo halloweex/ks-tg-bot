@@ -23,7 +23,8 @@ from core.domain.campaign import parse
 from core.domain.quiet import SHOP_TZ
 from core.ports.analytics import ActivityLog, CampaignOutcomes, UsageStats
 
-# The onboarding funnel, in order. Order matters: each step is a subset of the
+# The onboarding funnel, in order, over the people first seen in the window
+# (see UsageStats.users_reaching). Order matters: each step is a subset of the
 # one above it, and a share is only meaningful against the top.
 FUNNEL_STEPS: tuple[str, ...] = ("start", "contact_shared", "registered",
                                  "orders_viewed")

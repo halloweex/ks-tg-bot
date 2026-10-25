@@ -116,7 +116,7 @@ def test_an_admin_gets_a_readout_even_from_an_empty_database(db):
 
 def test_the_readout_has_all_six_sections(db):
     text = _text()
-    for heading in ("Funnel (unique users)", "Activity (Kyiv days",
+    for heading in ("Funnel (people new in the window)", "Activity (Kyiv days",
                     "Order lookups", "Retention", "Events, last",
                     "Proactive, last"):
         assert heading in text, heading
@@ -132,9 +132,29 @@ def test_the_funnel_counts_people_and_not_events(db):
     _event(2, "start")
     _event(1, "registered")
 
-    funnel = _section(_text(), "Funnel (unique users)")
+    funnel = _section(_text(), "Funnel (people new in the window)")
     assert funnel[0] == "/start: 2  100%"
     assert "registered: 1  50%" in funnel
+
+
+def test_a_returning_customer_does_not_refill_the_top_of_the_funnel(db):
+    """`start` fires for everybody who types /start, including people who
+    registered months ago. Counted per step inside the window they filled the
+    top and the bottom of the funnel without passing the steps between."""
+    async def old_trace() -> None:
+        async with repos_base.connect() as conn:
+            await conn.execute(
+                "INSERT INTO events (chat_id, event, meta, created_at) "
+                "VALUES (1, 'start', '{}', datetime('now', '-90 days'))")
+            await conn.commit()
+    asyncio.run(old_trace())
+    _event(1, "start")              # back today: not new
+    _event(1, "orders_viewed")
+    _event(2, "start")              # new today
+
+    funnel = _section(_text(), "Funnel (people new in the window)")
+    assert funnel[0] == "/start: 1  100%"
+    assert "viewed orders: 0  0%" in funnel
 
 
 def test_every_step_of_the_funnel_has_a_word_for_it(db):
@@ -147,7 +167,7 @@ def test_every_step_of_the_funnel_has_a_word_for_it(db):
     the second place, so it is the one that has to be edited deliberately.
     """
     captions = [line.split(":")[0]
-                for line in _section(_text(), "Funnel (unique users)")]
+                for line in _section(_text(), "Funnel (people new in the window)")]
     assert captions == ["/start", "shared contact", "registered", "viewed orders"]
     assert len(captions) == len(FUNNEL_STEPS)
 

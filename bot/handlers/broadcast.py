@@ -228,7 +228,7 @@ async def cmd_stats(message: Message, config: AppConfig) -> None:
     report = await usage_report(SqliteUsageStats())
 
     lines = [f"\U0001f4ca <b>Last {report.days} days</b>", "",
-             "<b>Funnel (unique users)</b>"]
+             "<b>Funnel (people new in the window)</b>"]
     labels = {
         "start": "/start",
         "contact_shared": "shared contact",

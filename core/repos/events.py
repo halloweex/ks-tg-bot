@@ -55,7 +55,17 @@ async def event_counts(days: int = 7) -> list[tuple[str, int, int]]:
 
 
 async def funnel_counts(days: int, steps: Sequence[str]) -> dict[str, int]:
-    """Distinct users reaching each of the named steps.
+    """Of the people first seen inside the window, how many reached each step.
+
+    **A cohort, not a count per step.** This used to count, for each step on its
+    own, everybody who did it inside the window. That is not a funnel: `start`
+    fires for every returning customer who types /start, `orders_viewed` for
+    everybody who checks a parcel, so the top and the bottom were filled by
+    people who had registered months ago and the shares between them meant
+    nothing — a step could even exceed the one above it. Now the window picks
+    the people (first trace inside it, the same "first seen" the activity
+    readout uses: first event or registration, whichever is earlier), and each
+    step counts how many of *those* ever did it.
 
     The steps arrive from the caller rather than living here. They used to be
     written down twice — once in this tuple and once as FUNNEL_STEPS in the
@@ -68,7 +78,13 @@ async def funnel_counts(days: int, steps: Sequence[str]) -> dict[str, int]:
         for step in steps:
             cursor = await db.execute(
                 "SELECT COUNT(DISTINCT chat_id) FROM events "
-                "WHERE event = ? AND created_at >= datetime('now', ?)",
+                " WHERE event = ? AND chat_id IN ("
+                "   SELECT chat_id FROM ("
+                "     SELECT chat_id, created_at AS t FROM events"
+                "      WHERE chat_id IS NOT NULL"
+                "     UNION ALL"
+                "     SELECT chat_id, created_at AS t FROM users"
+                "   ) GROUP BY chat_id HAVING MIN(t) >= datetime('now', ?))",
                 (step, f"-{days} days"),
             )
             row = await cursor.fetchone()

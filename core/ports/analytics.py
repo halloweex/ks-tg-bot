@@ -55,7 +55,12 @@ class UsageStats(Protocol):
     async def users_reaching(
         self, steps: Sequence[str], *, days: int
     ) -> dict[str, int]:
-        """Distinct users who reached each named step inside the window.
+        """Of the people first seen inside the window, how many reached each step.
+
+        A cohort: the window chooses the people, and each step counts how many
+        of them ever did it. Counting each step on its own inside the window
+        was not a funnel — returning customers fill `start` and
+        `orders_viewed` without ever passing the steps between.
 
         **The steps are a parameter, not the repository's business.** They were
         written down twice — `FUNNEL_STEPS` in the scenario and a private tuple
