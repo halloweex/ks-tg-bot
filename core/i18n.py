@@ -249,12 +249,18 @@ EN: dict[str, str] = {
         "link.\n\n"
         "Catalogue - https://example.com\n"
         "Instagram - instagram.com/example\n\n"
-        "Put two or three in one row by separating them with |.\n"
+        "Put two or three in one row by separating them with |. For Instagram, "
+        "TikTok, YouTube and Telegram the link alone is enough.\n"
         "Send - to remove the buttons."
     ),
     "MSG_BROADCAST_BUTTONS_INVALID": (
         "The line «{line}» does not look like a button: it needs text, a dash "
         "and a link. Send the buttons again, or - for none."
+    ),
+    "MSG_BROADCAST_BUTTONS_NEED_TEXT": (
+        "The line «{line}» has a link but no text for the button. Put the text "
+        "before the link with a dash, for example:\n<code>{example}</code>\n\n"
+        "Send the buttons again, or - for none."
     ),
     "MSG_BROADCAST_BUTTONS_TOO_MANY": (
         "Too many buttons: at most {rows} rows and {per_row} buttons in a row. "

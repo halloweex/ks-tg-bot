@@ -120,13 +120,25 @@ class _InlineHtml(HtmlDecoration):
 _INLINE_HTML = _InlineHtml()
 
 
+# Networks known to everybody by name. A bare link to one of them gets that
+# name as its label: it is what the sender would have typed, and a proper
+# name reads the same in every language. Any other bare link needs words.
+_KNOWN_LABELS = {
+    "instagram.com": "Instagram", "facebook.com": "Facebook",
+    "tiktok.com": "TikTok", "youtube.com": "YouTube", "youtu.be": "YouTube",
+    "t.me": "Telegram", "telegram.me": "Telegram",
+}
+
+
 class ButtonsError(ValueError):
     """Typed buttons that cannot be read. `line` is the one that failed, or
-    None when there are simply too many."""
+    None when there are simply too many. `url` is set when the line was a
+    link with no words for the button, so the sender can be shown the fix."""
 
-    def __init__(self, line: str | None) -> None:
+    def __init__(self, line: str | None, *, url: str | None = None) -> None:
         super().__init__(line or "too many buttons")
         self.line = line
+        self.url = url
 
 
 def capture(message: Message) -> dict[str, Any]:
@@ -188,10 +200,20 @@ def _button(part: str, line: str) -> dict[str, str]:
         if not _BARE_HOST.match(urlsplit("https://" + last).netloc):
             raise ButtonsError(line)
         url = "https://" + last
-    text = text.strip().rstrip("-–—:").strip()
-    if not text or len(text) > BUTTON_TEXT_LIMIT:
+    text = text.strip().rstrip("-–—:").strip() or label_for(url)
+    if not text:
+        raise ButtonsError(line, url=url)
+    if len(text) > BUTTON_TEXT_LIMIT:
         raise ButtonsError(line)
     return {"text": text, "url": url}
+
+
+def label_for(url: str) -> str | None:
+    """The name a bare link goes by, when it is a network everybody knows."""
+    host = (urlsplit(url).hostname or "").lower()
+    for prefix in ("www.", "m."):
+        host = host.removeprefix(prefix)
+    return _KNOWN_LABELS.get(host)
 
 
 def from_markup(post: dict[str, Any]) -> dict[str, Any] | None:

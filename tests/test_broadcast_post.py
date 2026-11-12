@@ -407,6 +407,26 @@ def test_too_many_buttons_is_its_own_complaint():
     assert caught.value.line is None
 
 
+@pytest.mark.parametrize("typed, label", [
+    # What the owner sent on 2026-11-13, and was turned away for.
+    ("https://www.instagram.com/korean_story_official/", "Instagram"),
+    ("instagram.com/korean_story_official", "Instagram"),
+    ("t.me/koreanstory", "Telegram"),
+    ("https://m.youtube.com/@koreanstory", "YouTube"),
+])
+def test_a_bare_link_to_a_network_everybody_knows_is_named_after_it(typed, label):
+    [[button]] = post.parse_buttons(typed)
+    assert button["text"] == label
+    assert button["url"].endswith(typed.removeprefix("https://"))
+
+
+def test_any_other_bare_link_asks_for_words_and_carries_the_link():
+    with pytest.raises(post.ButtonsError) as caught:
+        post.parse_buttons("https://koreanstory.com.ua/collections/sale")
+    assert caught.value.line == "https://koreanstory.com.ua/collections/sale"
+    assert caught.value.url == "https://koreanstory.com.ua/collections/sale"
+
+
 def test_buttons_go_out_under_any_kind_of_post():
     bot = fakes.RecordingBot()
     rows = post.parse_buttons("Каталог - https://ks.example | Instagram - instagram.com/shop")

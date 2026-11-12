@@ -511,3 +511,28 @@ def test_an_album_is_told_why_it_cannot_have_buttons(shop):
     [answer] = [c for c in bot.calls if isinstance(c, AnswerCallbackQuery)][-1:]
     assert answer.text == UK.MSG_BROADCAST_BUTTONS_ALBUM and answer.show_alert
     assert state.state == BroadcastStates.waiting_confirm.state
+
+
+def test_a_bare_link_to_the_shop_is_answered_with_the_line_to_send(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    _tap(bot, state, BroadcastAction(action="buttons"))
+
+    _type(bot, state, "https://koreanstory.com.ua/?a=1&b=2")
+
+    link = "https://koreanstory.com.ua/?a=1&amp;b=2"
+    assert _last_to_staff(bot).text == UK.MSG_BROADCAST_BUTTONS_NEED_TEXT.format(
+        line=link, example=f"{UK.BROADCAST_BUTTON_EXAMPLE_LABEL} - {link}")
+    assert state.state == BroadcastStates.waiting_buttons.state
+
+
+def test_a_bare_instagram_link_becomes_an_instagram_button(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    _tap(bot, state, BroadcastAction(action="buttons"))
+
+    _type(bot, state, "https://www.instagram.com/korean_story_official/")
+
+    assert state.data["broadcast_post"]["buttons"] == [[{
+        "text": "Instagram", "url": "https://www.instagram.com/korean_story_official/"}]]
+    assert state.state == BroadcastStates.waiting_confirm.state

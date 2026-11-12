@@ -653,13 +653,22 @@ MSG_BROADCAST_ASK_BUTTONS = (
     "Напишіть кнопки під пост, кожну з нового рядка: текст, тире, посилання.\n\n"
     "Каталог - https://example.com\n"
     "Instagram - instagram.com/example\n\n"
-    "Дві-три кнопки в один ряд розділіть знаком |.\n"
+    "Дві-три кнопки в один ряд розділіть знаком |. Для Instagram, TikTok, "
+    "YouTube і Telegram досить самого посилання.\n"
     "Щоб прибрати кнопки, надішліть -"
 )
 MSG_BROADCAST_BUTTONS_INVALID = (
     "Рядок «{line}» не схожий на кнопку: потрібні текст, тире й посилання. "
     "Надішліть кнопки ще раз або -, щоб без них."
 )
+MSG_BROADCAST_BUTTONS_NEED_TEXT = (
+    "У рядку «{line}» є посилання, але немає тексту кнопки. Допишіть його перед "
+    "посиланням через тире, наприклад:\n<code>{example}</code>\n\n"
+    "Надішліть кнопки ще раз або -, щоб без них."
+)
+# The label in that example. Customers read the button, so it is Ukrainian
+# whoever is typing, and it has no English twin in core/i18n.py on purpose.
+BROADCAST_BUTTON_EXAMPLE_LABEL = "Перейти на сайт"
 MSG_BROADCAST_BUTTONS_TOO_MANY = (
     "Забагато кнопок: не більше {rows} рядків і {per_row} кнопок у ряду. "
     "Надішліть ще раз."

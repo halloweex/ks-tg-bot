@@ -437,6 +437,24 @@ async def _send_test(callback: CallbackQuery, state: FSMContext, at: Texts,
                                     reply_markup=markup)
 
 
+def _buttons_complaint(at: Texts, exc: post.ButtonsError) -> str:
+    """What was wrong with the typed buttons, in a form that can be fixed.
+
+    A link without words gets the fix written out with that very link, in
+    <code> so a tap copies it. Every piece the sender typed is escaped: this
+    goes out under the bot's HTML parse mode.
+    """
+    if exc.line is None:
+        return at.MSG_BROADCAST_BUTTONS_TOO_MANY.format(
+            rows=post.BUTTON_ROWS,
+            per_row=post.BUTTONS_PER_ROW)
+    if exc.url:
+        example = f"{at.BROADCAST_BUTTON_EXAMPLE_LABEL} - {exc.url}"
+        return at.MSG_BROADCAST_BUTTONS_NEED_TEXT.format(
+            line=html.escape(exc.line), example=html.escape(example))
+    return at.MSG_BROADCAST_BUTTONS_INVALID.format(line=html.escape(exc.line))
+
+
 async def _ask_buttons(callback: CallbackQuery, state: FSMContext, at: Texts) -> None:
     """Turn the picker into the question about link buttons.
 
@@ -474,12 +492,7 @@ async def process_broadcast_buttons(
     try:
         rows = [] if typed in ("-", "–", "—") else post.parse_buttons(typed)
     except post.ButtonsError as exc:
-        await message.answer(
-            at.MSG_BROADCAST_BUTTONS_TOO_MANY.format(
-                rows=post.BUTTON_ROWS, per_row=post.BUTTONS_PER_ROW)
-            if exc.line is None
-            # Sent under the bot's HTML parse mode, and the line is the sender's.
-            else at.MSG_BROADCAST_BUTTONS_INVALID.format(line=html.escape(exc.line)))
+        await message.answer(_buttons_complaint(at, exc))
         return
     content = post.with_buttons(content, rows)
     # Shown again rather than described: a link Telegram will not take fails
