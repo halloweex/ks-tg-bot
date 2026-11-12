@@ -36,6 +36,11 @@ class EnvSettings(BaseSettings):
     # in that service's .env.
     internal_api_token: str | None = None
     admin_user_ids: str = ""
+    # Who may run /broadcast without being an admin, comma-separated Telegram
+    # ids. Not admins on purpose: an admin also gets a copy of every customer's
+    # support message, every alert, /stats and /demo, and someone whose job is
+    # the newsletter needs none of it. Empty means admins only, as before.
+    broadcast_user_ids: str = ""
     # One key or several, comma-separated. Six legal entities ship orders, but
     # any one key tracks any parcel when the phone is supplied (measured), so one
     # is enough; more are accepted purely as failover. See NovaPoshtaClient.
@@ -97,6 +102,13 @@ class EnvSettings(BaseSettings):
         if not self.admin_user_ids.strip():
             return []
         return [int(uid.strip()) for uid in self.admin_user_ids.split(",") if uid.strip()]
+
+    @property
+    def broadcaster_ids(self) -> list[int]:
+        """Parse comma-separated broadcast-only IDs into a list of integers."""
+        if not self.broadcast_user_ids.strip():
+            return []
+        return [int(uid.strip()) for uid in self.broadcast_user_ids.split(",") if uid.strip()]
 
     model_config = {
         "env_file": ".env",

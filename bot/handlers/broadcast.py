@@ -52,6 +52,16 @@ def _is_admin(user_id: int, config: AppConfig) -> bool:
     return user_id in config.env.admin_ids
 
 
+def _may_broadcast(user_id: int, config: AppConfig) -> bool:
+    """Admins, and the people BROADCAST_USER_IDS names for this flow alone.
+
+    Checked at every step rather than only at /broadcast: the confirm buttons
+    and the typed "так" are handlers of their own, and a step that skipped the
+    check would be the door around it.
+    """
+    return _is_admin(user_id, config) or user_id in config.env.broadcaster_ids
+
+
 async def _queue_broadcast(text: str, admin_id: int) -> None:
     """Hand the job to the queue and let the sender get on with it.
 
@@ -78,8 +88,8 @@ async def cmd_broadcast(
     message: Message, config: AppConfig, state: FSMContext,
     t: Texts,
 ) -> None:
-    """Start the broadcast flow (admin only)."""
-    if not _is_admin(message.from_user.id, config):
+    """Start the broadcast flow (admins and BROADCAST_USER_IDS)."""
+    if not _may_broadcast(message.from_user.id, config):
         return
     at = admin_texts(await get_user_language(message.from_user.id))
     await state.set_state(BroadcastStates.waiting_message)
@@ -92,7 +102,7 @@ async def process_broadcast_message(
     t: Texts,
 ) -> None:
     """Receive the broadcast text and ask for confirmation."""
-    if not _is_admin(message.from_user.id, config):
+    if not _may_broadcast(message.from_user.id, config):
         return
 
     at = admin_texts(await get_user_language(message.from_user.id))
@@ -136,7 +146,7 @@ async def process_broadcast_confirm(
     t: Texts,
 ) -> None:
     """Queue or cancel the broadcast from the inline Yes/No buttons."""
-    if not _is_admin(callback.from_user.id, config):
+    if not _may_broadcast(callback.from_user.id, config):
         await callback.answer()
         return
     await callback.answer()
@@ -164,7 +174,7 @@ async def process_broadcast_confirm_text(
     t: Texts,
 ) -> None:
     """Fallback: typing так/yes/да still confirms; anything else cancels."""
-    if not _is_admin(message.from_user.id, config):
+    if not _may_broadcast(message.from_user.id, config):
         return
 
     at = admin_texts(await get_user_language(message.from_user.id))
