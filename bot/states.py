@@ -30,3 +30,4 @@ class BroadcastStates(StatesGroup):
     # the state is persisted, and a rename strands anyone mid-flow on deploy.
     waiting_confirm = State()
     waiting_word = State()
+    waiting_buttons = State()

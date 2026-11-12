@@ -618,6 +618,8 @@ MSG_BROADCAST_ASK_WAITING = (
     "Напишіть слово з назви товару, на який чекають. Пост отримають ті, хто "
     "підписався на його появу."
 )
+BTN_BROADCAST_BUTTONS = "🔗 Кнопки під постом: {value}"
+BROADCAST_BUTTONS_NONE = "немає"
 BTN_BROADCAST_TEST = "🧪 Надіслати тест команді ({count})"
 BTN_BROADCAST_SEND = "✅ Надіслати ({count})"
 BTN_BROADCAST_RESET = "↩️ Скинути фільтри"
@@ -647,6 +649,29 @@ AUD_ACTIVITY_IDLE30 = "не заходили 30+ днів"
 MSG_BROADCAST_CANCELLED = "Розсилку скасовано."
 MSG_BROADCAST_STARTED = "Розсилка розпочата..."
 MSG_BROADCAST_TEST_SENDING = "🧪 Надсилаю тест команді…"
+MSG_BROADCAST_ASK_BUTTONS = (
+    "Напишіть кнопки під пост, кожну з нового рядка: текст, тире, посилання.\n\n"
+    "Каталог - https://example.com\n"
+    "Instagram - instagram.com/example\n\n"
+    "Дві-три кнопки в один ряд розділіть знаком |.\n"
+    "Щоб прибрати кнопки, надішліть -"
+)
+MSG_BROADCAST_BUTTONS_INVALID = (
+    "Рядок «{line}» не схожий на кнопку: потрібні текст, тире й посилання. "
+    "Надішліть кнопки ще раз або -, щоб без них."
+)
+MSG_BROADCAST_BUTTONS_TOO_MANY = (
+    "Забагато кнопок: не більше {rows} рядків і {per_row} кнопок у ряду. "
+    "Надішліть ще раз."
+)
+MSG_BROADCAST_BUTTONS_REFUSED = (
+    "Telegram не прийняв ці кнопки. Перевірте посилання й надішліть ще раз "
+    "або -, щоб без кнопок."
+)
+MSG_BROADCAST_BUTTONS_ALBUM = (
+    "До альбому Telegram не дозволяє додати кнопки. Надішліть пост одним фото "
+    "чи відео або без кнопок."
+)
 MSG_BROADCAST_TEST_SENT = "🧪 Тест надіслано команді: {sent} з {total}."
 MSG_BROADCAST_TEST_MISSED = (
     "Хто не отримав, має спершу відкрити бота й натиснути /start."

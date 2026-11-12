@@ -286,7 +286,8 @@ _AUDIENCE_LABELS = {
 
 
 def broadcast_audience_kb(t: Texts, audience: Audience,
-                          count: int, *, team: int = 0) -> InlineKeyboardMarkup:
+                          count: int, *, team: int = 0,
+                          buttons: int = 0) -> InlineKeyboardMarkup:
     """The recipient picker: one filter per row, each tap moves it on.
 
     One per row because every label carries its current value, and an inline
@@ -294,8 +295,9 @@ def broadcast_audience_kb(t: Texts, audience: Audience,
     carries the count, so what is about to happen is on the button that does
     it — and it is not there at all when the filters leave nobody.
 
-    The test button sits above it and ignores the filters: it is for seeing the
-    post arrive, and the team has no orders to filter on.
+    Below the filters, the rows about the post rather than its recipients:
+    its link buttons, then a test send. The test ignores the filters: it is for
+    seeing the post arrive, and the team has no orders to filter on.
     """
     def label(name: str) -> str:
         return getattr(t, _AUDIENCE_LABELS[name][getattr(audience, name)])
@@ -316,6 +318,9 @@ def broadcast_audience_kb(t: Texts, audience: Audience,
     builder = InlineKeyboardBuilder()
     for name, text in rows:
         builder.button(text=text, callback_data=BroadcastFilter(name=name))
+    builder.button(text=t.BTN_BROADCAST_BUTTONS.format(
+                       value=buttons or t.BROADCAST_BUTTONS_NONE),
+                   callback_data=BroadcastAction(action="buttons"))
     if team:
         builder.button(text=t.BTN_BROADCAST_TEST.format(count=team),
                        callback_data=BroadcastAction(action="test"))

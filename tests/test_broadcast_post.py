@@ -296,6 +296,75 @@ def test_the_journal_gets_the_words_of_a_rich_post():
         "Новинки тижня Тільки до неділі Товар Ціна COSRX Snail 520 ₴ Перше Друге")
 
 
+# --- link buttons ------------------------------------------------------------
+
+def test_buttons_are_read_the_way_people_type_them():
+    typed = ("Каталог - https://ks.example/catalog\n"
+             "\n"
+             "Instagram — instagram.com/shop | Канал: t.me/koreanstory\n"
+             "Сайт-https://ks.example")
+    assert post.parse_buttons(typed) == [
+        [{"text": "Каталог", "url": "https://ks.example/catalog"}],
+        [{"text": "Instagram", "url": "https://instagram.com/shop"},
+         {"text": "Канал", "url": "https://t.me/koreanstory"}],
+        [{"text": "Сайт", "url": "https://ks.example"}],
+    ]
+
+
+@pytest.mark.parametrize("line", [
+    "Знижка 20%",                 # no link at all
+    "Ціна 5.5",                   # a number is not a host
+    "https://ks.example",         # a link with nothing to tap on
+])
+def test_a_line_that_is_not_a_button_is_named(line):
+    with pytest.raises(post.ButtonsError) as caught:
+        post.parse_buttons(f"Каталог - https://ks.example\n{line}")
+    assert caught.value.line == line
+
+
+def test_too_many_buttons_is_its_own_complaint():
+    with pytest.raises(post.ButtonsError) as caught:
+        post.parse_buttons("\n".join(f"Б{i} - https://ks.example/{i}"
+                                      for i in range(post.BUTTON_ROWS + 1)))
+    assert caught.value.line is None
+
+
+def test_buttons_go_out_under_any_kind_of_post():
+    bot = fakes.RecordingBot()
+    rows = post.parse_buttons("Каталог - https://ks.example | Instagram - instagram.com/shop")
+    posts = [fakes.message(bot, STAFF, text=RISKY),
+             fakes.message(bot, STAFF, **fakes.photo(caption="Знижки")),
+             fakes.message(bot, STAFF, rich_message=RICH)]
+
+    for sent in posts:
+        content = post.with_buttons(post.single(sent), rows)
+        assert post.problem(content) is None
+        [call] = _deliver(content).calls
+        keyboard = call.reply_markup.inline_keyboard
+        assert [[(b.text, b.url) for b in row] for row in keyboard] == [
+            [("Каталог", "https://ks.example"),
+             ("Instagram", "https://instagram.com/shop")]]
+
+
+def test_no_rows_means_no_buttons():
+    bot = fakes.RecordingBot()
+    content = post.single(fakes.message(bot, STAFF, text="ok"))
+    with_some = post.with_buttons(content, post.parse_buttons("A - https://a.example"))
+
+    assert post.with_buttons(with_some, []) == content
+    assert post.button_count(with_some) == 1 and post.button_count(content) == 0
+
+
+def test_an_album_with_buttons_is_refused():
+    """sendMediaGroup takes no keyboard: the buttons would silently vanish."""
+    bot = fakes.RecordingBot()
+    two = [fakes.message(bot, STAFF, media_group_id="g", **fakes.photo(f"p{i}"))
+           for i in range(2)]
+    content = post.with_buttons(post.album(two), post.parse_buttons("A - https://a.example"))
+
+    assert post.problem(content)
+
+
 # --- bot/outbox.py ------------------------------------------------------------
 
 def test_the_outbox_sends_a_stored_post():

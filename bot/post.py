@@ -30,16 +30,25 @@ composed in the client arrive as `rich_message` blocks, and aiogram's
 shapes except for two things, a media block names its file as received rather
 than as an `InputMedia`, and a list item carries a printed label the sender
 does not send (`_rich_input`).
+
+**Link buttons are the post's own.** A person cannot put an inline keyboard on
+a message in the client, so the sender types them after the post (`parse_buttons`)
+and they are stored beside it, `{"message": {...}, "buttons": [[{text, url}]]}`.
+Every send puts them back as the message's `reply_markup`. An album cannot
+carry them — `sendMediaGroup` takes no keyboard — and is refused with them.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
+from urllib.parse import urlsplit
 
 from aiogram import Bot
 from aiogram.client.default import Default
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import ForwardMessage, SendRichMessage
-from aiogram.types import (InputMediaAudio, InputMediaDocument, InputMediaPhoto,
+from aiogram.types import (InlineKeyboardButton, InlineKeyboardMarkup,
+                           InputMediaAudio, InputMediaDocument, InputMediaPhoto,
                            InputMediaVideo, InputRichMessage, LinkPreviewOptions,
                            Message)
 from pydantic import ValidationError
@@ -65,6 +74,27 @@ ALBUM_LIMIT = 10
 _RICH_MEDIA = ("photo", "video", "animation", "audio", "document", "voice_note")
 # Of those, the ones whose blur is set on the InputMedia rather than the block.
 _RICH_SPOILER = ("photo", "video", "animation")
+
+# Link buttons under a post. Well inside Telegram's own limits: past three in a
+# row the labels are cut to a few letters on a phone.
+BUTTON_ROWS = 8
+BUTTONS_PER_ROW = 3
+BUTTON_TEXT_LIMIT = 64
+# A link written with its scheme, wherever it starts — «Каталог-https://…»
+# has no space to split on.
+_SCHEMED_URL = re.compile(r"(?:https?|tg)://\S+$", re.IGNORECASE)
+# A host written without one, «instagram.com/shop»: a dot and a word after it,
+# so «20%» or «5.5» in a button's text is never taken for a link.
+_BARE_HOST = re.compile(r"^[^\s/@]+\.[^\W\d_]{2,}$")
+
+
+class ButtonsError(ValueError):
+    """Typed buttons that cannot be read. `line` is the one that failed, or
+    None when there are simply too many."""
+
+    def __init__(self, line: str | None) -> None:
+        super().__init__(line or "too many buttons")
+        self.line = line
 
 
 def capture(message: Message) -> dict[str, Any]:
@@ -98,12 +128,74 @@ def album(messages: list[Message]) -> dict[str, Any]:
     return {"album": [capture(m) for m in ordered]}
 
 
+def parse_buttons(typed: str) -> list[list[dict[str, str]]]:
+    """Buttons as the sender typed them: one row per line, «text - link» each,
+    several in a row separated by «|».
+
+    Raises ButtonsError naming the line it could not read, so the sender is
+    told which one to fix rather than to start again.
+    """
+    rows = []
+    for line in typed.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        row = [_button(part.strip(), line) for part in line.split("|") if part.strip()]
+        rows.append(row)
+        if len(row) > BUTTONS_PER_ROW or len(rows) > BUTTON_ROWS:
+            raise ButtonsError(None)
+    return rows
+
+
+def _button(part: str, line: str) -> dict[str, str]:
+    found = _SCHEMED_URL.search(part)
+    if found:
+        text, url = part[:found.start()], found.group()
+    else:
+        text, _, last = part.rpartition(" ")
+        if not _BARE_HOST.match(urlsplit("https://" + last).netloc):
+            raise ButtonsError(line)
+        url = "https://" + last
+    text = text.strip().rstrip("-–—:").strip()
+    if not text or len(text) > BUTTON_TEXT_LIMIT:
+        raise ButtonsError(line)
+    return {"text": text, "url": url}
+
+
+def with_buttons(post: dict[str, Any], rows: list[list[dict[str, str]]]) -> dict[str, Any]:
+    """The same post with these buttons under it; no rows means none."""
+    changed = {key: value for key, value in post.items() if key != "buttons"}
+    if rows:
+        changed["buttons"] = rows
+    return changed
+
+
+def button_count(post: dict[str, Any] | None) -> int:
+    return sum(len(row) for row in (post or {}).get("buttons") or [])
+
+
+def _markup(post: dict[str, Any]) -> InlineKeyboardMarkup | None:
+    rows = post.get("buttons")
+    if not rows:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=b["text"], url=b["url"]) for b in row]
+        for row in rows])
+
+
 def problem(post: dict[str, Any]) -> str | None:
     """Why this post cannot be sent, as a short English reason, or None.
 
     Asked before anything is queued, so the sender hears it at once instead of
     every recipient's row failing one by one.
     """
+    if post.get("buttons"):
+        if "album" in post:
+            return "buttons on an album"
+        try:
+            _markup(post)
+        except (ValidationError, KeyError, TypeError):
+            return "buttons in a form this bot cannot send"
     if "message" in post:
         if post["message"].get("rich_message"):
             try:
@@ -156,7 +248,8 @@ async def send(bot: Bot, chat_id: int, post: dict[str, Any], *, silent: bool) ->
     the sender; neither wants this function deciding what a refusal means.
     """
     if "message" in post:
-        await _send_message(bot, chat_id, post["message"], silent=silent)
+        await _send_message(bot, chat_id, post["message"], silent=silent,
+                            markup=_markup(post))
         return
     media = [_media(_rebuild(part)) for part in post.get("album") or []]
     await bot.send_media_group(chat_id=chat_id, media=media,
@@ -164,7 +257,8 @@ async def send(bot: Bot, chat_id: int, post: dict[str, Any], *, silent: bool) ->
 
 
 async def _send_message(bot: Bot, chat_id: int, stored: dict[str, Any], *,
-                        silent: bool) -> None:
+                        silent: bool,
+                        markup: InlineKeyboardMarkup | None = None) -> None:
     message = _rebuild(stored)
     if stored.get("rich_message"):
         # Checked before send_copy, which would refuse it — or, if Telegram
@@ -172,10 +266,12 @@ async def _send_message(bot: Bot, chat_id: int, stored: dict[str, Any], *,
         method = SendRichMessage(chat_id=chat_id,
                                  rich_message=_rich_input(stored["rich_message"]),
                                  disable_notification=silent,
-                                 message_effect_id=message.effect_id)
+                                 message_effect_id=message.effect_id,
+                                 reply_markup=markup)
         await _with_effect_fallback(bot, method, message)
         return
-    method = message.send_copy(chat_id=chat_id, disable_notification=silent)
+    method = message.send_copy(chat_id=chat_id, disable_notification=silent,
+                               reply_markup=markup)
     # send_copy forgets two things the sender can see: the blur on a media
     # spoiler and a caption placed above the picture.
     extra = {}

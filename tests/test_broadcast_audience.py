@@ -19,8 +19,8 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from aiogram.exceptions import TelegramForbiddenError
-from aiogram.methods import EditMessageText, SendMessage
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage
 
 import broadcast_fakes as fakes
 from bot.callbacks import BroadcastAction, BroadcastFilter
@@ -414,4 +414,100 @@ def test_a_team_member_who_never_started_the_bot_is_counted_out(shop):
 
     assert _screen(bot).text == (UK.MSG_BROADCAST_TEST_SENT.format(sent=1, total=2)
                                  + "\n" + UK.MSG_BROADCAST_TEST_MISSED)
+    assert state.state == BroadcastStates.waiting_confirm.state
+
+
+# --- link buttons under the post ------------------------------------------------
+
+def _type(bot, state, text) -> None:
+    asyncio.run(mod.process_broadcast_buttons(
+        fakes.message(bot, STAFF, text=text), _config(), state, None))
+
+
+def _last_to_staff(bot) -> SendMessage:
+    return [c for c in bot.to(STAFF) if isinstance(c, SendMessage)][-1]
+
+
+def test_the_picker_has_a_buttons_row_saying_there_are_none(shop):
+    bot = fakes.RecordingBot()
+    _at_picker(bot)
+
+    label = UK.BTN_BROADCAST_BUTTONS.format(value=UK.BROADCAST_BUTTONS_NONE)
+    assert label in _buttons(bot.to(STAFF)[-1].reply_markup)
+
+
+def test_buttons_are_asked_for_shown_on_the_post_and_queued_with_it(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+
+    _tap(bot, state, BroadcastAction(action="buttons"))
+    assert _screen(bot).text == UK.MSG_BROADCAST_ASK_BUTTONS
+    assert state.state == BroadcastStates.waiting_buttons.state
+
+    before = len(bot.calls)
+    _type(bot, state, "Каталог - https://ks.example/catalog")
+    preview, picker = [c for c in bot.calls[before:] if getattr(c, "chat_id", None) == STAFF]
+    # The post again, as it will go: with the button under it.
+    assert preview.text == "Знижка 20%"
+    assert preview.reply_markup.inline_keyboard[0][0].url == "https://ks.example/catalog"
+    assert UK.BTN_BROADCAST_BUTTONS.format(value=1) in _buttons(picker.reply_markup)
+    assert state.state == BroadcastStates.waiting_confirm.state
+
+    _tap(bot, state, BroadcastAction(action="send"))
+    payloads = [json.loads(row["payload"]) for row in asyncio.run(claim(50))]
+    assert len(payloads) == 3
+    assert all(p["post"]["buttons"] == [[{"text": "Каталог",
+                                          "url": "https://ks.example/catalog"}]]
+               for p in payloads)
+
+
+def test_a_line_that_is_not_a_button_is_quoted_back_and_the_question_stays(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    _tap(bot, state, BroadcastAction(action="buttons"))
+
+    _type(bot, state, "Знижка <20%>")
+
+    assert _last_to_staff(bot).text == UK.MSG_BROADCAST_BUTTONS_INVALID.format(
+        line="Знижка &lt;20%&gt;")
+    assert state.state == BroadcastStates.waiting_buttons.state
+
+
+def test_a_dash_takes_the_buttons_away(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    _tap(bot, state, BroadcastAction(action="buttons"))
+    _type(bot, state, "Каталог - https://ks.example")
+    _tap(bot, state, BroadcastAction(action="buttons"))
+
+    _type(bot, state, "-")
+
+    assert "buttons" not in state.data["broadcast_post"]
+    label = UK.BTN_BROADCAST_BUTTONS.format(value=UK.BROADCAST_BUTTONS_NONE)
+    assert label in _buttons(_last_to_staff(bot).reply_markup)
+
+
+def test_buttons_telegram_refuses_are_not_kept(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    _tap(bot, state, BroadcastAction(action="buttons"))
+    bot._raises = [TelegramBadRequest(method=None,
+                                      message="Bad Request: BUTTON_URL_INVALID")]
+
+    _type(bot, state, "Каталог - https://ks.example")
+
+    assert _last_to_staff(bot).text == UK.MSG_BROADCAST_BUTTONS_REFUSED
+    assert "buttons" not in state.data["broadcast_post"]
+    assert state.state == BroadcastStates.waiting_buttons.state
+
+
+def test_an_album_is_told_why_it_cannot_have_buttons(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    state.data["broadcast_post"] = {"album": [{"photo": [{"file_id": "p"}]}]}
+
+    _tap(bot, state, BroadcastAction(action="buttons"))
+
+    [answer] = [c for c in bot.calls if isinstance(c, AnswerCallbackQuery)][-1:]
+    assert answer.text == UK.MSG_BROADCAST_BUTTONS_ALBUM and answer.show_alert
     assert state.state == BroadcastStates.waiting_confirm.state

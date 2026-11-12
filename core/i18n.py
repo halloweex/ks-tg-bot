@@ -213,6 +213,8 @@ EN: dict[str, str] = {
         "Type a word from the name of the product they are waiting for. The post "
         "goes to those subscribed to its restock."
     ),
+    "BTN_BROADCAST_BUTTONS": "🔗 Buttons under the post: {value}",
+    "BROADCAST_BUTTONS_NONE": "none",
     "BTN_BROADCAST_TEST": "🧪 Send a test to the team ({count})",
     "BTN_BROADCAST_SEND": "✅ Send ({count})",
     "BTN_BROADCAST_RESET": "↩️ Reset filters",
@@ -242,6 +244,30 @@ EN: dict[str, str] = {
     "MSG_BROADCAST_CANCELLED": "Broadcast cancelled.",
     "MSG_BROADCAST_STARTED": "Broadcast started...",
     "MSG_BROADCAST_TEST_SENDING": "🧪 Sending the test to the team…",
+    "MSG_BROADCAST_ASK_BUTTONS": (
+        "Type the buttons for under the post, one per line: text, a dash, the "
+        "link.\n\n"
+        "Catalogue - https://example.com\n"
+        "Instagram - instagram.com/example\n\n"
+        "Put two or three in one row by separating them with |.\n"
+        "Send - to remove the buttons."
+    ),
+    "MSG_BROADCAST_BUTTONS_INVALID": (
+        "The line «{line}» does not look like a button: it needs text, a dash "
+        "and a link. Send the buttons again, or - for none."
+    ),
+    "MSG_BROADCAST_BUTTONS_TOO_MANY": (
+        "Too many buttons: at most {rows} rows and {per_row} buttons in a row. "
+        "Send them again."
+    ),
+    "MSG_BROADCAST_BUTTONS_REFUSED": (
+        "Telegram did not accept these buttons. Check the links and send them "
+        "again, or - for none."
+    ),
+    "MSG_BROADCAST_BUTTONS_ALBUM": (
+        "Telegram does not allow buttons on an album. Send the post as a single "
+        "photo or video, or go without buttons."
+    ),
     "MSG_BROADCAST_TEST_SENT": "🧪 Test sent to the team: {sent} of {total}.",
     "MSG_BROADCAST_TEST_MISSED": (
         "Anyone who missed it has to open the bot and press /start first."
