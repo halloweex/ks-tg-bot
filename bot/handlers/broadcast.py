@@ -14,7 +14,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from loguru import logger
 
-from core.i18n import Texts, admin_texts
+from core.i18n import Texts, broadcast_texts
 from bot.callbacks import BroadcastAction
 from bot.analytics import track
 from core.config import AppConfig
@@ -52,6 +52,16 @@ def _is_admin(user_id: int, config: AppConfig) -> bool:
     return user_id in config.env.admin_ids
 
 
+def _can_broadcast(user_id: int, config: AppConfig) -> bool:
+    """Admins, and the staff trusted with this flow and nothing else."""
+    return _is_admin(user_id, config) or user_id in config.env.broadcaster_ids
+
+
+async def _flow_texts(user_id: int, config: AppConfig) -> Texts:
+    return broadcast_texts(await get_user_language(user_id),
+                           admin=_is_admin(user_id, config))
+
+
 async def _queue_broadcast(text: str, admin_id: int) -> None:
     """Hand the job to the queue and let the sender get on with it.
 
@@ -78,10 +88,10 @@ async def cmd_broadcast(
     message: Message, config: AppConfig, state: FSMContext,
     t: Texts,
 ) -> None:
-    """Start the broadcast flow (admin only)."""
-    if not _is_admin(message.from_user.id, config):
+    """Start the broadcast flow (admins and BROADCASTER_USER_IDS)."""
+    if not _can_broadcast(message.from_user.id, config):
         return
-    at = admin_texts(await get_user_language(message.from_user.id))
+    at = await _flow_texts(message.from_user.id, config)
     await state.set_state(BroadcastStates.waiting_message)
     await message.answer(at.MSG_BROADCAST_PROMPT)
 
@@ -92,10 +102,10 @@ async def process_broadcast_message(
     t: Texts,
 ) -> None:
     """Receive the broadcast text and ask for confirmation."""
-    if not _is_admin(message.from_user.id, config):
+    if not _can_broadcast(message.from_user.id, config):
         return
 
-    at = admin_texts(await get_user_language(message.from_user.id))
+    at = await _flow_texts(message.from_user.id, config)
 
     # **The one place an admin command can reach a customer.**
     #
@@ -136,11 +146,11 @@ async def process_broadcast_confirm(
     t: Texts,
 ) -> None:
     """Queue or cancel the broadcast from the inline Yes/No buttons."""
-    if not _is_admin(callback.from_user.id, config):
+    if not _can_broadcast(callback.from_user.id, config):
         await callback.answer()
         return
     await callback.answer()
-    at = admin_texts(await get_user_language(callback.from_user.id))
+    at = await _flow_texts(callback.from_user.id, config)
 
     if callback_data.action != "send":
         await state.clear()
@@ -164,10 +174,10 @@ async def process_broadcast_confirm_text(
     t: Texts,
 ) -> None:
     """Fallback: typing так/yes/да still confirms; anything else cancels."""
-    if not _is_admin(message.from_user.id, config):
+    if not _can_broadcast(message.from_user.id, config):
         return
 
-    at = admin_texts(await get_user_language(message.from_user.id))
+    at = await _flow_texts(message.from_user.id, config)
     if message.text.lower().strip() not in ("так", "yes", "да"):
         await message.answer(at.MSG_BROADCAST_CANCELLED)
         await state.clear()

@@ -33,13 +33,14 @@ the same string, from the domain both ends already read.
 """
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 
 from loguru import logger
 
 from core.domain.campaign import CampaignKey
 from core.domain.delivery import OnUncertain
-from core.i18n import admin_texts
+from core.i18n import broadcast_texts
 from core.ports.outbox import MessageQueue
 from core.ports.repositories import BroadcastJournal
 from core.ports.users import LanguageChoice, MailingList
@@ -97,12 +98,17 @@ async def report_finished_jobs(
     journal: BroadcastJournal,
     languages: LanguageChoice,
     queue: MessageQueue,
+    admins: Collection[int],
 ) -> list[int]:
     """Close out any broadcast whose queue has drained, and tell whoever sent it.
 
     Called from the sender's loop, which is the thing already awake. A job is
     finished when none of its messages are waiting — sent, blocked and parked
     all count as decided, because none of them will change on their own.
+
+    `admins` decides only the language of the summary: whoever sent it gets it,
+    an admin in the admin default and shop staff in Ukrainian, the same way the
+    flow that started the job spoke to them.
 
     The totals arrive as four named numbers rather than a dict with four magic
     keys, which is the one shape this move changes: a typo in any of them used
@@ -126,7 +132,8 @@ async def report_finished_jobs(
         admin_id = job.created_by
         if not admin_id:
             continue
-        at = admin_texts(await languages.chosen_by(admin_id))
+        at = broadcast_texts(await languages.chosen_by(admin_id),
+                             admin=admin_id in admins)
         await queue.queue(
             admin_id, REPORT_KIND, campaign_for(job.id),
             {"text": at.MSG_BROADCAST_COMPLETE.format(

@@ -227,7 +227,7 @@ async def watch(bot: Bot, admin_ids: list[int] | None = None) -> None:
             # loop is the thing already awake when the last message of it goes.
             await report_finished_jobs(
                 SqliteBroadcastJournal(), SqliteLanguageChoice(),
-                SqliteMessageQueue(),
+                SqliteMessageQueue(), admin_ids or (),
             )
 
             now = datetime.now(timezone.utc)

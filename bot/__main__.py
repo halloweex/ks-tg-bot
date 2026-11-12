@@ -141,7 +141,7 @@ async def main() -> None:
         # Nothing to resume any more: a broadcast interrupted by a redeploy is
         # rows in the outbox, and the sender picks them up on its next pass.
         # Commands, menu button and the text shown before the first /start.
-        await profile.apply(bot, config.env.admin_ids)
+        await profile.apply(bot, config.env.admin_ids, config.env.broadcaster_ids)
         # Can the support chat be written to? Asked here because the answer
         # changes with configuration, not with code, and the way it used to be
         # discovered was a customer saying "nobody answered me".

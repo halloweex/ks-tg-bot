@@ -578,13 +578,14 @@ MSG_SUPPORT_NO_REPLY_TARGET = "Будь ласка, відповідайте н�
 MSG_OPT_OUT_CONFIRM = "Ти відписалась від розсилки. Щоб підписатись знову, надішли /start"
 MSG_OPT_IN_CONFIRM = "Ти знову підписана на розсилку!"
 
-# Admin broadcast
+# Broadcast flow: admins, and shop staff from BROADCASTER_USER_IDS — who read
+# these in Ukrainian by default, so none of them may be left in English.
 MSG_BROADCAST_PROMPT = "Введіть текст розсилки:"
-# Admin surface, but it is the one string standing between a mistyped command
-# and every customer's chat. See bot/handlers/broadcast.py.
+# The one string standing between a mistyped command and every customer's chat.
+# See bot/handlers/broadcast.py.
 MSG_BROADCAST_LOOKS_LIKE_A_COMMAND = (
-    "That starts with «/», so it looks like a command rather than a broadcast. "
-    "Nothing was sent. Type the text again, or /start to leave the flow."
+    "Текст починається з «/», тож схожий на команду, а не на розсилку. "
+    "Нічого не надіслано. Введіть текст ще раз або /start, щоб вийти."
 )
 MSG_BROADCAST_CONFIRM = "Надіслати це повідомлення {count} користувачам?"
 BTN_BROADCAST_YES = "✅ Так"

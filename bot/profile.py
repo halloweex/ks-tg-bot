@@ -10,6 +10,8 @@ typing "/" never sees /broadcast or /stats at all.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from aiogram import Bot
 from aiogram.types import (BotCommand, BotCommandScopeAllPrivateChats,
                            BotCommandScopeChat, MenuButtonCommands)
@@ -34,6 +36,13 @@ ADMIN_COMMANDS = [
     ("broadcast", "Send a message to all subscribers"),
     ("demo", "Seed demo orders (/demo clear to remove)"),
     ("chatid", "Show this chat's id"),
+]
+
+# Shop staff allowed to broadcast: a customer's own list in the shop's language,
+# and the one command that is theirs and not a customer's.
+BROADCASTER_COMMANDS = [
+    *CUSTOMER_COMMANDS["uk"],
+    ("broadcast", "Розсилка всім підписникам"),
 ]
 
 SHORT_DESCRIPTION = {
@@ -80,11 +89,15 @@ async def ensure_menu_button(bot: Bot, chat_id: int) -> None:
         logger.debug("Could not set the menu button for chat {}: {}", chat_id, exc)
 
 
-async def apply(bot: Bot, admin_ids: list[int]) -> None:
+async def apply(bot: Bot, admin_ids: list[int],
+                broadcaster_ids: Sequence[int] = ()) -> None:
     """Publish commands, menu button and profile texts. Best-effort.
 
     A failure here must never stop the bot from starting: the profile is
     cosmetic, answering customers is not.
+
+    Someone listed as both admin and broadcaster keeps the admin list: the
+    shorter one written second would take /stats out of their menu.
     """
     try:
         for lang, commands in CUSTOMER_COMMANDS.items():
@@ -104,6 +117,17 @@ async def apply(bot: Bot, admin_ids: list[int]) -> None:
                 )
             except Exception as exc:  # noqa: BLE001 — an admin who never started the bot
                 logger.debug("Admin commands not set for {}: {}", admin_id, exc)
+
+        for chat_id in broadcaster_ids:
+            if chat_id in admin_ids:
+                continue
+            try:
+                await bot.set_my_commands(
+                    [BotCommand(command=c, description=d) for c, d in BROADCASTER_COMMANDS],
+                    scope=BotCommandScopeChat(chat_id=chat_id),
+                )
+            except Exception as exc:  # noqa: BLE001 — someone who never started the bot
+                logger.debug("Broadcaster commands not set for {}: {}", chat_id, exc)
 
         # The button left of the input field: opens the command list.
         await bot.set_chat_menu_button(menu_button=MenuButtonCommands())

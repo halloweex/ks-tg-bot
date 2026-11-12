@@ -55,7 +55,7 @@ read by `docker compose` via `env_file`):
 ```bash
 cp .env.example .env
 nano .env      # fill BOT_TOKEN, KEYCRM_API_KEY, ADMIN_USER_IDS, and optionally
-               # SHOPIFY_* / NOVAPOSHTA_API_KEY
+               # BROADCASTER_USER_IDS / SHOPIFY_* / NOVAPOSHTA_API_KEY
 chmod 600 .env
 ```
 

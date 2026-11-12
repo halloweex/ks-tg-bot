@@ -665,6 +665,17 @@ def admin_texts(stored: str | None) -> Texts:
     return Texts(stored or ADMIN_DEFAULT_LANG)
 
 
+def broadcast_texts(stored: str | None, *, admin: bool) -> Texts:
+    """Strings for whoever is sending a broadcast, start to summary.
+
+    An admin gets admin_texts. Anyone else allowed to broadcast is shop staff
+    (BROADCASTER_USER_IDS): the shop, like the support chat, rather than the
+    people running the bot. So Ukrainian unless they chose otherwise — the
+    English default is for the tooling, and nobody at the shop works in it.
+    """
+    return admin_texts(stored) if admin else Texts(stored or OPERATOR_LANG)
+
+
 def operator_texts() -> Texts:
     """Strings addressed to the support chat."""
     return Texts(OPERATOR_LANG)

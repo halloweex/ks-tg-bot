@@ -51,6 +51,7 @@ def _start() -> tuple[int, int]:
 def _report() -> list[int]:
     return asyncio.run(report_finished_jobs(
         SqliteBroadcastJournal(), SqliteLanguageChoice(), SqliteMessageQueue(),
+        admins=(ADMIN,),
     ))
 
 

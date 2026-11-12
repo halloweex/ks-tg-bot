@@ -36,6 +36,11 @@ class EnvSettings(BaseSettings):
     # in that service's .env.
     internal_api_token: str | None = None
     admin_user_ids: str = ""
+    # People trusted with the broadcast and nothing else: /broadcast works for
+    # them, while /stats, /demo and every alert the bot sends its admins do not
+    # reach them. Same comma-separated form. Admins can broadcast already and
+    # need not be repeated here.
+    broadcaster_user_ids: str = ""
     # One key or several, comma-separated. Six legal entities ship orders, but
     # any one key tracks any parcel when the phone is supplied (measured), so one
     # is enough; more are accepted purely as failover. See NovaPoshtaClient.
@@ -97,6 +102,14 @@ class EnvSettings(BaseSettings):
         if not self.admin_user_ids.strip():
             return []
         return [int(uid.strip()) for uid in self.admin_user_ids.split(",") if uid.strip()]
+
+    @property
+    def broadcaster_ids(self) -> list[int]:
+        """Parse comma-separated broadcaster IDs into a list of integers."""
+        if not self.broadcaster_user_ids.strip():
+            return []
+        return [int(uid.strip()) for uid in self.broadcaster_user_ids.split(",")
+                if uid.strip()]
 
     model_config = {
         "env_file": ".env",
