@@ -177,13 +177,26 @@ EN: dict[str, str] = {
     "MSG_SUPPORT_NO_REPLY_TARGET": "Please reply to the customer's forwarded message.",
     "MSG_OPT_OUT_CONFIRM": "You have unsubscribed from our updates. Send /start to subscribe again.",
     "MSG_OPT_IN_CONFIRM": "You are subscribed to our updates again!",
-    "MSG_BROADCAST_PROMPT": "Enter the broadcast text:",
+    "MSG_BROADCAST_PROMPT": (
+        "Send the post: text, photo, video, GIF, album or file. Formatting is "
+        "kept."
+    ),
+    "MSG_BROADCAST_UNSUPPORTED": (
+        "This kind of message cannot be broadcast. Send another post, or /start "
+        "to leave the flow."
+    ),
+    "MSG_BROADCAST_PREVIEW_FAILED": (
+        "Telegram refused this post, so nobody would have received it. Send "
+        "another, or /start to leave the flow."
+    ),
     "MSG_BROADCAST_LOOKS_LIKE_A_COMMAND": (
         "That starts with «/», so it looks like a command rather than a "
         "broadcast. Nothing was sent. Type the text again, or /start to leave "
         "the flow."
     ),
-    "MSG_BROADCAST_CONFIRM": "Send this message to {count} users?",
+    "MSG_BROADCAST_CONFIRM": (
+        "Above is how recipients will see the post.\n\nSend it to {count} users?"
+    ),
     "BTN_BROADCAST_YES": "✅ Yes",
     "BTN_BROADCAST_NO": "❌ No",
     "MSG_BROADCAST_CANCELLED": "Broadcast cancelled.",

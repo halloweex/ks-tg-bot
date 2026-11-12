@@ -69,6 +69,8 @@ async def start_broadcast(
     journal: BroadcastJournal,
     mailing: MailingList,
     queue: MessageQueue,
+    *,
+    post: dict | None = None,
 ) -> Started:
     """Record the job and queue a message for everyone who has not opted out.
 
@@ -76,13 +78,18 @@ async def start_broadcast(
     so nothing can be queued until it exists. A crash between the two leaves a
     job whose campaign is empty, which `report_finished_jobs` below closes with
     zeros — the state is reachable, and it is handled rather than prevented.
+
+    `text` is what the journal keeps. `post`, when there is one, is what is sent:
+    a message as the transport stores it (bot/post.py) — media, album, entities
+    — and opaque here. Without it the text itself goes out, which is every
+    broadcast there was before a post could carry anything else.
     """
     job_id = await journal.record(text, admin_id)
     campaign = campaign_for(job_id)
     recipients = await mailing.recipients()
 
     queued = await queue.queue_all(
-        recipients, KIND, campaign, {"text": text},
+        recipients, KIND, campaign, {"post": post} if post else {"text": text},
         # §6.2: a doubled broadcast is worse than a missed one.
         on_uncertain=OnUncertain.REVIEW,
         # Makes starting the same job twice — a retried tap, a resumed

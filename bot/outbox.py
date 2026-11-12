@@ -30,6 +30,7 @@ from aiogram.exceptions import (TelegramBadRequest, TelegramForbiddenError,
                                 TelegramRetryAfter)
 from loguru import logger
 
+from bot import post
 from bot.alerts import tell_admins
 from core.ports.notifier import RateLimited, RecipientGone
 from core.repos.broadcast import SqliteBroadcastJournal
@@ -87,12 +88,17 @@ class TelegramNotifier:
             await self._typing(chat_id)
         text = payload.get("text") or ""
         copy = payload.get("copy") or None
-        if not text and not copy:
+        stored = payload.get("post") or None
+        if not text and not copy and not stored:
             # Nothing to send is not a transport failure, and retrying it five
             # times would only prove that. Parked by the sender as unknown.
             raise ValueError("queued message has neither text nor anything to copy")
 
         try:
+            if stored:
+                # A broadcast post, rebuilt from what was stored rather than
+                # copied from the sender's chat (bot/post.py says why).
+                await post.send(self._bot, chat_id, stored, silent=silent)
             if text:
                 await self._send(chat_id, text, payload, silent=silent)
             if copy:

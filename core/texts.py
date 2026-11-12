@@ -580,14 +580,28 @@ MSG_OPT_IN_CONFIRM = "Ти знову підписана на розсилку!"
 
 # Broadcast flow: admins, and shop staff from BROADCASTER_USER_IDS — who read
 # these in Ukrainian by default, so none of them may be left in English.
-MSG_BROADCAST_PROMPT = "Введіть текст розсилки:"
+MSG_BROADCAST_PROMPT = (
+    "Надішліть пост для розсилки: текст, фото, відео, GIF, альбом або файл. "
+    "Форматування збережеться."
+)
+MSG_BROADCAST_UNSUPPORTED = (
+    "Такий тип повідомлення не можна розіслати. Надішліть інший пост "
+    "або /start, щоб вийти."
+)
+MSG_BROADCAST_PREVIEW_FAILED = (
+    "Telegram не прийняв цей пост, тож його не отримав би ніхто. "
+    "Надішліть інший або /start, щоб вийти."
+)
 # The one string standing between a mistyped command and every customer's chat.
 # See bot/handlers/broadcast.py.
 MSG_BROADCAST_LOOKS_LIKE_A_COMMAND = (
     "Текст починається з «/», тож схожий на команду, а не на розсилку. "
     "Нічого не надіслано. Введіть текст ще раз або /start, щоб вийти."
 )
-MSG_BROADCAST_CONFIRM = "Надіслати це повідомлення {count} користувачам?"
+MSG_BROADCAST_CONFIRM = (
+    "Вище показано, як пост побачать отримувачі.\n\n"
+    "Надіслати його {count} користувачам?"
+)
 BTN_BROADCAST_YES = "✅ Так"
 BTN_BROADCAST_NO = "❌ Ні"
 MSG_BROADCAST_CANCELLED = "Розсилку скасовано."

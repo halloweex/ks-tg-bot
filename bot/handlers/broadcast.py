@@ -8,13 +8,17 @@ and none of it was ever specific to broadcasts.
 """
 from __future__ import annotations
 
-from aiogram import F, Router
+import asyncio
+
+from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from loguru import logger
 
 from core.i18n import Texts, broadcast_texts
+from bot import post
 from bot.callbacks import BroadcastAction
 from bot.analytics import track
 from core.config import AppConfig
@@ -29,6 +33,7 @@ from core.repos.users import (SqliteMailingList, get_broadcast_recipients,
                               get_user_language, opt_out_user)
 from bot.keyboards import broadcast_confirm_kb
 from bot.states import BroadcastStates
+from bot.tasks import spawn
 
 router = Router()
 
@@ -62,7 +67,8 @@ async def _flow_texts(user_id: int, config: AppConfig) -> Texts:
                            admin=_is_admin(user_id, config))
 
 
-async def _queue_broadcast(text: str, admin_id: int) -> None:
+async def _queue_broadcast(text: str, admin_id: int,
+                           content: dict | None = None) -> None:
     """Hand the job to the queue and let the sender get on with it.
 
     Nothing is spawned any more. The messages are rows before this returns, and
@@ -78,6 +84,7 @@ async def _queue_broadcast(text: str, admin_id: int) -> None:
     started = await start_broadcast(
         text, admin_id,
         SqliteBroadcastJournal(), SqliteMailingList(), SqliteMessageQueue(),
+        post=content,
     )
     logger.info("Broadcast job #{} queued for {} recipient(s)",
                 started.job_id, started.queued)
@@ -96,12 +103,22 @@ async def cmd_broadcast(
     await message.answer(at.MSG_BROADCAST_PROMPT)
 
 
-@router.message(BroadcastStates.waiting_message, F.text)
+# Parts of an album still arriving, by chat and media group. Telegram delivers
+# an album as one update per part and never says which part is the last, so
+# they are gathered here until none has arrived for _ALBUM_SETTLE_SECONDS. In
+# memory on purpose: an album takes a second to arrive, and a restart inside
+# that second loses a post the sender has not confirmed yet — they send it again.
+_albums: dict[tuple[int, str], list[Message]] = {}
+_album_last_part: dict[tuple[int, str], float] = {}
+_ALBUM_SETTLE_SECONDS = 1.5
+
+
+@router.message(BroadcastStates.waiting_message)
 async def process_broadcast_message(
     message: Message, config: AppConfig, state: FSMContext,
     t: Texts,
 ) -> None:
-    """Receive the broadcast text and ask for confirmation."""
+    """Take the post, whatever it is, and show it back before asking."""
     if not _can_broadcast(message.from_user.id, config):
         return
 
@@ -109,30 +126,79 @@ async def process_broadcast_message(
 
     # **The one place an admin command can reach a customer.**
     #
-    # This handler takes `message.text` verbatim, and `F.text` matches a command
-    # like any other line. Registration order then decides the outcome and is
-    # not on our side: `/stop` and `/broadcast` sit above this handler and fire,
-    # while `/stats` and `/chatid` sit below it and become the broadcast — so
-    # "/stats" goes out to every subscriber, from the shop, signed by the shop.
+    # This handler takes any message, and a command is a message like any other
+    # line. Registration order then decides the outcome and is not on our side:
+    # `/stop` and `/broadcast` sit above this handler and fire, while `/stats`
+    # and `/chatid` sit below it and become the broadcast — so "/stats" goes out
+    # to every subscriber, from the shop, signed by the shop.
     #
     # Checked here rather than by reordering the router, because reordering only
     # covers the commands that have handlers. A typo — "/statss", "/menü" — has
     # none, and would still be sent. Everything starting with a slash is
     # refused, and the state is kept so the real text can simply be typed next.
-    if message.text.startswith("/"):
+    if message.text and message.text.startswith("/"):
         await message.answer(at.MSG_BROADCAST_LOOKS_LIKE_A_COMMAND)
+        return
+
+    if message.media_group_id:
+        key = (message.chat.id, message.media_group_id)
+        first = key not in _albums
+        _albums.setdefault(key, []).append(message)
+        _album_last_part[key] = asyncio.get_running_loop().time()
+        if first:
+            spawn(_finish_album(key, message.bot, state, at),
+                  name="broadcast_album")
+        return
+
+    await _offer(message.bot, message.chat.id, post.single(message), state, at)
+
+
+async def _finish_album(key: tuple[int, str], bot: Bot, state: FSMContext,
+                        at: Texts) -> None:
+    """Wait for the album to stop growing, then offer it as one post."""
+    loop = asyncio.get_running_loop()
+    while (wait := _album_last_part[key] + _ALBUM_SETTLE_SECONDS - loop.time()) > 0:
+        await asyncio.sleep(wait)
+    parts = _albums.pop(key)
+    _album_last_part.pop(key, None)
+    # The sender may have left the flow while the parts were arriving.
+    if await state.get_state() != BroadcastStates.waiting_message.state:
+        return
+    await _offer(bot, key[0], post.album(parts), state, at)
+
+
+async def _offer(bot: Bot, chat_id: int, content: dict, state: FSMContext,
+                 at: Texts) -> None:
+    """Send the sender exactly what recipients will get, then ask.
+
+    The preview goes through the same function the outbox uses, so it is not a
+    picture of the post but the post: if Telegram refuses it here, it would
+    have refused it for everybody, and nothing has been queued yet.
+    """
+    reason = post.problem(content)
+    if reason:
+        logger.info("Broadcast post refused: {}", reason)
+        await bot.send_message(chat_id, at.MSG_BROADCAST_UNSUPPORTED)
         return
 
     recipients = await get_broadcast_recipients()
     if not recipients:
-        await message.answer(at.MSG_BROADCAST_NO_RECIPIENTS)
+        await bot.send_message(chat_id, at.MSG_BROADCAST_NO_RECIPIENTS)
         await state.clear()
         return
 
-    await state.update_data(broadcast_text=message.text)
+    try:
+        await post.send(bot, chat_id, content, silent=False)
+    except TelegramBadRequest as exc:
+        logger.warning("Broadcast preview refused by Telegram: {}", exc.message)
+        await bot.send_message(chat_id, at.MSG_BROADCAST_PREVIEW_FAILED)
+        return
+
+    await state.update_data(broadcast_post=content,
+                            broadcast_text=post.summary(content))
     await state.set_state(BroadcastStates.waiting_confirm)
-    await message.answer(
-        at.MSG_BROADCAST_CONFIRM.format(count=len(recipients)),
+    await bot.send_message(
+        chat_id, at.MSG_BROADCAST_CONFIRM.format(count=len(recipients)),
         reply_markup=broadcast_confirm_kb(at),
     )
 
@@ -158,14 +224,14 @@ async def process_broadcast_confirm(
         return
 
     data = await state.get_data()
-    broadcast_text = data.get("broadcast_text")
     await state.clear()
-    if not broadcast_text:
+    if not data.get("broadcast_text"):
         await callback.message.edit_text(at.MSG_BROADCAST_CANCELLED)
         return
 
     await callback.message.edit_text(at.MSG_BROADCAST_STARTED)
-    await _queue_broadcast(broadcast_text, callback.from_user.id)
+    await _queue_broadcast(data["broadcast_text"], callback.from_user.id,
+                           data.get("broadcast_post"))
 
 
 @router.message(BroadcastStates.waiting_confirm, F.text)
@@ -184,11 +250,11 @@ async def process_broadcast_confirm_text(
         return
 
     data = await state.get_data()
-    broadcast_text = data["broadcast_text"]
     await state.clear()
 
     await message.answer(at.MSG_BROADCAST_STARTED)
-    await _queue_broadcast(broadcast_text, message.from_user.id)
+    await _queue_broadcast(data["broadcast_text"], message.from_user.id,
+                           data.get("broadcast_post"))
 
 
 # --------------- Admin utilities ---------------

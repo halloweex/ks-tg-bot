@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-from types import SimpleNamespace
 
 import pytest
 
+import broadcast_fakes as fakes
 from bot import profile
 from bot.handlers import broadcast as mod
 from core.i18n import Texts
@@ -44,54 +44,21 @@ def db(tmp_path, monkeypatch):
 
 
 def _config():
-    return SimpleNamespace(
-        env=SimpleNamespace(admin_ids=[ADMIN], broadcaster_ids=[STAFF]),
-        support_chat_id=-100,
-    )
+    return fakes.config(admins=[ADMIN], staff=[STAFF])
 
 
-class _State:
-    def __init__(self) -> None:
-        self.data: dict = {}
-        self.state = None
+def _send_as(user_id: int, text: str, state: fakes.State) -> list[str]:
+    """/broadcast, the text, then «так» — the whole flow from one person.
 
-    async def set_state(self, state) -> None:
-        self.state = state
-
-    async def update_data(self, **kwargs) -> dict:
-        self.data.update(kwargs)
-        return dict(self.data)
-
-    async def get_data(self) -> dict:
-        return dict(self.data)
-
-    async def clear(self) -> None:
-        self.data.clear()
-        self.state = None
-
-
-class _Message:
-    def __init__(self, user_id: int, text: str = "") -> None:
-        self.from_user = SimpleNamespace(id=user_id)
-        self.chat = SimpleNamespace(id=user_id, type="private", title=None)
-        self.text = text
-        self.said: list[str] = []
-
-    async def answer(self, text: str, **kwargs):
-        self.said.append(text)
-        return SimpleNamespace(message_id=1)
-
-
-def _send_as(user_id: int, text: str, state: _State) -> list[str]:
-    """/broadcast, the text, then «так» — the whole flow from one person."""
-    said: list[str] = []
+    Returns every text the bot said to them, the preview of the post included.
+    """
+    bot = fakes.RecordingBot()
     for step, line in ((mod.cmd_broadcast, "/broadcast"),
                        (mod.process_broadcast_message, text),
                        (mod.process_broadcast_confirm_text, "так")):
-        message = _Message(user_id, line)
-        asyncio.run(step(message, _config(), state, None))
-        said += message.said
-    return said
+        asyncio.run(step(fakes.message(bot, user_id, text=line), _config(),
+                         state, None))
+    return bot.texts_to(user_id)
 
 
 def _drain_and_report() -> list[dict]:
@@ -107,9 +74,10 @@ def _drain_and_report() -> list[dict]:
 # --- what they can do ---------------------------------------------------------
 
 def test_staff_can_send_a_broadcast_start_to_finish(db):
-    said = _send_as(STAFF, "Нова колекція вже в магазині 🌸", _State())
+    said = _send_as(STAFF, "Нова колекція вже в магазині 🌸", fakes.State())
 
     assert said == [UK.MSG_BROADCAST_PROMPT,
+                    "Нова колекція вже в магазині 🌸",   # the preview
                     UK.MSG_BROADCAST_CONFIRM.format(count=len(CUSTOMERS)),
                     UK.MSG_BROADCAST_STARTED]
     [job] = asyncio.run(get_unfinished_broadcasts())
@@ -122,7 +90,7 @@ def test_the_summary_goes_back_to_staff_in_ukrainian(db):
     """admin_texts defaults to English, and that default is for the tooling:
     a manager who never opened the language screen would otherwise be greeted
     in a language nobody at the shop works in."""
-    _send_as(STAFF, "Нова колекція", _State())
+    _send_as(STAFF, "Нова колекція", fakes.State())
 
     [report] = _drain_and_report()
     assert report["chat_id"] == STAFF
@@ -131,7 +99,7 @@ def test_the_summary_goes_back_to_staff_in_ukrainian(db):
 
 
 def test_an_admin_keeps_the_admin_default(db):
-    said = _send_as(ADMIN, "Нова колекція", _State())
+    said = _send_as(ADMIN, "Нова колекція", fakes.State())
     assert said[0] == EN.MSG_BROADCAST_PROMPT
 
     [report] = _drain_and_report()
@@ -140,18 +108,18 @@ def test_an_admin_keeps_the_admin_default(db):
 
 
 def test_the_command_guard_answers_staff_in_ukrainian(db):
-    message = _Message(STAFF, "/stats")
-    state = _State()
-    asyncio.run(mod.process_broadcast_message(message, _config(), state, None))
+    bot, state = fakes.RecordingBot(), fakes.State()
+    asyncio.run(mod.process_broadcast_message(
+        fakes.message(bot, STAFF, text="/stats"), _config(), state, None))
 
-    assert message.said == [UK.MSG_BROADCAST_LOOKS_LIKE_A_COMMAND]
+    assert bot.texts_to(STAFF) == [UK.MSG_BROADCAST_LOOKS_LIKE_A_COMMAND]
     assert "broadcast_text" not in state.data
 
 
 # --- what they cannot ---------------------------------------------------------
 
 def test_a_stranger_gets_nothing(db):
-    state = _State()
+    state = fakes.State()
     said = _send_as(STRANGER, "Нова колекція", state)
 
     assert said == []
@@ -161,9 +129,9 @@ def test_a_stranger_gets_nothing(db):
 
 @pytest.mark.parametrize("handler", [mod.cmd_stats, mod.cmd_chatid])
 def test_staff_are_not_admins(db, handler):
-    message = _Message(STAFF, "/x")
-    asyncio.run(handler(message, _config()))
-    assert message.said == []
+    bot = fakes.RecordingBot()
+    asyncio.run(handler(fakes.message(bot, STAFF, text="/x"), _config()))
+    assert bot.calls == []
 
 
 # --- the menu -----------------------------------------------------------------
