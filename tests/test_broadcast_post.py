@@ -22,7 +22,7 @@ from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
 from aiogram.methods import (SendAnimation, SendMediaGroup, SendMessage,
-                             SendPhoto)
+                             SendPhoto, SendRichMessage)
 from aiogram.types import InputMediaPhoto, InputMediaVideo
 
 import broadcast_fakes as fakes
@@ -120,11 +120,12 @@ def test_a_preview_the_sender_arranged_is_kept():
     assert (options.prefer_small_media, options.show_above_text) == (True, True)
 
 
-def _as_telegram_gets_it(options) -> dict:
-    """The options after a real Bot fills the gaps from its own defaults —
-    this bot's turn previews off, which is what the copies inherited."""
+def _wire(value) -> dict:
+    """What Telegram receives, after a real Bot has serialised the value and
+    filled the gaps from its own defaults — this bot's turn link previews off,
+    which is what the copies used to inherit."""
     bot = Bot("42:TEST", default=DefaultBotProperties(link_preview_is_disabled=True))
-    return json.loads(bot.session.prepare_value(options, bot=bot, files={}))
+    return json.loads(bot.session.prepare_value(value, bot=bot, files={}))
 
 
 def test_a_link_card_the_sender_saw_reaches_the_recipients():
@@ -134,7 +135,7 @@ def test_a_link_card_the_sender_saw_reaches_the_recipients():
 
     [call] = _deliver(post.single(sent)).calls
 
-    assert _as_telegram_gets_it(call.link_preview_options) == {
+    assert _wire(call.link_preview_options) == {
         "is_disabled": False, "url": LINK}
 
 
@@ -145,7 +146,7 @@ def test_a_preview_the_sender_turned_off_stays_off():
 
     [call] = _deliver(post.single(sent)).calls
 
-    assert _as_telegram_gets_it(call.link_preview_options)["is_disabled"] is True
+    assert _wire(call.link_preview_options)["is_disabled"] is True
 
 
 def test_a_photo_goes_out_large_with_its_spoiler_and_caption_placement():
@@ -228,6 +229,73 @@ def test_an_effect_telegram_refuses_costs_the_effect_not_the_message():
     assert [c.message_effect_id for c in bot.calls] == ["5104841245755180586", None]
 
 
+# What the client sends when a post is composed with headings, a table, a
+# numbered list and a photo under a spoiler — the shapes of Bot API 10.3.
+RICH = {"blocks": [
+    {"type": "heading", "text": "Новинки тижня", "size": 1},
+    {"type": "paragraph", "text": ["Тільки ", {"type": "bold", "text": "до неділі"}]},
+    {"type": "table", "is_bordered": True, "cells": [
+        [{"align": "left", "valign": "top", "text": "Товар", "is_header": True},
+         {"align": "right", "valign": "top", "text": "Ціна", "is_header": True}],
+        [{"align": "left", "valign": "top", "text": "COSRX Snail"},
+         {"align": "right", "valign": "top", "text": "520 ₴"}]]},
+    {"type": "list", "items": [
+        {"label": "1.", "blocks": [{"type": "paragraph", "text": "Перше"}]},
+        {"label": "2.", "blocks": [{"type": "paragraph", "text": "Друге"}]}]},
+    {"type": "photo", "has_spoiler": True,
+     "photo": [{"file_id": "small", "file_unique_id": "s", "width": 90, "height": 90},
+               {"file_id": "big", "file_unique_id": "b", "width": 1280, "height": 1280}],
+     "caption": {"text": "Під спойлером"}},
+]}
+
+
+def test_a_rich_post_goes_out_as_a_rich_message():
+    """aiogram's send_copy refuses a rich message outright; it is rebuilt as
+    sendRichMessage, block for block."""
+    bot = fakes.RecordingBot()
+    content = post.single(fakes.message(bot, STAFF, rich_message=RICH))
+
+    assert post.problem(content) is None
+    assert json.loads(json.dumps(content)) == content
+    [call] = _deliver(content).calls
+    assert isinstance(call, SendRichMessage)
+    assert call.disable_notification is True
+    sent = _wire(call.rich_message)["blocks"]
+    assert [b["type"] for b in sent] == ["heading", "paragraph", "table", "list", "photo"]
+    assert sent[1]["text"] == RICH["blocks"][1]["text"]
+    assert sent[2]["cells"] == RICH["blocks"][2]["cells"]
+
+
+def test_a_file_in_a_rich_post_is_sent_by_id_and_keeps_its_blur():
+    """The two places the received blocks differ from the ones sent."""
+    bot = fakes.RecordingBot()
+    [call] = _deliver(post.single(fakes.message(bot, STAFF, rich_message=RICH))).calls
+
+    sent = _wire(call.rich_message)["blocks"]
+    photo = sent[4]
+    assert photo["photo"] == {"type": "photo", "media": "big", "has_spoiler": True}
+    assert "has_spoiler" not in photo
+    assert photo["caption"] == {"text": "Під спойлером"}
+    # The client printed «1.» and «2.»; Telegram numbers the items itself.
+    assert [set(item) for item in sent[3]["items"]] == [{"blocks"}, {"blocks"}]
+
+
+def test_a_rich_post_this_cannot_rebuild_is_refused_not_crashed_on():
+    bot = fakes.RecordingBot()
+    content = post.single(fakes.message(bot, STAFF, rich_message=RICH))
+    content["message"]["rich_message"]["blocks"][4]["photo"] = []
+
+    assert post.problem(content)
+
+
+def test_the_journal_gets_the_words_of_a_rich_post():
+    bot = fakes.RecordingBot()
+    content = post.single(fakes.message(bot, STAFF, rich_message=RICH))
+
+    assert post.summary(content).startswith(
+        "Новинки тижня Тільки до неділі Товар Ціна COSRX Snail 520 ₴ Перше Друге")
+
+
 # --- bot/outbox.py ------------------------------------------------------------
 
 def test_the_outbox_sends_a_stored_post():
@@ -271,6 +339,17 @@ def test_the_sender_sees_the_post_before_being_asked(db):
     assert question.text == UK.MSG_BROADCAST_AUDIENCE.format(count=1, total=1)
     assert state.state == BroadcastStates.waiting_confirm.state
     assert asyncio.run(get_unfinished_broadcasts()) == []
+
+
+def test_a_rich_post_is_previewed_as_one(db):
+    bot, state = fakes.RecordingBot(), fakes.State()
+    state.state = BroadcastStates.waiting_message.state
+    _take(bot, state, rich_message=RICH)
+
+    preview, question = bot.to(STAFF)
+    assert isinstance(preview, SendRichMessage)
+    assert question.text == UK.MSG_BROADCAST_AUDIENCE.format(count=1, total=1)
+    assert state.state == BroadcastStates.waiting_confirm.state
 
 
 def test_what_is_queued_is_the_post_itself_not_a_pointer_to_it(db):

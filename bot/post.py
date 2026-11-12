@@ -22,6 +22,14 @@ separate bubbles, the caption hanging under one of them.
 **Formatting is sent as entities, never re-parsed.** The rebuilt call carries
 the sender's own entities and an explicit `parse_mode=None`; left to the bot's
 default, HTML would be applied on top and the first «<3» would fail again.
+
+**A rich message goes out as one too.** Headings, tables, lists and quotes
+composed in the client arrive as `rich_message` blocks, and aiogram's
+`send_copy` does not know them — it refuses. They are rebuilt here as
+`sendRichMessage`: the received blocks and the blocks it takes are the same
+shapes except for two things, a media block names its file as received rather
+than as an `InputMedia`, and a list item carries a printed label the sender
+does not send (`_rich_input`).
 """
 from __future__ import annotations
 
@@ -30,9 +38,11 @@ from typing import Any
 from aiogram import Bot
 from aiogram.client.default import Default
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.methods import ForwardMessage
+from aiogram.methods import ForwardMessage, SendRichMessage
 from aiogram.types import (InputMediaAudio, InputMediaDocument, InputMediaPhoto,
-                           InputMediaVideo, LinkPreviewOptions, Message)
+                           InputMediaVideo, InputRichMessage, LinkPreviewOptions,
+                           Message)
+from pydantic import ValidationError
 from loguru import logger
 
 # What a stored message does not need in order to be sent again. Only weight:
@@ -49,6 +59,12 @@ _ALBUM_KINDS = ("photo", "video", "document", "audio")
 
 # A media group holds at most this many items.
 ALBUM_LIMIT = 10
+
+# Rich blocks that hold a file, by block type. The file sits under a key named
+# like the type, and in an InputMedia of the same type when the block is sent.
+_RICH_MEDIA = ("photo", "video", "animation", "audio", "document", "voice_note")
+# Of those, the ones whose blur is set on the InputMedia rather than the block.
+_RICH_SPOILER = ("photo", "video", "animation")
 
 
 def capture(message: Message) -> dict[str, Any]:
@@ -89,6 +105,12 @@ def problem(post: dict[str, Any]) -> str | None:
     every recipient's row failing one by one.
     """
     if "message" in post:
+        if post["message"].get("rich_message"):
+            try:
+                _rich_input(post["message"]["rich_message"])
+            except (ValidationError, KeyError, TypeError, IndexError):
+                return "rich message in a form this bot cannot rebuild"
+            return None
         try:
             method = _rebuild(post["message"]).send_copy(chat_id=0)
         except TypeError:
@@ -119,7 +141,8 @@ def summary(post: dict[str, Any], limit: int = 200) -> str:
     """
     parts = post.get("album") or [post.get("message") or {}]
     for part in parts:
-        words = part.get("text") or part.get("caption")
+        words = (part.get("text") or part.get("caption")
+                 or _rich_words(part.get("rich_message")))
         if words:
             return words if len(words) <= limit else words[: limit - 1] + "…"
     kinds = [_kind(part) for part in parts]
@@ -143,6 +166,15 @@ async def send(bot: Bot, chat_id: int, post: dict[str, Any], *, silent: bool) ->
 async def _send_message(bot: Bot, chat_id: int, stored: dict[str, Any], *,
                         silent: bool) -> None:
     message = _rebuild(stored)
+    if stored.get("rich_message"):
+        # Checked before send_copy, which would refuse it — or, if Telegram
+        # ever sends a plain-text twin alongside, quietly send that instead.
+        method = SendRichMessage(chat_id=chat_id,
+                                 rich_message=_rich_input(stored["rich_message"]),
+                                 disable_notification=silent,
+                                 message_effect_id=message.effect_id)
+        await _with_effect_fallback(bot, method, message)
+        return
     method = message.send_copy(chat_id=chat_id, disable_notification=silent)
     # send_copy forgets two things the sender can see: the blur on a media
     # spoiler and a caption placed above the picture.
@@ -162,6 +194,10 @@ async def _send_message(bot: Bot, chat_id: int, stored: dict[str, Any], *,
         extra["link_preview_options"] = options.model_copy(update={"is_disabled": False})
     if extra:
         method = method.model_copy(update=extra)
+    await _with_effect_fallback(bot, method, message)
+
+
+async def _with_effect_fallback(bot: Bot, method, message: Message) -> None:
     try:
         await bot(method)
     except TelegramBadRequest as exc:
@@ -177,8 +213,62 @@ def _rebuild(stored: dict[str, Any]) -> Message:
     return Message.model_validate(stored)
 
 
+def _rich_input(received: dict[str, Any]) -> InputRichMessage:
+    """The blocks as sendRichMessage takes them, from the blocks as received.
+
+    Validated here rather than at the send, so a shape this does not know is
+    refused when the sender is still looking at the preview.
+    """
+    return InputRichMessage.model_validate({
+        "blocks": [_input_node(block) for block in received.get("blocks") or []],
+        **({"is_rtl": True} if received.get("is_rtl") else {}),
+    })
+
+
+def _input_node(node):
+    if isinstance(node, list):
+        return [_input_node(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    out = {key: _input_node(value) for key, value in node.items()}
+    kind = out.get("type")
+    if kind in _RICH_MEDIA and kind in out:
+        received = node[kind]
+        # A photo arrives as its sizes; the largest is the one to send.
+        file = received[-1] if isinstance(received, list) else received
+        media = {"type": kind, "media": file["file_id"]}
+        if kind in _RICH_SPOILER and out.pop("has_spoiler", None):
+            media["has_spoiler"] = True
+        out[kind] = media
+    if kind == "list":
+        # The bullet or number the client printed; Telegram prints it again.
+        for item in out.get("items") or []:
+            if isinstance(item, dict):
+                item.pop("label", None)
+    return out
+
+
+def _rich_words(received: dict[str, Any] | None) -> str:
+    """The words of a rich message, for the journal's one line about it."""
+    words: list[str] = []
+
+    def walk(node, is_text: bool) -> None:
+        if isinstance(node, str):
+            if is_text:
+                words.append(node)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item, is_text)
+        elif isinstance(node, dict):
+            for key, value in node.items():
+                walk(value, key == "text")
+
+    walk(received or {}, False)
+    return " ".join(" ".join(words).split())
+
+
 def _kind(stored: dict[str, Any]) -> str:
-    for kind in ("text", "photo", "video", "animation", "document", "audio",
+    for kind in ("rich_message", "text", "photo", "video", "animation", "document", "audio",
                  "voice", "video_note", "sticker", "poll", "location", "contact"):
         if stored.get(kind):
             return kind
