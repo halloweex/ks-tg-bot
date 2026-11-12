@@ -618,6 +618,7 @@ MSG_BROADCAST_ASK_WAITING = (
     "Напишіть слово з назви товару, на який чекають. Пост отримають ті, хто "
     "підписався на його появу."
 )
+BTN_BROADCAST_TEST = "🧪 Надіслати тест команді ({count})"
 BTN_BROADCAST_SEND = "✅ Надіслати ({count})"
 BTN_BROADCAST_RESET = "↩️ Скинути фільтри"
 BTN_BROADCAST_CANCEL = "❌ Скасувати"
@@ -645,6 +646,11 @@ AUD_ACTIVITY_NEW30 = "нові за 30 днів"
 AUD_ACTIVITY_IDLE30 = "не заходили 30+ днів"
 MSG_BROADCAST_CANCELLED = "Розсилку скасовано."
 MSG_BROADCAST_STARTED = "Розсилка розпочата..."
+MSG_BROADCAST_TEST_SENDING = "🧪 Надсилаю тест команді…"
+MSG_BROADCAST_TEST_SENT = "🧪 Тест надіслано команді: {sent} з {total}."
+MSG_BROADCAST_TEST_MISSED = (
+    "Хто не отримав, має спершу відкрити бота й натиснути /start."
+)
 MSG_BROADCAST_COMPLETE = "Розсилку завершено!\n\nНадіслано: {sent}\nПомилок: {failed}\nЗаблоковано: {blocked}"
 MSG_BROADCAST_NO_RECIPIENTS = "Немає активних підписників для розсилки."
 

@@ -19,7 +19,8 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from aiogram.methods import EditMessageText
+from aiogram.exceptions import TelegramForbiddenError
+from aiogram.methods import EditMessageText, SendMessage
 
 import broadcast_fakes as fakes
 from bot.callbacks import BroadcastAction, BroadcastFilter
@@ -28,6 +29,7 @@ from bot.states import BroadcastStates
 from core.domain.audience import Audience, Profile, Purchase, matches
 from core.i18n import Texts
 from core.repos import base as repos_base
+from core.repos.broadcast import get_unfinished_broadcasts
 from core.repos.events import log_event
 from core.repos.outbox import claim
 from core.repos.schema import init_db
@@ -227,8 +229,11 @@ def shop(db):
     return db
 
 
+ADMIN = 4242
+
+
 def _config():
-    return fakes.config(staff=[STAFF])
+    return fakes.config(admins=[ADMIN], staff=[STAFF])
 
 
 def _at_picker(bot) -> fakes.State:
@@ -344,3 +349,69 @@ def test_a_stale_send_button_with_nobody_behind_it_queues_nothing(shop):
     assert asyncio.run(claim(50)) == []
     assert state.state == BroadcastStates.waiting_confirm.state
     assert _screen(bot).text == UK.MSG_BROADCAST_AUDIENCE_EMPTY.format(total=2)
+
+
+# --- a test send to the team ---------------------------------------------------
+
+def test_the_team_is_admins_and_staff_once_each():
+    assert mod._team(fakes.config(admins=[1, 2], staff=[2, 3])) == [1, 2, 3]
+
+
+def test_the_picker_offers_a_test_to_the_team(shop):
+    bot = fakes.RecordingBot()
+    _at_picker(bot)
+
+    assert UK.BTN_BROADCAST_TEST.format(count=2) in _buttons(bot.to(STAFF)[-1].reply_markup)
+
+
+def test_a_test_goes_to_the_team_and_to_no_customer(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    for _ in range(4):                                     # → 3 і більше: chat 12
+        _tap(bot, state, BroadcastFilter(name="purchases"))
+    before = len(bot.calls)
+
+    _tap(bot, state, BroadcastAction(action="test"))
+
+    new = bot.calls[before:]
+    copies = [c for c in new if isinstance(c, SendMessage) and c.text == "Знижка 20%"]
+    # The keyboard is gone before the first copy, so a second tap cannot
+    # send them all again.
+    first_edit = next(c for c in new if isinstance(c, EditMessageText))
+    assert first_edit.text == UK.MSG_BROADCAST_TEST_SENDING
+    assert first_edit.reply_markup is None
+    assert new.index(first_edit) < new.index(copies[0])
+    assert [c.chat_id for c in copies] == [ADMIN, STAFF]
+    assert all(c.disable_notification is False for c in copies)
+    assert not [c for c in bot.calls if getattr(c, "chat_id", None) in (10, 11, 12)]
+    # Not a campaign: nothing queued, nothing in the journal.
+    assert asyncio.run(claim(50)) == []
+    assert asyncio.run(get_unfinished_broadcasts()) == []
+    assert _screen(bot).text == UK.MSG_BROADCAST_TEST_SENT.format(sent=2, total=2)
+    # A fresh picker under the copies, with the filters as they were.
+    picker = new[-1]
+    assert isinstance(picker, SendMessage) and picker.chat_id == STAFF
+    assert picker.text == UK.MSG_BROADCAST_AUDIENCE.format(count=1, total=3)
+    assert state.state == BroadcastStates.waiting_confirm.state
+
+
+def test_the_real_send_still_works_after_a_test(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    _tap(bot, state, BroadcastAction(action="test"))
+    _tap(bot, state, BroadcastAction(action="send"))
+
+    assert sorted(row["chat_id"] for row in asyncio.run(claim(50))) == [10, 11, 12]
+
+
+def test_a_team_member_who_never_started_the_bot_is_counted_out(shop):
+    never_started = TelegramForbiddenError(
+        method=None, message="Forbidden: bot can't initiate conversation with a user")
+    bot = fakes.RecordingBot(refuse={ADMIN: never_started})
+    state = _at_picker(bot)
+
+    _tap(bot, state, BroadcastAction(action="test"))
+
+    assert _screen(bot).text == (UK.MSG_BROADCAST_TEST_SENT.format(sent=1, total=2)
+                                 + "\n" + UK.MSG_BROADCAST_TEST_MISSED)
+    assert state.state == BroadcastStates.waiting_confirm.state

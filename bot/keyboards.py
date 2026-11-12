@@ -286,13 +286,16 @@ _AUDIENCE_LABELS = {
 
 
 def broadcast_audience_kb(t: Texts, audience: Audience,
-                          count: int) -> InlineKeyboardMarkup:
+                          count: int, *, team: int = 0) -> InlineKeyboardMarkup:
     """The recipient picker: one filter per row, each tap moves it on.
 
     One per row because every label carries its current value, and an inline
     keyboard is only as wide as the bubble it hangs under. The send button
     carries the count, so what is about to happen is on the button that does
     it — and it is not there at all when the filters leave nobody.
+
+    The test button sits above it and ignores the filters: it is for seeing the
+    post arrive, and the team has no orders to filter on.
     """
     def label(name: str) -> str:
         return getattr(t, _AUDIENCE_LABELS[name][getattr(audience, name)])
@@ -313,6 +316,9 @@ def broadcast_audience_kb(t: Texts, audience: Audience,
     builder = InlineKeyboardBuilder()
     for name, text in rows:
         builder.button(text=text, callback_data=BroadcastFilter(name=name))
+    if team:
+        builder.button(text=t.BTN_BROADCAST_TEST.format(count=team),
+                       callback_data=BroadcastAction(action="test"))
     if count:
         builder.button(text=t.BTN_BROADCAST_SEND.format(count=count),
                        callback_data=BroadcastAction(action="send"))

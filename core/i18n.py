@@ -213,6 +213,7 @@ EN: dict[str, str] = {
         "Type a word from the name of the product they are waiting for. The post "
         "goes to those subscribed to its restock."
     ),
+    "BTN_BROADCAST_TEST": "🧪 Send a test to the team ({count})",
     "BTN_BROADCAST_SEND": "✅ Send ({count})",
     "BTN_BROADCAST_RESET": "↩️ Reset filters",
     "BTN_BROADCAST_CANCEL": "❌ Cancel",
@@ -240,6 +241,11 @@ EN: dict[str, str] = {
     "AUD_ACTIVITY_IDLE30": "away 30+ days",
     "MSG_BROADCAST_CANCELLED": "Broadcast cancelled.",
     "MSG_BROADCAST_STARTED": "Broadcast started...",
+    "MSG_BROADCAST_TEST_SENDING": "🧪 Sending the test to the team…",
+    "MSG_BROADCAST_TEST_SENT": "🧪 Test sent to the team: {sent} of {total}.",
+    "MSG_BROADCAST_TEST_MISSED": (
+        "Anyone who missed it has to open the bot and press /start first."
+    ),
     "MSG_BROADCAST_COMPLETE": "Broadcast finished!\n\nSent: {sent}\nFailed: {failed}\nBlocked: {blocked}",
     "MSG_BROADCAST_NO_RECIPIENTS": "There are no active subscribers to send to.",
     "MSG_ORDER_LATEST_MARK": " ⭐",

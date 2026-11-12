@@ -67,7 +67,7 @@ class DiscountAction(CallbackData, prefix="disc"):
 
 
 class BroadcastAction(CallbackData, prefix="bcast"):
-    """Broadcast flow: send, cancel, reset the recipient filters."""
+    """Broadcast flow: send, test on the team, cancel, reset the filters."""
 
     action: str
 

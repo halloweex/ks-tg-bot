@@ -18,16 +18,24 @@ _ids = count(100)
 
 
 class RecordingBot:
-    """Every Telegram call, in order. Raises what it was told to, once each."""
+    """Every Telegram call, in order. Raises what it was told to, once each.
 
-    def __init__(self, *raises) -> None:
+    `refuse` maps a chat to the error every call to it raises — what Telegram
+    does with a chat that never pressed /start.
+    """
+
+    def __init__(self, *raises, refuse: dict | None = None) -> None:
         self.calls: list = []
         self._raises = list(raises)
+        self._refuse = dict(refuse or {})
 
     async def __call__(self, method, request_timeout=None):
         self.calls.append(method)
         if self._raises:
             raise self._raises.pop(0)
+        chat = getattr(method, "chat_id", None)
+        if chat in self._refuse:
+            raise self._refuse[chat]
         return True
 
     async def send_message(self, chat_id: int, text: str, **kw):

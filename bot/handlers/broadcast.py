@@ -12,7 +12,7 @@ import asyncio
 from dataclasses import replace
 
 from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -62,6 +62,11 @@ def _is_admin(user_id: int, config: AppConfig) -> bool:
 def _can_broadcast(user_id: int, config: AppConfig) -> bool:
     """Admins, and the staff trusted with this flow and nothing else."""
     return _is_admin(user_id, config) or user_id in config.env.broadcaster_ids
+
+
+def _team(config: AppConfig) -> list[int]:
+    """Who a test send goes to: the admins and the broadcast staff, once each."""
+    return list(dict.fromkeys([*config.env.admin_ids, *config.env.broadcaster_ids]))
 
 
 async def _flow_texts(user_id: int, config: AppConfig) -> Texts:
@@ -149,15 +154,16 @@ async def process_broadcast_message(
         _albums.setdefault(key, []).append(message)
         _album_last_part[key] = asyncio.get_running_loop().time()
         if first:
-            spawn(_finish_album(key, message.bot, state, at),
+            spawn(_finish_album(key, message.bot, state, at, len(_team(config))),
                   name="broadcast_album")
         return
 
-    await _offer(message.bot, message.chat.id, post.single(message), state, at)
+    await _offer(message.bot, message.chat.id, post.single(message), state, at,
+                 len(_team(config)))
 
 
 async def _finish_album(key: tuple[int, str], bot: Bot, state: FSMContext,
-                        at: Texts) -> None:
+                        at: Texts, team: int) -> None:
     """Wait for the album to stop growing, then offer it as one post."""
     loop = asyncio.get_running_loop()
     while (wait := _album_last_part[key] + _ALBUM_SETTLE_SECONDS - loop.time()) > 0:
@@ -167,11 +173,11 @@ async def _finish_album(key: tuple[int, str], bot: Bot, state: FSMContext,
     # The sender may have left the flow while the parts were arriving.
     if await state.get_state() != BroadcastStates.waiting_message.state:
         return
-    await _offer(bot, key[0], post.album(parts), state, at)
+    await _offer(bot, key[0], post.album(parts), state, at, team)
 
 
 async def _offer(bot: Bot, chat_id: int, content: dict, state: FSMContext,
-                 at: Texts) -> None:
+                 at: Texts, team: int) -> None:
     """Send the sender exactly what recipients will get, then ask.
 
     The preview goes through the same function the outbox uses, so it is not a
@@ -201,11 +207,11 @@ async def _offer(bot: Bot, chat_id: int, content: dict, state: FSMContext,
                             broadcast_text=post.summary(content),
                             audience=Audience().as_dict())
     await state.set_state(BroadcastStates.waiting_confirm)
-    text, markup = await _audience_screen(at, Audience())
+    text, markup = await _audience_screen(at, Audience(), team)
     await bot.send_message(chat_id, text, reply_markup=markup)
 
 
-async def _audience_screen(at: Texts, audience: Audience):
+async def _audience_screen(at: Texts, audience: Audience, team: int):
     """The picker as it stands: how many the filters leave, out of how many.
 
     Counted afresh on every tap rather than cached in the state, so the number
@@ -217,11 +223,12 @@ async def _audience_screen(at: Texts, audience: Audience):
     count = total if audience.everyone else len(await mailing.recipients(audience))
     text = (at.MSG_BROADCAST_AUDIENCE.format(count=count, total=total) if count
             else at.MSG_BROADCAST_AUDIENCE_EMPTY.format(total=total))
-    return text, broadcast_audience_kb(at, audience, count)
+    return text, broadcast_audience_kb(at, audience, count, team=team)
 
 
-async def _redraw(callback: CallbackQuery, at: Texts, audience: Audience) -> None:
-    text, markup = await _audience_screen(at, audience)
+async def _redraw(callback: CallbackQuery, at: Texts, audience: Audience,
+                  team: int) -> None:
+    text, markup = await _audience_screen(at, audience, team)
     try:
         await callback.message.edit_text(text, reply_markup=markup)
     except TelegramBadRequest as exc:
@@ -270,7 +277,7 @@ async def process_broadcast_filter(
         return
 
     await state.update_data(audience=audience.as_dict())
-    await _redraw(callback, at, audience)
+    await _redraw(callback, at, audience, len(_team(config)))
 
 
 async def _ask_word(callback: CallbackQuery, state: FSMContext, field: str,
@@ -311,7 +318,7 @@ async def process_broadcast_word(
         audience = replace(audience, waiting="yes", waiting_for=word[:WORD_LIMIT])
     await state.update_data(audience=audience.as_dict())
     await state.set_state(BroadcastStates.waiting_confirm)
-    text, markup = await _audience_screen(at, audience)
+    text, markup = await _audience_screen(at, audience, len(_team(config)))
     await message.answer(text, reply_markup=markup)
 
 
@@ -323,16 +330,20 @@ async def process_broadcast_confirm(
     state: FSMContext,
     t: Texts,
 ) -> None:
-    """Send to whoever the filters leave, reset them, or cancel."""
+    """Send to whoever the filters leave, test on the team, reset, or cancel."""
     if not _can_broadcast(callback.from_user.id, config):
         await callback.answer()
         return
     await callback.answer()
     at = await _flow_texts(callback.from_user.id, config)
 
+    team = _team(config)
+    if callback_data.action == "test":
+        await _send_test(callback, state, at, team)
+        return
     if callback_data.action == "reset":
         await state.update_data(audience=Audience().as_dict())
-        await _redraw(callback, at, Audience())
+        await _redraw(callback, at, Audience(), len(team))
         return
 
     if callback_data.action != "send":
@@ -349,12 +360,55 @@ async def process_broadcast_confirm(
     if not await SqliteMailingList().recipients(audience):
         # A stale send button: since the screen was drawn, the last person
         # these filters matched opted out or stopped matching.
-        await _redraw(callback, at, audience)
+        await _redraw(callback, at, audience, len(team))
         return
 
     await state.clear()
     await callback.message.edit_text(at.MSG_BROADCAST_STARTED)
     await _send_now(data, callback.from_user.id)
+
+
+async def _send_test(callback: CallbackQuery, state: FSMContext, at: Texts,
+                     team: list[int]) -> None:
+    """The post to the admins and the broadcast staff only, then the picker again.
+
+    For seeing the post land as a customer will — in the chat list, with its
+    notification, on another person's phone — before choosing who gets it.
+    Sent straight away rather than queued: it is a handful of chats, the sender
+    is waiting for the answer, and a test is not a campaign, so it stays out of
+    the journal and the campaign reports.
+
+    The picker it was tapped on becomes the report, and a fresh picker comes
+    after the copies, so the next tap is at the bottom of the chat rather than
+    above the sender's own copy.
+    """
+    data = await state.get_data()
+    content = data.get("broadcast_post")
+    if not content:
+        await state.clear()
+        await callback.message.edit_text(at.MSG_BROADCAST_CANCELLED)
+        return
+    # The keyboard goes first: a second tap while the copies are going out
+    # would send them all again.
+    await callback.message.edit_text(at.MSG_BROADCAST_TEST_SENDING)
+    sent = 0
+    for chat_id in team:
+        try:
+            await post.send(callback.bot, chat_id, content, silent=False)
+            sent += 1
+        except TelegramAPIError as exc:
+            # Mostly someone who never pressed /start: Telegram lets a bot
+            # write only to those who have.
+            logger.info("Broadcast test not delivered to {}: {}", chat_id, exc.message)
+    logger.info("Broadcast test sent to {} of {} team member(s)", sent, len(team))
+    report = at.MSG_BROADCAST_TEST_SENT.format(sent=sent, total=len(team))
+    if sent < len(team):
+        report += "\n" + at.MSG_BROADCAST_TEST_MISSED
+    await callback.message.edit_text(report)
+    text, markup = await _audience_screen(
+        at, Audience.from_dict(data.get("audience")), len(team))
+    await callback.bot.send_message(callback.message.chat.id, text,
+                                    reply_markup=markup)
 
 
 @router.message(BroadcastStates.waiting_confirm, F.text)
