@@ -78,6 +78,46 @@ def test_text_keeps_its_entities_and_is_never_parsed_as_html():
     assert call.disable_notification is True
 
 
+LINK = "https://telegram.org"
+LINK_TEXT = f"Посилання: {LINK}"
+LINK_ENTITY = [{"type": "url", "offset": 11, "length": len(LINK)}]
+
+
+def test_a_post_with_a_link_can_be_stored():
+    """The first live post with a link failed before the preview.
+
+    Telegram describes the preview it built as `link_preview_options` naming
+    only the url; aiogram fills the options left out with a `Default(...)`
+    sentinel that resolves only inside a Bot and cannot be written as JSON.
+    """
+    bot = fakes.RecordingBot()
+    sent = fakes.message(bot, STAFF, text=LINK_TEXT, entities=LINK_ENTITY,
+                         link_preview_options={"url": LINK})
+
+    content = post.single(sent)
+
+    assert json.loads(json.dumps(content)) == content
+    [call] = _deliver(content).calls
+    assert isinstance(call, SendMessage)
+    assert call.link_preview_options.url == LINK
+    assert [e.type for e in call.entities] == ["url"]
+
+
+def test_a_preview_the_sender_arranged_is_kept():
+    """Small picture above the text is a choice made in the client, and
+    send_copy carries the original's options, so the stored post has to."""
+    bot = fakes.RecordingBot()
+    sent = fakes.message(bot, STAFF, text=LINK_TEXT, entities=LINK_ENTITY,
+                         link_preview_options={"url": LINK,
+                                               "prefer_small_media": True,
+                                               "show_above_text": True})
+
+    [call] = _deliver(post.single(sent)).calls
+
+    options = call.link_preview_options
+    assert (options.prefer_small_media, options.show_above_text) == (True, True)
+
+
 def test_a_photo_goes_out_large_with_its_spoiler_and_caption_placement():
     bot = fakes.RecordingBot()
     content = post.single(fakes.message(

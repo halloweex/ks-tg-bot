@@ -55,8 +55,17 @@ def capture(message: Message) -> dict[str, Any]:
 
     Photos keep only their largest size, since that is the one sent again and
     the rest are thumbnails Telegram regenerates anyway.
+
+    Only what Telegram actually sent (`exclude_unset`). A message with a link
+    carries `link_preview_options` naming just the url, and aiogram fills the
+    options left out with a `Default(...)` sentinel that resolves only inside a
+    Bot and cannot be written as JSON — the first live post with a link failed
+    right here. Dropping them is also what they mean: rebuilt, they come back
+    as the same sentinels. bot/rich.py stringifies them instead, which suits a
+    counter but would store a string where a flag is read back.
     """
-    data = message.model_dump(mode="json", exclude_none=True, exclude=_NOT_CONTENT)
+    data = message.model_dump(mode="json", exclude_none=True, exclude_unset=True,
+                              exclude=_NOT_CONTENT)
     if data.get("photo"):
         data["photo"] = data["photo"][-1:]
     return data
