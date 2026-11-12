@@ -31,6 +31,14 @@ shapes except for two things, a media block names its file as received rather
 than as an `InputMedia`, and a list item carries a printed label the sender
 does not send (`_rich_input`).
 
+**Markup the client leaves as text becomes a rich message.** A Telegram client
+turns `**bold**` into formatting but sends `# heading`, a `| table |` and a
+`> quote` as plain characters. Telegram's rich Markdown reads exactly that
+syntax (GitHub-flavoured, with inline HTML), so a text post carrying such
+markup is offered as `{"message": …, "markdown": …}` (`from_markup`): the
+text with the client's own formatting written back as inline HTML. The
+preview decides which form is stored — see `bot/handlers/broadcast.py`.
+
 **Link buttons are the post's own.** A person cannot put an inline keyboard on
 a message in the client, so the sender types them after the post (`parse_buttons`)
 and they are stored beside it, `{"message": {...}, "buttons": [[{text, url}]]}`.
@@ -47,6 +55,7 @@ from aiogram import Bot
 from aiogram.client.default import Default
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import ForwardMessage, SendRichMessage
+from aiogram.utils.text_decorations import HtmlDecoration
 from aiogram.types import (InlineKeyboardButton, InlineKeyboardMarkup,
                            InputMediaAudio, InputMediaDocument, InputMediaPhoto,
                            InputMediaVideo, InputRichMessage, LinkPreviewOptions,
@@ -86,6 +95,29 @@ _SCHEMED_URL = re.compile(r"(?:https?|tg)://\S+$", re.IGNORECASE)
 # A host written without one, «instagram.com/shop»: a dot and a word after it,
 # so «20%» or «5.5» in a button's text is never taken for a link.
 _BARE_HOST = re.compile(r"^[^\s/@]+\.[^\W\d_]{2,}$")
+
+
+# Block markup a client sends as plain text: a heading, a table's separator
+# row, a quote. Lists alone do not count: «- » and «1. » read fine as they are,
+# and making every such post a rich message would trade its link card for
+# nothing the reader would notice.
+_BLOCK_MARKUP = re.compile(
+    r"^(?:#{1,6}[ \t]+\S|>|[ \t]*\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)+\|?[ \t]*$)",
+    re.MULTILINE)
+
+
+class _InlineHtml(HtmlDecoration):
+    """The client's formatting as inline HTML inside rich Markdown.
+
+    Only «&» and «<» are escaped. `html.escape` would also turn «>» into
+    «&gt;», and a «>» opening a line is the quote the sender typed.
+    """
+
+    def quote(self, value: str) -> str:
+        return value.replace("&", "&amp;").replace("<", "&lt;")
+
+
+_INLINE_HTML = _InlineHtml()
 
 
 class ButtonsError(ValueError):
@@ -160,6 +192,20 @@ def _button(part: str, line: str) -> dict[str, str]:
     if not text or len(text) > BUTTON_TEXT_LIMIT:
         raise ButtonsError(line)
     return {"text": text, "url": url}
+
+
+def from_markup(post: dict[str, Any]) -> dict[str, Any] | None:
+    """The post as rich Markdown when its text carries block markup, else None.
+
+    Text only: a caption cannot become a rich message without moving its
+    picture into a block, and that is a different post.
+    """
+    stored = post.get("message") or {}
+    text = stored.get("text")
+    if not text or post.get("markdown") or not _BLOCK_MARKUP.search(text):
+        return None
+    message = _rebuild(stored)
+    return {**post, "markdown": _INLINE_HTML.unparse(message.text, message.entities)}
 
 
 def with_buttons(post: dict[str, Any], rows: list[list[dict[str, str]]]) -> dict[str, Any]:
@@ -247,6 +293,15 @@ async def send(bot: Bot, chat_id: int, post: dict[str, Any], *, silent: bool) ->
     The outbox translates them (bot/outbox.py), and the preview reports them to
     the sender; neither wants this function deciding what a refusal means.
     """
+    if post.get("markdown"):
+        message = _rebuild(post["message"])
+        method = SendRichMessage(chat_id=chat_id,
+                                 rich_message=InputRichMessage(markdown=post["markdown"]),
+                                 disable_notification=silent,
+                                 message_effect_id=message.effect_id,
+                                 reply_markup=_markup(post))
+        await _with_effect_fallback(bot, method, message)
+        return
     if "message" in post:
         await _send_message(bot, chat_id, post["message"], silent=silent,
                             markup=_markup(post))

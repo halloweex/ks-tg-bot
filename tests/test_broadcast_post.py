@@ -296,6 +296,84 @@ def test_the_journal_gets_the_words_of_a_rich_post():
         "Новинки тижня Тільки до неділі Товар Ціна COSRX Snail 520 ₴ Перше Друге")
 
 
+# --- markup a client leaves as text -------------------------------------------
+
+# The owner's test post as Telegram Desktop sent it on 2026-11-13: the inline
+# formatting already turned into entities, the headings, table and quote not.
+MARKUP = ("# 🧪 Тестова розсилка\n\n"
+          "Жирний, курсив, закреслений, моноширинний, прихований текст\n\n"
+          "## Новинки тижня\n\n"
+          "| Товар | Ціна |\n|---|---|\n| COSRX Snail Mucin | 520 ₴ |\n\n"
+          "1. Перший пункт\n\n- маркер\n\n"
+          "> Цитата: <3 & co\n\n"
+          "https://telegram.org")
+
+
+def _entity(text: str, part: str, kind: str) -> dict:
+    """An entity over `part`, in the UTF-16 units Telegram counts — the
+    emoji in the heading is two of them."""
+    def units(i: int) -> int:
+        return len(text[:i].encode("utf-16-le")) // 2
+    start = text.index(part)
+    return {"type": kind, "offset": units(start),
+            "length": units(start + len(part)) - units(start)}
+
+
+MARKUP_ENTITIES = [_entity(MARKUP, "Жирний", "bold"),
+                   _entity(MARKUP, "курсив", "italic"),
+                   _entity(MARKUP, "закреслений", "strikethrough"),
+                   _entity(MARKUP, "моноширинний", "code"),
+                   _entity(MARKUP, "прихований текст", "spoiler"),
+                   _entity(MARKUP, "https://telegram.org", "url")]
+
+
+def _markup_post(bot=None) -> dict:
+    bot = bot or fakes.RecordingBot()
+    return post.single(fakes.message(bot, STAFF, text=MARKUP, entities=MARKUP_ENTITIES))
+
+
+def test_headings_a_table_and_a_quote_typed_as_text_become_rich_markdown():
+    source = post.from_markup(_markup_post())["markdown"]
+
+    # The block markup reaches Telegram as typed…
+    for line in ("# 🧪 Тестова розсилка", "## Новинки тижня", "| Товар | Ціна |",
+                 "|---|---|", "1. Перший пункт", "- маркер"):
+        assert line in source.splitlines()
+    # …the client's own formatting as inline HTML, which rich Markdown reads…
+    assert ("<b>Жирний</b>, <i>курсив</i>, <s>закреслений</s>, "
+            "<code>моноширинний</code>, <tg-spoiler>прихований текст</tg-spoiler>"
+            in source)
+    # …and the quote stays a quote: only «<» and «&» are escaped, never «>».
+    assert "> Цитата: &lt;3 &amp; co" in source.splitlines()
+
+
+def test_a_rich_markdown_post_goes_out_as_one_with_its_buttons():
+    content = post.with_buttons(post.from_markup(_markup_post()),
+                                post.parse_buttons("Каталог - https://ks.example"))
+
+    assert post.problem(content) is None
+    [call] = _deliver(content).calls
+    assert isinstance(call, SendRichMessage)
+    assert call.rich_message.markdown == content["markdown"]
+    assert call.reply_markup.inline_keyboard[0][0].url == "https://ks.example"
+    assert call.disable_notification is True
+
+
+@pytest.mark.parametrize("text", [
+    "Знижки тижня:\n- COSRX\n- Anua\n1. Перше\n#хештег",   # lists and a hashtag
+    "Ціна 520 ₴ -> 480 ₴",                                    # an arrow mid-line
+])
+def test_ordinary_text_stays_an_ordinary_message(text):
+    bot = fakes.RecordingBot()
+    assert post.from_markup(post.single(fakes.message(bot, STAFF, text=text))) is None
+
+
+def test_a_caption_with_markup_is_left_alone():
+    bot = fakes.RecordingBot()
+    content = post.single(fakes.message(bot, STAFF, **fakes.photo(caption="# Знижки")))
+    assert post.from_markup(content) is None
+
+
 # --- link buttons ------------------------------------------------------------
 
 def test_buttons_are_read_the_way_people_type_them():
@@ -418,6 +496,31 @@ def test_a_rich_post_is_previewed_as_one(db):
     preview, question = bot.to(STAFF)
     assert isinstance(preview, SendRichMessage)
     assert question.text == UK.MSG_BROADCAST_AUDIENCE.format(count=1, total=1)
+    assert state.state == BroadcastStates.waiting_confirm.state
+
+
+def test_markup_is_previewed_and_kept_as_a_rich_message(db):
+    bot, state = fakes.RecordingBot(), fakes.State()
+    state.state = BroadcastStates.waiting_message.state
+    _take(bot, state, text=MARKUP, entities=MARKUP_ENTITIES)
+
+    preview, question = bot.to(STAFF)
+    assert isinstance(preview, SendRichMessage)
+    assert state.data["broadcast_post"]["markdown"] == preview.rich_message.markdown
+    assert state.state == BroadcastStates.waiting_confirm.state
+
+
+def test_markup_telegram_will_not_read_falls_back_to_the_post_as_sent(db):
+    bot = fakes.RecordingBot(TelegramBadRequest(method=None,
+                                                message="Bad Request: can't parse rich message"))
+    state = fakes.State()
+    state.state = BroadcastStates.waiting_message.state
+    _take(bot, state, text=MARKUP, entities=MARKUP_ENTITIES)
+
+    refused, preview, question = bot.to(STAFF)
+    assert isinstance(refused, SendRichMessage)
+    assert isinstance(preview, SendMessage) and preview.text == MARKUP
+    assert "markdown" not in state.data["broadcast_post"]
     assert state.state == BroadcastStates.waiting_confirm.state
 
 

@@ -197,12 +197,25 @@ async def _offer(bot: Bot, chat_id: int, content: dict, state: FSMContext,
         await state.clear()
         return
 
-    try:
-        await post.send(bot, chat_id, content, silent=False)
-    except TelegramBadRequest as exc:
-        logger.warning("Broadcast preview refused by Telegram: {}", exc.message)
-        await bot.send_message(chat_id, at.MSG_BROADCAST_PREVIEW_FAILED)
-        return
+    # Headings, a table or a quote typed as text go out as a rich message, if
+    # Telegram reads the markup. If it does not, the post as the client sent
+    # it is still a post: that one is shown instead, and what is shown is what
+    # is stored.
+    shown = False
+    rich = post.from_markup(content)
+    if rich:
+        try:
+            await post.send(bot, chat_id, rich, silent=False)
+            content, shown = rich, True
+        except TelegramBadRequest as exc:
+            logger.warning("Broadcast markup refused by Telegram: {}", exc.message)
+    if not shown:
+        try:
+            await post.send(bot, chat_id, content, silent=False)
+        except TelegramBadRequest as exc:
+            logger.warning("Broadcast preview refused by Telegram: {}", exc.message)
+            await bot.send_message(chat_id, at.MSG_BROADCAST_PREVIEW_FAILED)
+            return
 
     await state.update_data(broadcast_post=content,
                             broadcast_text=post.summary(content),
