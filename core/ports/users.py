@@ -36,6 +36,8 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+from core.domain.audience import Audience
+
 
 @runtime_checkable
 class ChatsByEmail(Protocol):
@@ -116,14 +118,18 @@ class MailingList(Protocol):
     true whether that send is committed, retried or rolled back.
     """
 
-    async def recipients(self) -> list[int]:
-        """Every chat that has not opted out.
+    async def recipients(self, audience: Audience | None = None) -> list[int]:
+        """Every chat that has not opted out, narrowed by `audience` if given.
 
         The whole list, materialised, because the caller snapshots it: a
         broadcast's audience is fixed at the moment of sending, and an opt-out a
         minute later does not pull a queued message back out. Streaming it would
         make that snapshot a lie by degrees, with the size of the lie depending
         on how long the queue took to fill.
+
+        The filters themselves are `core.domain.audience.matches`; what an
+        implementation owns is building each chat's profile from its tables,
+        and the definition of a purchase that goes into it.
         """
         ...
 

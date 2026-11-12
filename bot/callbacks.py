@@ -67,6 +67,16 @@ class DiscountAction(CallbackData, prefix="disc"):
 
 
 class BroadcastAction(CallbackData, prefix="bcast"):
-    """Admin broadcast confirmation: send, cancel."""
+    """Broadcast flow: send, cancel, reset the recipient filters."""
 
     action: str
+
+
+class BroadcastFilter(CallbackData, prefix="bcf"):
+    """One recipient filter tapped in the broadcast picker.
+
+    Carries only the filter's name: the next choice is decided from the state,
+    not from the button, so a stale screen tapped twice cannot skip a step.
+    """
+
+    name: str

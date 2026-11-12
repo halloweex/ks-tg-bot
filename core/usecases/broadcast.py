@@ -38,6 +38,7 @@ from dataclasses import dataclass
 
 from loguru import logger
 
+from core.domain.audience import Audience
 from core.domain.campaign import CampaignKey
 from core.domain.delivery import OnUncertain
 from core.i18n import broadcast_texts
@@ -71,6 +72,7 @@ async def start_broadcast(
     queue: MessageQueue,
     *,
     post: dict | None = None,
+    audience: Audience | None = None,
 ) -> Started:
     """Record the job and queue a message for everyone who has not opted out.
 
@@ -83,10 +85,13 @@ async def start_broadcast(
     a message as the transport stores it (bot/post.py) — media, album, entities
     — and opaque here. Without it the text itself goes out, which is every
     broadcast there was before a post could carry anything else.
+
+    `audience` narrows who gets it (core.domain.audience); None is everyone who
+    has not opted out, as it always was.
     """
     job_id = await journal.record(text, admin_id)
     campaign = campaign_for(job_id)
-    recipients = await mailing.recipients()
+    recipients = await mailing.recipients(audience)
 
     queued = await queue.queue_all(
         recipients, KIND, campaign, {"post": post} if post else {"text": text},
@@ -96,8 +101,10 @@ async def start_broadcast(
         # handler — write nothing the second time.
         dedup_prefix=str(campaign),
     )
-    logger.info("Broadcast job #{} by admin {}: queued {} of {} recipient(s)",
-                job_id, admin_id, queued, len(recipients))
+    logger.info("Broadcast job #{} by admin {}: queued {} of {} recipient(s), "
+                "audience {}", job_id, admin_id, queued, len(recipients),
+                "everyone" if audience is None or audience.everyone
+                else audience.as_dict())
     return Started(job_id=job_id, queued=queued)
 
 

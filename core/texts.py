@@ -598,12 +598,51 @@ MSG_BROADCAST_LOOKS_LIKE_A_COMMAND = (
     "Текст починається з «/», тож схожий на команду, а не на розсилку. "
     "Нічого не надіслано. Введіть текст ще раз або /start, щоб вийти."
 )
-MSG_BROADCAST_CONFIRM = (
-    "Вище показано, як пост побачать отримувачі.\n\n"
-    "Надіслати його {count} користувачам?"
+# The recipient picker under the preview. Labels are for staff, so they say
+# exactly what is counted; the values live in core/domain/audience.py.
+MSG_BROADCAST_AUDIENCE = (
+    "Пост вище показано так, як його побачать отримувачі.\n\n"
+    "Кому надіслати? Отримувачів за цими умовами: {count} з {total}. "
+    "Умови діють разом: людина має відповідати всім одразу."
 )
-BTN_BROADCAST_YES = "✅ Так"
-BTN_BROADCAST_NO = "❌ Ні"
+MSG_BROADCAST_AUDIENCE_EMPTY = (
+    "Пост вище показано так, як його побачать отримувачі.\n\n"
+    "За цими умовами отримувачів немає (усього {total}). Змініть їх або "
+    "скиньте фільтри."
+)
+MSG_BROADCAST_ASK_BOUGHT = (
+    "Напишіть слово з назви товару або бренду, наприклад COSRX. Пост отримають "
+    "ті, у чиїх замовленнях такий товар є."
+)
+MSG_BROADCAST_ASK_WAITING = (
+    "Напишіть слово з назви товару, на який чекають. Пост отримають ті, хто "
+    "підписався на його появу."
+)
+BTN_BROADCAST_SEND = "✅ Надіслати ({count})"
+BTN_BROADCAST_RESET = "↩️ Скинути фільтри"
+BTN_BROADCAST_CANCEL = "❌ Скасувати"
+BTN_AUD_PURCHASES = "🛍 Покупки: {value}"
+BTN_AUD_LAST_ORDER = "📅 Останнє замовлення: {value}"
+BTN_AUD_BOUGHT = "🔎 Купували: {value}"
+BTN_AUD_WAITING = "⏳ Чекають на товар: {value}"
+BTN_AUD_ACTIVITY = "👋 У боті: {value}"
+AUD_PURCHASES_ANY = "усі"
+AUD_PURCHASES_NONE = "жодної"
+AUD_PURCHASES_ONE = "рівно 1"
+AUD_PURCHASES_2 = "2 і більше"
+AUD_PURCHASES_3 = "3 і більше"
+AUD_PURCHASES_5 = "5 і більше"
+AUD_LAST_ORDER_ANY = "будь-коли"
+AUD_LAST_ORDER_30 = "до 30 днів тому"
+AUD_LAST_ORDER_30_90 = "30–90 днів тому"
+AUD_LAST_ORDER_90 = "понад 90 днів тому"
+AUD_BOUGHT_ANY = "будь-що"
+AUD_WAITING_ANY = "не важливо"
+AUD_WAITING_ANY_PRODUCT = "будь-який"
+AUD_ACTIVITY_ANY = "усі"
+AUD_ACTIVITY_NEW7 = "нові за 7 днів"
+AUD_ACTIVITY_NEW30 = "нові за 30 днів"
+AUD_ACTIVITY_IDLE30 = "не заходили 30+ днів"
 MSG_BROADCAST_CANCELLED = "Розсилку скасовано."
 MSG_BROADCAST_STARTED = "Розсилка розпочата..."
 MSG_BROADCAST_COMPLETE = "Розсилку завершено!\n\nНадіслано: {sent}\nПомилок: {failed}\nЗаблоковано: {blocked}"

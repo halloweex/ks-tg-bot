@@ -78,7 +78,7 @@ def test_staff_can_send_a_broadcast_start_to_finish(db):
 
     assert said == [UK.MSG_BROADCAST_PROMPT,
                     "Нова колекція вже в магазині 🌸",   # the preview
-                    UK.MSG_BROADCAST_CONFIRM.format(count=len(CUSTOMERS)),
+                    UK.MSG_BROADCAST_AUDIENCE.format(count=len(CUSTOMERS), total=len(CUSTOMERS)),
                     UK.MSG_BROADCAST_STARTED]
     [job] = asyncio.run(get_unfinished_broadcasts())
     assert job["created_by"] == STAFF

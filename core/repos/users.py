@@ -7,10 +7,15 @@ users, and the broadcast repository only records what happened to a job.
 """
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
+
 import aiosqlite
 
+from core.domain.audience import Audience, Profile, Purchase, matches
 from core.domain.birthday import is_month_day
 from core.repos.base import connect
+from core.repos.orders import CANCELLED_STATUS_GROUP, DEMO_SOURCE
 
 
 async def save_user(
@@ -329,6 +334,80 @@ async def get_broadcast_recipients() -> list[int]:
         return [row[0] for row in rows]
 
 
+async def get_broadcast_profiles() -> list[Profile]:
+    """Everything the broadcast filters may ask about each recipient.
+
+    Four reads rather than one query with the filters in SQL, for two reasons.
+    The product match has to be case-insensitive in Cyrillic, which SQLite's
+    `LOWER` and `LIKE` are not; and the rule itself then lives once, in
+    core.domain.audience, instead of once per engine. The tables are the bot's
+    own registered customers, which is a size Python filters without noticing.
+
+    A purchase is the orders screen's: not cancelled, not a demo order, and one
+    row however many systems reported it (rows are merged on merge_key).
+    """
+    async with connect() as db:
+        people = await (await db.execute(
+            "SELECT chat_id, created_at FROM users "
+            "WHERE chat_id NOT IN (SELECT chat_id FROM opt_out)",
+        )).fetchall()
+        orders = await (await db.execute(
+            "SELECT chat_id, ordered_at, products_json FROM orders "
+            "WHERE COALESCE(status_group_id, 0) != ? AND source != ?",
+            (CANCELLED_STATUS_GROUP, DEMO_SOURCE),
+        )).fetchall()
+        waiting = await (await db.execute(
+            "SELECT chat_id, name FROM stock_subscriptions",
+        )).fetchall()
+        seen = await (await db.execute(
+            "SELECT chat_id, MAX(created_at) FROM events "
+            "WHERE chat_id IS NOT NULL GROUP BY chat_id",
+        )).fetchall()
+
+    purchases: dict[int, list[Purchase]] = {}
+    for chat_id, ordered_at, products_json in orders:
+        purchases.setdefault(chat_id, []).append(
+            Purchase(at=_moment(ordered_at), products=_product_names(products_json)))
+    waiting_for: dict[int, list[str]] = {}
+    for chat_id, name in waiting:
+        waiting_for.setdefault(chat_id, []).append(name or "")
+    last_seen = {chat_id: _moment(at) for chat_id, at in seen}
+
+    return [
+        Profile(chat_id=chat_id, joined_at=_moment(created_at),
+                last_seen=last_seen.get(chat_id),
+                purchases=tuple(purchases.get(chat_id, ())),
+                waiting_for=tuple(waiting_for.get(chat_id, ())))
+        for chat_id, created_at in people
+    ]
+
+
+def _moment(raw: str | None) -> datetime | None:
+    """A stored timestamp as an aware UTC moment, or None if there is none.
+
+    Three spellings reach here: SQLite's `datetime('now')`, KeyCRM's
+    `…T08:43:56.000000Z` and Shopify's offset form. All are ISO; the ones with
+    no zone were written in UTC.
+    """
+    if not raw:
+        return None
+    try:
+        moment = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
+def _product_names(products_json: str | None) -> tuple[str, ...]:
+    try:
+        items = json.loads(products_json or "[]")
+    except json.JSONDecodeError:
+        return ()
+    if not isinstance(items, list):
+        return ()
+    return tuple(str(item.get("name") or "") for item in items if isinstance(item, dict))
+
+
 # --------------------------------------------------------------------------
 # Birthdays
 # --------------------------------------------------------------------------
@@ -459,8 +538,12 @@ class SqliteMailingList:
     hold two that disagree.
     """
 
-    async def recipients(self) -> list[int]:
-        return await get_broadcast_recipients()
+    async def recipients(self, audience: Audience | None = None) -> list[int]:
+        if audience is None or audience.everyone:
+            return await get_broadcast_recipients()
+        now = datetime.now(timezone.utc)
+        return [profile.chat_id for profile in await get_broadcast_profiles()
+                if matches(audience, profile, now)]
 
     async def opt_out(self, chat_id: int) -> None:
         await opt_out_user(chat_id)

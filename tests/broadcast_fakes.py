@@ -12,7 +12,7 @@ from itertools import count
 from types import SimpleNamespace
 
 from aiogram.methods import SendMediaGroup, SendMessage
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 
 _ids = count(100)
 
@@ -89,3 +89,15 @@ def config(admins=(), staff=()):
         env=SimpleNamespace(admin_ids=list(admins), broadcaster_ids=list(staff)),
         support_chat_id=-100,
     )
+
+
+def callback(bot: RecordingBot, user_id: int, data: str, *,
+             screen_id: int = 1) -> CallbackQuery:
+    """A tap on a button under the bot's message `screen_id` in a private chat."""
+    raw = {"id": str(next(_ids)), "chat_instance": "c", "data": data,
+           "from": {"id": user_id, "is_bot": False, "first_name": "Staff"},
+           "message": {"message_id": screen_id, "date": 1762960000,
+                       "chat": {"id": user_id, "type": "private"},
+                       "from": {"id": 1, "is_bot": True, "first_name": "Bot"},
+                       "text": "screen"}}
+    return CallbackQuery.model_validate(raw, context={"bot": bot})

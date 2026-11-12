@@ -7,9 +7,11 @@ from aiogram.types import (InlineKeyboardMarkup, KeyboardButton,
                            ReplyKeyboardMarkup)
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
-from bot.callbacks import (BroadcastAction, InfoAction, MenuAction,
-                           SettingsAction)
+from bot.callbacks import (BroadcastAction, BroadcastFilter, InfoAction,
+                           MenuAction, SettingsAction)
 from collections.abc import Sequence
+
+from core.domain.audience import Audience
 
 from core.i18n import LANGUAGE_NAMES, SUPPORTED, Texts
 
@@ -271,12 +273,55 @@ def info_menu_kb(t: Texts) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def broadcast_confirm_kb(t: Texts) -> InlineKeyboardMarkup:
-    """Yes/No confirmation for the admin broadcast flow."""
+# Which string names each choice of a stepped filter.
+_AUDIENCE_LABELS = {
+    "purchases": {"any": "AUD_PURCHASES_ANY", "none": "AUD_PURCHASES_NONE",
+                  "1": "AUD_PURCHASES_ONE", "2+": "AUD_PURCHASES_2",
+                  "3+": "AUD_PURCHASES_3", "5+": "AUD_PURCHASES_5"},
+    "last_order": {"any": "AUD_LAST_ORDER_ANY", "30": "AUD_LAST_ORDER_30",
+                   "30-90": "AUD_LAST_ORDER_30_90", "90+": "AUD_LAST_ORDER_90"},
+    "activity": {"any": "AUD_ACTIVITY_ANY", "new7": "AUD_ACTIVITY_NEW7",
+                 "new30": "AUD_ACTIVITY_NEW30", "idle30": "AUD_ACTIVITY_IDLE30"},
+}
+
+
+def broadcast_audience_kb(t: Texts, audience: Audience,
+                          count: int) -> InlineKeyboardMarkup:
+    """The recipient picker: one filter per row, each tap moves it on.
+
+    One per row because every label carries its current value, and an inline
+    keyboard is only as wide as the bubble it hangs under. The send button
+    carries the count, so what is about to happen is on the button that does
+    it — and it is not there at all when the filters leave nobody.
+    """
+    def label(name: str) -> str:
+        return getattr(t, _AUDIENCE_LABELS[name][getattr(audience, name)])
+
+    def word(value: str, empty: str) -> str:
+        return f"«{value}»" if value else empty
+
+    waiting = (word(audience.waiting_for, t.AUD_WAITING_ANY_PRODUCT)
+               if audience.waiting == "yes" else t.AUD_WAITING_ANY)
+    rows = (
+        ("purchases", t.BTN_AUD_PURCHASES.format(value=label("purchases"))),
+        ("last_order", t.BTN_AUD_LAST_ORDER.format(value=label("last_order"))),
+        ("bought", t.BTN_AUD_BOUGHT.format(
+            value=word(audience.bought, t.AUD_BOUGHT_ANY))),
+        ("waiting", t.BTN_AUD_WAITING.format(value=waiting)),
+        ("activity", t.BTN_AUD_ACTIVITY.format(value=label("activity"))),
+    )
     builder = InlineKeyboardBuilder()
-    builder.button(text=t.BTN_BROADCAST_YES, callback_data=BroadcastAction(action="send"))
-    builder.button(text=t.BTN_BROADCAST_NO, callback_data=BroadcastAction(action="cancel"))
-    builder.adjust(2)
+    for name, text in rows:
+        builder.button(text=text, callback_data=BroadcastFilter(name=name))
+    if count:
+        builder.button(text=t.BTN_BROADCAST_SEND.format(count=count),
+                       callback_data=BroadcastAction(action="send"))
+    if not audience.everyone:
+        builder.button(text=t.BTN_BROADCAST_RESET,
+                       callback_data=BroadcastAction(action="reset"))
+    builder.button(text=t.BTN_BROADCAST_CANCEL,
+                   callback_data=BroadcastAction(action="cancel"))
+    builder.adjust(1)
     return builder.as_markup()
 
 

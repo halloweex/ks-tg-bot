@@ -198,7 +198,7 @@ def test_the_sender_sees_the_post_before_being_asked(db):
 
     preview, question = bot.to(STAFF)
     assert isinstance(preview, SendPhoto) and preview.caption == RISKY
-    assert question.text == UK.MSG_BROADCAST_CONFIRM.format(count=1)
+    assert question.text == UK.MSG_BROADCAST_AUDIENCE.format(count=1, total=1)
     assert state.state == BroadcastStates.waiting_confirm.state
     assert asyncio.run(get_unfinished_broadcasts()) == []
 
@@ -239,7 +239,7 @@ def test_an_album_is_gathered_into_one_post(db, monkeypatch):
     preview, question = bot.to(STAFF)
     assert isinstance(preview, SendMediaGroup)
     assert [m.media for m in preview.media] == ["p0", "p1", "p2"]
-    assert question.text == UK.MSG_BROADCAST_CONFIRM.format(count=1)
+    assert question.text == UK.MSG_BROADCAST_AUDIENCE.format(count=1, total=1)
     assert len(state.data["broadcast_post"]["album"]) == 3
     assert mod._albums == {}
 

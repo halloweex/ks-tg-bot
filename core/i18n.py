@@ -194,11 +194,50 @@ EN: dict[str, str] = {
         "broadcast. Nothing was sent. Type the text again, or /start to leave "
         "the flow."
     ),
-    "MSG_BROADCAST_CONFIRM": (
-        "Above is how recipients will see the post.\n\nSend it to {count} users?"
+    "MSG_BROADCAST_AUDIENCE": (
+        "The post above is shown as recipients will see it.\n\n"
+        "Who should get it? Recipients matching these conditions: {count} of "
+        "{total}. The conditions apply together: a person has to meet all of "
+        "them."
     ),
-    "BTN_BROADCAST_YES": "✅ Yes",
-    "BTN_BROADCAST_NO": "❌ No",
+    "MSG_BROADCAST_AUDIENCE_EMPTY": (
+        "The post above is shown as recipients will see it.\n\n"
+        "Nobody matches these conditions ({total} in total). Change them or "
+        "reset the filters."
+    ),
+    "MSG_BROADCAST_ASK_BOUGHT": (
+        "Type a word from a product or brand name, e.g. COSRX. The post goes to "
+        "those whose orders contain such a product."
+    ),
+    "MSG_BROADCAST_ASK_WAITING": (
+        "Type a word from the name of the product they are waiting for. The post "
+        "goes to those subscribed to its restock."
+    ),
+    "BTN_BROADCAST_SEND": "✅ Send ({count})",
+    "BTN_BROADCAST_RESET": "↩️ Reset filters",
+    "BTN_BROADCAST_CANCEL": "❌ Cancel",
+    "BTN_AUD_PURCHASES": "🛍 Purchases: {value}",
+    "BTN_AUD_LAST_ORDER": "📅 Last order: {value}",
+    "BTN_AUD_BOUGHT": "🔎 Bought: {value}",
+    "BTN_AUD_WAITING": "⏳ Waiting for: {value}",
+    "BTN_AUD_ACTIVITY": "👋 In the bot: {value}",
+    "AUD_PURCHASES_ANY": "all",
+    "AUD_PURCHASES_NONE": "none",
+    "AUD_PURCHASES_ONE": "exactly 1",
+    "AUD_PURCHASES_2": "2 or more",
+    "AUD_PURCHASES_3": "3 or more",
+    "AUD_PURCHASES_5": "5 or more",
+    "AUD_LAST_ORDER_ANY": "any time",
+    "AUD_LAST_ORDER_30": "within 30 days",
+    "AUD_LAST_ORDER_30_90": "30–90 days ago",
+    "AUD_LAST_ORDER_90": "over 90 days ago",
+    "AUD_BOUGHT_ANY": "anything",
+    "AUD_WAITING_ANY": "doesn't matter",
+    "AUD_WAITING_ANY_PRODUCT": "any product",
+    "AUD_ACTIVITY_ANY": "all",
+    "AUD_ACTIVITY_NEW7": "new in 7 days",
+    "AUD_ACTIVITY_NEW30": "new in 30 days",
+    "AUD_ACTIVITY_IDLE30": "away 30+ days",
     "MSG_BROADCAST_CANCELLED": "Broadcast cancelled.",
     "MSG_BROADCAST_STARTED": "Broadcast started...",
     "MSG_BROADCAST_COMPLETE": "Broadcast finished!\n\nSent: {sent}\nFailed: {failed}\nBlocked: {blocked}",

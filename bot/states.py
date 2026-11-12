@@ -26,4 +26,7 @@ class BroadcastStates(StatesGroup):
     """States for the admin broadcast flow."""
 
     waiting_message = State()
+    # The recipient picker. Named for what it was before the picker existed —
+    # the state is persisted, and a rename strands anyone mid-flow on deploy.
     waiting_confirm = State()
+    waiting_word = State()

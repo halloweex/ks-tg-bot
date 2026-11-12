@@ -9,6 +9,7 @@ and none of it was ever specific to broadcasts.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
@@ -19,9 +20,10 @@ from loguru import logger
 
 from core.i18n import Texts, broadcast_texts
 from bot import post
-from bot.callbacks import BroadcastAction
+from bot.callbacks import BroadcastAction, BroadcastFilter
 from bot.analytics import track
 from core.config import AppConfig
+from core.domain.audience import STEPPED, WORD_LIMIT, Audience
 from core.repos.campaigns import SqliteCampaignOutcomes
 from core.usecases.analytics import (activity_report, campaign_report,
                                      usage_report)
@@ -31,7 +33,7 @@ from core.repos.events import SqliteActivityLog, SqliteUsageStats
 from core.repos.outbox import SqliteMessageQueue
 from core.repos.users import (SqliteMailingList, get_broadcast_recipients,
                               get_user_language, opt_out_user)
-from bot.keyboards import broadcast_confirm_kb
+from bot.keyboards import broadcast_audience_kb
 from bot.states import BroadcastStates
 from bot.tasks import spawn
 
@@ -68,7 +70,8 @@ async def _flow_texts(user_id: int, config: AppConfig) -> Texts:
 
 
 async def _queue_broadcast(text: str, admin_id: int,
-                           content: dict | None = None) -> None:
+                           content: dict | None = None,
+                           audience: Audience | None = None) -> None:
     """Hand the job to the queue and let the sender get on with it.
 
     Nothing is spawned any more. The messages are rows before this returns, and
@@ -84,7 +87,7 @@ async def _queue_broadcast(text: str, admin_id: int,
     started = await start_broadcast(
         text, admin_id,
         SqliteBroadcastJournal(), SqliteMailingList(), SqliteMessageQueue(),
-        post=content,
+        post=content, audience=audience,
     )
     logger.info("Broadcast job #{} queued for {} recipient(s)",
                 started.job_id, started.queued)
@@ -195,12 +198,121 @@ async def _offer(bot: Bot, chat_id: int, content: dict, state: FSMContext,
         return
 
     await state.update_data(broadcast_post=content,
-                            broadcast_text=post.summary(content))
+                            broadcast_text=post.summary(content),
+                            audience=Audience().as_dict())
     await state.set_state(BroadcastStates.waiting_confirm)
-    await bot.send_message(
-        chat_id, at.MSG_BROADCAST_CONFIRM.format(count=len(recipients)),
-        reply_markup=broadcast_confirm_kb(at),
-    )
+    text, markup = await _audience_screen(at, Audience())
+    await bot.send_message(chat_id, text, reply_markup=markup)
+
+
+async def _audience_screen(at: Texts, audience: Audience):
+    """The picker as it stands: how many the filters leave, out of how many.
+
+    Counted afresh on every tap rather than cached in the state, so the number
+    on the send button is the number that will be queued — an opt-out or a new
+    order a minute ago is already in it.
+    """
+    mailing = SqliteMailingList()
+    total = len(await mailing.recipients())
+    count = total if audience.everyone else len(await mailing.recipients(audience))
+    text = (at.MSG_BROADCAST_AUDIENCE.format(count=count, total=total) if count
+            else at.MSG_BROADCAST_AUDIENCE_EMPTY.format(total=total))
+    return text, broadcast_audience_kb(at, audience, count)
+
+
+async def _redraw(callback: CallbackQuery, at: Texts, audience: Audience) -> None:
+    text, markup = await _audience_screen(at, audience)
+    try:
+        await callback.message.edit_text(text, reply_markup=markup)
+    except TelegramBadRequest as exc:
+        # A stale screen tapped twice asks for what is already shown.
+        if "not modified" not in exc.message.lower():
+            raise
+
+
+async def _send_now(data: dict, sender_id: int) -> None:
+    await _queue_broadcast(data["broadcast_text"], sender_id,
+                           data.get("broadcast_post"),
+                           Audience.from_dict(data.get("audience")))
+
+
+@router.callback_query(BroadcastStates.waiting_confirm, BroadcastFilter.filter())
+async def process_broadcast_filter(
+    callback: CallbackQuery,
+    callback_data: BroadcastFilter,
+    config: AppConfig,
+    state: FSMContext,
+    t: Texts,
+) -> None:
+    """One tap on a filter: move it to its next choice, or ask for a word."""
+    await callback.answer()
+    if not _can_broadcast(callback.from_user.id, config):
+        return
+    at = await _flow_texts(callback.from_user.id, config)
+    audience = Audience.from_dict((await state.get_data()).get("audience"))
+
+    name = callback_data.name
+    if name in STEPPED:
+        audience = audience.stepped(name)
+    elif name == "bought" and not audience.bought:
+        await _ask_word(callback, state, "bought", at.MSG_BROADCAST_ASK_BOUGHT)
+        return
+    elif name == "bought":
+        audience = replace(audience, bought="")
+    elif name == "waiting" and audience.waiting == "any":
+        audience = replace(audience, waiting="yes")
+    elif name == "waiting" and not audience.waiting_for:
+        await _ask_word(callback, state, "waiting_for", at.MSG_BROADCAST_ASK_WAITING)
+        return
+    elif name == "waiting":
+        audience = replace(audience, waiting="any", waiting_for="")
+    else:
+        return
+
+    await state.update_data(audience=audience.as_dict())
+    await _redraw(callback, at, audience)
+
+
+async def _ask_word(callback: CallbackQuery, state: FSMContext, field: str,
+                    prompt: str) -> None:
+    """Turn the picker into the question; the answer brings a fresh picker.
+
+    The screen itself becomes the prompt rather than a second message under it,
+    so there is never a live picker above a question it is waiting on.
+    """
+    await state.update_data(word_for=field)
+    await state.set_state(BroadcastStates.waiting_word)
+    await callback.message.edit_text(prompt)
+
+
+@router.message(BroadcastStates.waiting_word)
+async def process_broadcast_word(
+    message: Message, config: AppConfig, state: FSMContext,
+    t: Texts,
+) -> None:
+    """The word for a product filter, then back to the picker."""
+    if not _can_broadcast(message.from_user.id, config):
+        return
+    at = await _flow_texts(message.from_user.id, config)
+    data = await state.get_data()
+    field = data.get("word_for")
+    prompt = (at.MSG_BROADCAST_ASK_BOUGHT if field == "bought"
+              else at.MSG_BROADCAST_ASK_WAITING)
+
+    word = (message.text or "").strip()
+    if not word or word.startswith("/"):
+        await message.answer(prompt)
+        return
+
+    audience = Audience.from_dict(data.get("audience"))
+    if field == "bought":
+        audience = replace(audience, bought=word[:WORD_LIMIT])
+    else:
+        audience = replace(audience, waiting="yes", waiting_for=word[:WORD_LIMIT])
+    await state.update_data(audience=audience.as_dict())
+    await state.set_state(BroadcastStates.waiting_confirm)
+    text, markup = await _audience_screen(at, audience)
+    await message.answer(text, reply_markup=markup)
 
 
 @router.callback_query(BroadcastStates.waiting_confirm, BroadcastAction.filter())
@@ -211,12 +323,17 @@ async def process_broadcast_confirm(
     state: FSMContext,
     t: Texts,
 ) -> None:
-    """Queue or cancel the broadcast from the inline Yes/No buttons."""
+    """Send to whoever the filters leave, reset them, or cancel."""
     if not _can_broadcast(callback.from_user.id, config):
         await callback.answer()
         return
     await callback.answer()
     at = await _flow_texts(callback.from_user.id, config)
+
+    if callback_data.action == "reset":
+        await state.update_data(audience=Audience().as_dict())
+        await _redraw(callback, at, Audience())
+        return
 
     if callback_data.action != "send":
         await state.clear()
@@ -224,14 +341,20 @@ async def process_broadcast_confirm(
         return
 
     data = await state.get_data()
-    await state.clear()
     if not data.get("broadcast_text"):
+        await state.clear()
         await callback.message.edit_text(at.MSG_BROADCAST_CANCELLED)
         return
+    audience = Audience.from_dict(data.get("audience"))
+    if not await SqliteMailingList().recipients(audience):
+        # A stale send button: since the screen was drawn, the last person
+        # these filters matched opted out or stopped matching.
+        await _redraw(callback, at, audience)
+        return
 
+    await state.clear()
     await callback.message.edit_text(at.MSG_BROADCAST_STARTED)
-    await _queue_broadcast(data["broadcast_text"], callback.from_user.id,
-                           data.get("broadcast_post"))
+    await _send_now(data, callback.from_user.id)
 
 
 @router.message(BroadcastStates.waiting_confirm, F.text)
@@ -253,8 +376,7 @@ async def process_broadcast_confirm_text(
     await state.clear()
 
     await message.answer(at.MSG_BROADCAST_STARTED)
-    await _queue_broadcast(data["broadcast_text"], message.from_user.id,
-                           data.get("broadcast_post"))
+    await _send_now(data, message.from_user.id)
 
 
 # --------------- Admin utilities ---------------
