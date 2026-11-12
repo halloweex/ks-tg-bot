@@ -28,10 +28,11 @@ from __future__ import annotations
 from typing import Any
 
 from aiogram import Bot
+from aiogram.client.default import Default
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import ForwardMessage
 from aiogram.types import (InputMediaAudio, InputMediaDocument, InputMediaPhoto,
-                           InputMediaVideo, Message)
+                           InputMediaVideo, LinkPreviewOptions, Message)
 from loguru import logger
 
 # What a stored message does not need in order to be sent again. Only weight:
@@ -151,6 +152,14 @@ async def _send_message(bot: Bot, chat_id: int, stored: dict[str, Any], *,
     if (message.show_caption_above_media
             and "show_caption_above_media" in type(method).model_fields):
         extra["show_caption_above_media"] = True
+    # A link card the sender saw has to reach the recipients too. Telegram
+    # leaves "disabled" out when the preview is on, aiogram reads the gap as
+    # the bot's default, and this bot turns previews off for its own messages
+    # (bot/__main__.py) — so every copy lost its card. Only a sender who turned
+    # the preview off sends `is_disabled`, and that stays as it was.
+    options = getattr(method, "link_preview_options", None)
+    if isinstance(options, LinkPreviewOptions) and isinstance(options.is_disabled, Default):
+        extra["link_preview_options"] = options.model_copy(update={"is_disabled": False})
     if extra:
         method = method.model_copy(update=extra)
     try:

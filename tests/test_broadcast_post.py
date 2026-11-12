@@ -18,6 +18,8 @@ import asyncio
 import json
 
 import pytest
+from aiogram import Bot
+from aiogram.client.default import DefaultBotProperties
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
 from aiogram.methods import (SendAnimation, SendMediaGroup, SendMessage,
                              SendPhoto)
@@ -116,6 +118,34 @@ def test_a_preview_the_sender_arranged_is_kept():
 
     options = call.link_preview_options
     assert (options.prefer_small_media, options.show_above_text) == (True, True)
+
+
+def _as_telegram_gets_it(options) -> dict:
+    """The options after a real Bot fills the gaps from its own defaults —
+    this bot's turn previews off, which is what the copies inherited."""
+    bot = Bot("42:TEST", default=DefaultBotProperties(link_preview_is_disabled=True))
+    return json.loads(bot.session.prepare_value(options, bot=bot, files={}))
+
+
+def test_a_link_card_the_sender_saw_reaches_the_recipients():
+    bot = fakes.RecordingBot()
+    sent = fakes.message(bot, STAFF, text=LINK_TEXT, entities=LINK_ENTITY,
+                         link_preview_options={"url": LINK})
+
+    [call] = _deliver(post.single(sent)).calls
+
+    assert _as_telegram_gets_it(call.link_preview_options) == {
+        "is_disabled": False, "url": LINK}
+
+
+def test_a_preview_the_sender_turned_off_stays_off():
+    bot = fakes.RecordingBot()
+    sent = fakes.message(bot, STAFF, text=LINK_TEXT, entities=LINK_ENTITY,
+                         link_preview_options={"is_disabled": True})
+
+    [call] = _deliver(post.single(sent)).calls
+
+    assert _as_telegram_gets_it(call.link_preview_options)["is_disabled"] is True
 
 
 def test_a_photo_goes_out_large_with_its_spoiler_and_caption_placement():
