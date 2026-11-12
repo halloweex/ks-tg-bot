@@ -217,6 +217,7 @@ EN: dict[str, str] = {
     "BROADCAST_BUTTONS_NONE": "none",
     "BTN_BROADCAST_TEST": "🧪 Send a test to the team ({count})",
     "BTN_BROADCAST_SEND": "✅ Send ({count})",
+    "BTN_BROADCAST_BACK": "↩️ Back to the picker",
     "BTN_BROADCAST_RESET": "↩️ Reset filters",
     "BTN_BROADCAST_CANCEL": "❌ Cancel",
     "BTN_AUD_PURCHASES": "🛍 Purchases: {value}",
@@ -242,7 +243,23 @@ EN: dict[str, str] = {
     "AUD_ACTIVITY_NEW30": "new in 30 days",
     "AUD_ACTIVITY_IDLE30": "away 30+ days",
     "MSG_BROADCAST_CANCELLED": "Broadcast cancelled.",
-    "MSG_BROADCAST_STARTED": "Broadcast started...",
+    "MSG_BROADCAST_ASK_NAME": (
+        "Recipients: {count}.\n\n"
+        "To send, type a name for this broadcast: latin letters, digits and "
+        "dashes, for example <code>nov-2026-sale</code>. Without a name nothing "
+        "is sent."
+    ),
+    "MSG_BROADCAST_NAME_INVALID": (
+        "«{name}» will not do as a name: use latin letters, digits, dashes or "
+        "underscores, 3 to 40 characters. For example <code>nov-2026-sale</code>."
+    ),
+    "MSG_BROADCAST_STARTED_NAMED": (
+        "Broadcast «{name}» started. A summary will follow when it finishes."
+    ),
+    "MSG_BROADCAST_USE_SEND": (
+        "To send, tap «✅ Send» under the recipient picker and type a name for "
+        "the broadcast."
+    ),
     "MSG_BROADCAST_TEST_SENDING": "🧪 Sending the test to the team…",
     "MSG_BROADCAST_ASK_BUTTONS": (
         "Type the buttons for under the post, one per line: text, a dash, the "

@@ -622,6 +622,7 @@ BTN_BROADCAST_BUTTONS = "🔗 Кнопки під постом: {value}"
 BROADCAST_BUTTONS_NONE = "немає"
 BTN_BROADCAST_TEST = "🧪 Надіслати тест команді ({count})"
 BTN_BROADCAST_SEND = "✅ Надіслати ({count})"
+BTN_BROADCAST_BACK = "↩️ Назад до вибору"
 BTN_BROADCAST_RESET = "↩️ Скинути фільтри"
 BTN_BROADCAST_CANCEL = "❌ Скасувати"
 BTN_AUD_PURCHASES = "🛍 Покупки: {value}"
@@ -647,7 +648,22 @@ AUD_ACTIVITY_NEW7 = "нові за 7 днів"
 AUD_ACTIVITY_NEW30 = "нові за 30 днів"
 AUD_ACTIVITY_IDLE30 = "не заходили 30+ днів"
 MSG_BROADCAST_CANCELLED = "Розсилку скасовано."
-MSG_BROADCAST_STARTED = "Розсилка розпочата..."
+MSG_BROADCAST_ASK_NAME = (
+    "Отримувачів: {count}.\n\n"
+    "Щоб надіслати, введіть назву розсилки: латинські літери, цифри й дефіс, "
+    "наприклад <code>nov-2026-sale</code>. Без назви розсилка не піде."
+)
+MSG_BROADCAST_NAME_INVALID = (
+    "«{name}» не підходить для назви: потрібні латинські літери, цифри, дефіс "
+    "або підкреслення, від 3 до 40 знаків. Наприклад <code>nov-2026-sale</code>."
+)
+MSG_BROADCAST_STARTED_NAMED = (
+    "Розсилка «{name}» розпочата. Підсумок прийде, коли вона завершиться."
+)
+MSG_BROADCAST_USE_SEND = (
+    "Щоб надіслати, натисніть «✅ Надіслати» під вибором отримувачів і введіть "
+    "назву розсилки."
+)
 MSG_BROADCAST_TEST_SENDING = "🧪 Надсилаю тест команді…"
 MSG_BROADCAST_ASK_BUTTONS = (
     "Напишіть кнопки під пост, кожну з нового рядка: текст, тире, посилання.\n\n"

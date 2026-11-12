@@ -247,9 +247,22 @@ def _at_picker(bot) -> fakes.State:
 
 def _tap(bot, state, data) -> None:
     handler = (mod.process_broadcast_filter if isinstance(data, BroadcastFilter)
+               else mod.process_broadcast_name_action
+               if state.state == BroadcastStates.waiting_name.state
                else mod.process_broadcast_confirm)
     asyncio.run(handler(fakes.callback(bot, STAFF, data.pack()), data,
                         _config(), state, None))
+
+
+def _name(bot, state, text) -> None:
+    asyncio.run(mod.process_broadcast_name(
+        fakes.message(bot, STAFF, text=text), _config(), state, None))
+
+
+def _send(bot, state, name="nov-2026-test") -> None:
+    """«Send», then the name: the only way a broadcast goes out."""
+    _tap(bot, state, BroadcastAction(action="send"))
+    _name(bot, state, name)
 
 
 def _screen(bot) -> EditMessageText:
@@ -288,7 +301,7 @@ def test_sending_queues_exactly_who_the_screen_promised(shop):
     state = _at_picker(bot)
     for _ in range(4):                                     # → 3 і більше
         _tap(bot, state, BroadcastFilter(name="purchases"))
-    _tap(bot, state, BroadcastAction(action="send"))
+    _send(bot, state)
 
     assert [row["chat_id"] for row in asyncio.run(claim(50))] == [12]
     assert state.state is None
@@ -399,7 +412,7 @@ def test_the_real_send_still_works_after_a_test(shop):
     bot = fakes.RecordingBot()
     state = _at_picker(bot)
     _tap(bot, state, BroadcastAction(action="test"))
-    _tap(bot, state, BroadcastAction(action="send"))
+    _send(bot, state)
 
     assert sorted(row["chat_id"] for row in asyncio.run(claim(50))) == [10, 11, 12]
 
@@ -453,7 +466,7 @@ def test_buttons_are_asked_for_shown_on_the_post_and_queued_with_it(shop):
     assert UK.BTN_BROADCAST_BUTTONS.format(value=1) in _buttons(picker.reply_markup)
     assert state.state == BroadcastStates.waiting_confirm.state
 
-    _tap(bot, state, BroadcastAction(action="send"))
+    _send(bot, state)
     payloads = [json.loads(row["payload"]) for row in asyncio.run(claim(50))]
     assert len(payloads) == 3
     assert all(p["post"]["buttons"] == [[{"text": "Каталог",
@@ -536,3 +549,102 @@ def test_a_bare_instagram_link_becomes_an_instagram_button(shop):
     assert state.data["broadcast_post"]["buttons"] == [[{
         "text": "Instagram", "url": "https://www.instagram.com/korean_story_official/"}]]
     assert state.state == BroadcastStates.waiting_confirm.state
+
+
+# --- the name that sends ---------------------------------------------------------
+
+def test_the_send_button_alone_sends_nothing(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+
+    _tap(bot, state, BroadcastAction(action="send"))
+
+    assert asyncio.run(claim(50)) == []
+    assert asyncio.run(get_unfinished_broadcasts()) == []
+    assert state.state == BroadcastStates.waiting_name.state
+    screen = _screen(bot)
+    assert screen.text == UK.MSG_BROADCAST_ASK_NAME.format(count=3)
+    # Only ways out under the question: the name is typed, never tapped.
+    assert _buttons(screen.reply_markup) == [UK.BTN_BROADCAST_BACK,
+                                            UK.BTN_BROADCAST_CANCEL]
+
+
+def test_a_typed_name_sends_and_is_kept_with_the_job(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+
+    _send(bot, state, name="Nov-2026-Company1")
+
+    assert len(asyncio.run(claim(50))) == 3
+    [job] = asyncio.run(get_unfinished_broadcasts())
+    assert job["text"] == "[nov-2026-company1] Знижка 20%"
+    assert _last_to_staff(bot).text == UK.MSG_BROADCAST_STARTED_NAMED.format(
+        name="nov-2026-company1")
+    assert state.state is None
+
+
+@pytest.mark.parametrize("typed", ["cancel", "stop", "Stop", "-", "назад", "ні"])
+def test_a_way_out_typed_as_a_name_goes_back_and_sends_nothing(shop, typed):
+    """«stop» and «cancel» are perfectly good names by shape. Taken for one,
+    the word a person types to get out would send the broadcast to everybody."""
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    _tap(bot, state, BroadcastAction(action="send"))
+
+    _name(bot, state, typed)
+
+    assert asyncio.run(claim(50)) == []
+    assert state.state == BroadcastStates.waiting_confirm.state
+    assert _last_to_staff(bot).text == UK.MSG_BROADCAST_AUDIENCE.format(count=3, total=3)
+
+
+@pytest.mark.parametrize("typed", ["ok", "розсилка-листопад", "nov 2026", "<b>x</b>"])
+def test_a_name_of_the_wrong_shape_is_explained_and_sends_nothing(shop, typed):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    _tap(bot, state, BroadcastAction(action="send"))
+
+    _name(bot, state, typed)
+
+    assert asyncio.run(claim(50)) == []
+    assert state.state == BroadcastStates.waiting_name.state
+    assert _last_to_staff(bot).text == UK.MSG_BROADCAST_NAME_INVALID.format(
+        name=typed.replace("<", "&lt;").replace(">", "&gt;"))
+
+
+def test_back_returns_to_the_picker_with_the_filters_as_they_were(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    _tap(bot, state, BroadcastFilter(name="purchases"))    # → без покупок: chat 10
+    _tap(bot, state, BroadcastAction(action="send"))
+
+    _tap(bot, state, BroadcastAction(action="back"))
+
+    assert state.state == BroadcastStates.waiting_confirm.state
+    assert _screen(bot).text == UK.MSG_BROADCAST_AUDIENCE.format(count=1, total=3)
+    assert asyncio.run(claim(50)) == []
+
+
+def test_a_stale_send_under_the_name_question_neither_sends_nor_cancels(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    _tap(bot, state, BroadcastAction(action="send"))
+
+    _tap(bot, state, BroadcastAction(action="send"))      # an older picker's button
+
+    assert state.state == BroadcastStates.waiting_name.state
+    assert asyncio.run(claim(50)) == []
+
+
+@pytest.mark.parametrize("typed", ["так", "yes", "nov-2026-test", "щось інше"])
+def test_typing_on_the_picker_sends_nothing_and_cancels_nothing(shop, typed):
+    """«так» used to send from here, which would have made the name a formality."""
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+
+    asyncio.run(mod.process_broadcast_confirm_text(
+        fakes.message(bot, STAFF, text=typed), _config(), state, None))
+
+    assert asyncio.run(claim(50)) == []
+    assert state.state == BroadcastStates.waiting_confirm.state
+    assert _last_to_staff(bot).text == UK.MSG_BROADCAST_USE_SEND

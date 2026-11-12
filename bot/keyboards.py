@@ -336,6 +336,20 @@ def broadcast_audience_kb(t: Texts, audience: Audience,
     return builder.as_markup()
 
 
+def broadcast_name_kb(t: Texts) -> InlineKeyboardMarkup:
+    """The ways out of the question about a broadcast's name.
+
+    There is deliberately no way forward here: the name is typed, never tapped.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text=t.BTN_BROADCAST_BACK,
+                   callback_data=BroadcastAction(action="back"))
+    builder.button(text=t.BTN_BROADCAST_CANCEL,
+                   callback_data=BroadcastAction(action="cancel"))
+    builder.adjust(1)
+    return builder.as_markup()
+
+
 def settings_menu_kb(t: Texts, *, has_phone: bool = True) -> InlineKeyboardMarkup:
     """Build the settings submenu inline keyboard (2 items, 1 per row).
 

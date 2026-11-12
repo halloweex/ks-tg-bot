@@ -19,6 +19,7 @@ import pytest
 
 import broadcast_fakes as fakes
 from bot import profile
+from bot.callbacks import BroadcastAction
 from bot.handlers import broadcast as mod
 from core.i18n import Texts
 from core.repos import base as repos_base
@@ -47,17 +48,25 @@ def _config():
     return fakes.config(admins=[ADMIN], staff=[STAFF])
 
 
+NAME = "nov-2026-test"
+
+
 def _send_as(user_id: int, text: str, state: fakes.State) -> list[str]:
-    """/broadcast, the text, then «так» — the whole flow from one person.
+    """/broadcast, the text, «Send», then the name — the whole flow from one
+    person.
 
     Returns every text the bot said to them, the preview of the post included.
     """
     bot = fakes.RecordingBot()
     for step, line in ((mod.cmd_broadcast, "/broadcast"),
-                       (mod.process_broadcast_message, text),
-                       (mod.process_broadcast_confirm_text, "так")):
+                       (mod.process_broadcast_message, text)):
         asyncio.run(step(fakes.message(bot, user_id, text=line), _config(),
                          state, None))
+    send = BroadcastAction(action="send")
+    asyncio.run(mod.process_broadcast_confirm(
+        fakes.callback(bot, user_id, send.pack()), send, _config(), state, None))
+    asyncio.run(mod.process_broadcast_name(
+        fakes.message(bot, user_id, text=NAME), _config(), state, None))
     return bot.texts_to(user_id)
 
 
@@ -79,9 +88,10 @@ def test_staff_can_send_a_broadcast_start_to_finish(db):
     assert said == [UK.MSG_BROADCAST_PROMPT,
                     "Нова колекція вже в магазині 🌸",   # the preview
                     UK.MSG_BROADCAST_AUDIENCE.format(count=len(CUSTOMERS), total=len(CUSTOMERS)),
-                    UK.MSG_BROADCAST_STARTED]
+                    UK.MSG_BROADCAST_STARTED_NAMED.format(name=NAME)]
     [job] = asyncio.run(get_unfinished_broadcasts())
     assert job["created_by"] == STAFF
+    assert job["text"] == f"[{NAME}] Нова колекція вже в магазині 🌸"
     queued = asyncio.run(claim(50))
     assert sorted(row["chat_id"] for row in queued) == sorted(CUSTOMERS)
 

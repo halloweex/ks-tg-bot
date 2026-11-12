@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import re
 from dataclasses import replace
 
 from aiogram import Bot, F, Router
@@ -34,7 +35,7 @@ from core.repos.events import SqliteActivityLog, SqliteUsageStats
 from core.repos.outbox import SqliteMessageQueue
 from core.repos.users import (SqliteMailingList, get_broadcast_recipients,
                               get_user_language, opt_out_user)
-from bot.keyboards import broadcast_audience_kb
+from bot.keyboards import broadcast_audience_kb, broadcast_name_kb
 from bot.states import BroadcastStates
 from bot.tasks import spawn
 
@@ -77,7 +78,8 @@ async def _flow_texts(user_id: int, config: AppConfig) -> Texts:
 
 async def _queue_broadcast(text: str, admin_id: int,
                            content: dict | None = None,
-                           audience: Audience | None = None) -> None:
+                           audience: Audience | None = None,
+                           name: str | None = None) -> None:
     """Hand the job to the queue and let the sender get on with it.
 
     Nothing is spawned any more. The messages are rows before this returns, and
@@ -95,8 +97,8 @@ async def _queue_broadcast(text: str, admin_id: int,
         SqliteBroadcastJournal(), SqliteMailingList(), SqliteMessageQueue(),
         post=content, audience=audience,
     )
-    logger.info("Broadcast job #{} queued for {} recipient(s)",
-                started.job_id, started.queued)
+    logger.info("Broadcast job #{} «{}» queued for {} recipient(s)",
+                started.job_id, name or "unnamed", started.queued)
 
 
 @router.message(Command("broadcast"))
@@ -253,10 +255,23 @@ async def _redraw(callback: CallbackQuery, at: Texts, audience: Audience,
             raise
 
 
-async def _send_now(data: dict, sender_id: int) -> None:
-    await _queue_broadcast(data["broadcast_text"], sender_id,
+# The name a sender types to send. Its whole job is to be typed on purpose, so
+# it is held to a shape nobody produces by accident, and kept with the job.
+_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{2,39}")
+# What a person types to get out, not to name a broadcast. Several of them are
+# perfectly good names by shape, «stop» and «cancel» among them, and taking one
+# for a name would send the broadcast to everybody: so they go back instead.
+_BACK_WORDS = {"-", "–", "—", "back", "cancel", "stop", "no", "nope", "exit",
+               "назад", "ні", "нет", "стоп", "скасувати", "відміна", "отмена"}
+
+
+async def _send_now(data: dict, sender_id: int, name: str | None = None) -> None:
+    # The journal row keeps the name in front of the post's words: nothing
+    # else in it can say which job was «nov-2026-sale» once the log is gone.
+    text = f"[{name}] {data['broadcast_text']}" if name else data["broadcast_text"]
+    await _queue_broadcast(text, sender_id,
                            data.get("broadcast_post"),
-                           Audience.from_dict(data.get("audience")))
+                           Audience.from_dict(data.get("audience")), name)
 
 
 @router.callback_query(BroadcastStates.waiting_confirm, BroadcastFilter.filter())
@@ -382,15 +397,19 @@ async def process_broadcast_confirm(
         await callback.message.edit_text(at.MSG_BROADCAST_CANCELLED)
         return
     audience = Audience.from_dict(data.get("audience"))
-    if not await SqliteMailingList().recipients(audience):
+    recipients = await SqliteMailingList().recipients(audience)
+    if not recipients:
         # A stale send button: since the screen was drawn, the last person
         # these filters matched opted out or stopped matching.
         await _redraw(callback, at, audience, len(team), buttons)
         return
 
-    await state.clear()
-    await callback.message.edit_text(at.MSG_BROADCAST_STARTED)
-    await _send_now(data, callback.from_user.id)
+    # The button alone sends nothing. A tap can be a slip of the thumb; typing
+    # a name cannot, so the name is what sends (process_broadcast_name).
+    await state.set_state(BroadcastStates.waiting_name)
+    await callback.message.edit_text(
+        at.MSG_BROADCAST_ASK_NAME.format(count=len(recipients)),
+        reply_markup=broadcast_name_kb(at))
 
 
 async def _send_test(callback: CallbackQuery, state: FSMContext, at: Texts,
@@ -515,26 +534,91 @@ async def process_broadcast_buttons(
     await message.answer(text, reply_markup=markup)
 
 
+@router.callback_query(BroadcastStates.waiting_name, BroadcastAction.filter())
+async def process_broadcast_name_action(
+    callback: CallbackQuery,
+    callback_data: BroadcastAction,
+    config: AppConfig,
+    state: FSMContext,
+    t: Texts,
+) -> None:
+    """Back to the picker, or cancel, from the question about the name.
+
+    Anything else is a button from an older screen still in the chat, and is
+    ignored: a stale «Send» must not count as an answer, and a stale anything
+    must not cancel what is on screen now.
+    """
+    await callback.answer()
+    if not _can_broadcast(callback.from_user.id, config):
+        return
+    at = await _flow_texts(callback.from_user.id, config)
+    if callback_data.action == "back":
+        data = await state.get_data()
+        await state.set_state(BroadcastStates.waiting_confirm)
+        await _redraw(callback, at, Audience.from_dict(data.get("audience")),
+                      len(_team(config)), post.button_count(data.get("broadcast_post")))
+    elif callback_data.action == "cancel":
+        await state.clear()
+        await callback.message.edit_text(at.MSG_BROADCAST_CANCELLED)
+
+
+@router.message(BroadcastStates.waiting_name)
+async def process_broadcast_name(
+    message: Message, config: AppConfig, state: FSMContext,
+    t: Texts,
+) -> None:
+    """The typed name, and only then the send."""
+    if not _can_broadcast(message.from_user.id, config):
+        return
+    at = await _flow_texts(message.from_user.id, config)
+    typed = (message.text or "").strip()
+    data = await state.get_data()
+    audience = Audience.from_dict(data.get("audience"))
+    team, buttons = len(_team(config)), post.button_count(data.get("broadcast_post"))
+
+    if typed.casefold() in _BACK_WORDS:
+        await state.set_state(BroadcastStates.waiting_confirm)
+        text, markup = await _audience_screen(at, audience, team, buttons)
+        await message.answer(text, reply_markup=markup)
+        return
+    name = typed.lower()
+    if not _NAME.fullmatch(name):
+        # The sender's own words, under the bot's HTML parse mode.
+        await message.answer(at.MSG_BROADCAST_NAME_INVALID.format(
+            name=html.escape(typed[:60] or "…")))
+        return
+    if not data.get("broadcast_text"):
+        await state.clear()
+        await message.answer(at.MSG_BROADCAST_CANCELLED)
+        return
+    if not await SqliteMailingList().recipients(audience):
+        # Everybody these filters matched left while the name was being typed.
+        await state.set_state(BroadcastStates.waiting_confirm)
+        text, markup = await _audience_screen(at, audience, team, buttons)
+        await message.answer(text, reply_markup=markup)
+        return
+
+    await state.clear()
+    await message.answer(at.MSG_BROADCAST_STARTED_NAMED.format(name=name))
+    await _send_now(data, message.from_user.id, name)
+
+
 @router.message(BroadcastStates.waiting_confirm, F.text)
 async def process_broadcast_confirm_text(
     message: Message, config: AppConfig, state: FSMContext,
     t: Texts,
 ) -> None:
-    """Fallback: typing так/yes/да still confirms; anything else cancels."""
+    """Typing on the picker sends nothing and cancels nothing.
+
+    «так» used to send from here, which made the name step a formality with a
+    side door. Cancelling on any other text was the old yes/no prompt's way out;
+    the picker has its own button for that, and a name typed one step early
+    would have thrown the whole post away.
+    """
     if not _can_broadcast(message.from_user.id, config):
         return
-
     at = await _flow_texts(message.from_user.id, config)
-    if message.text.lower().strip() not in ("так", "yes", "да"):
-        await message.answer(at.MSG_BROADCAST_CANCELLED)
-        await state.clear()
-        return
-
-    data = await state.get_data()
-    await state.clear()
-
-    await message.answer(at.MSG_BROADCAST_STARTED)
-    await _send_now(data, message.from_user.id)
+    await message.answer(at.MSG_BROADCAST_USE_SEND)
 
 
 # --------------- Admin utilities ---------------

@@ -27,6 +27,7 @@ from aiogram.types import InputMediaPhoto, InputMediaVideo
 
 import broadcast_fakes as fakes
 from bot import post
+from bot.callbacks import BroadcastAction
 from bot.handlers import broadcast as mod
 from bot.outbox import TelegramNotifier
 from bot.states import BroadcastStates
@@ -551,11 +552,14 @@ def test_what_is_queued_is_the_post_itself_not_a_pointer_to_it(db):
     bot, state = fakes.RecordingBot(), fakes.State()
     state.state = BroadcastStates.waiting_message.state
     _take(bot, state, **fakes.photo(caption=RISKY, caption_entities=BOLD_FIRST_WORD))
-    asyncio.run(mod.process_broadcast_confirm_text(
-        fakes.message(bot, STAFF, text="так"), _config(), state, None))
+    send = BroadcastAction(action="send")
+    asyncio.run(mod.process_broadcast_confirm(
+        fakes.callback(bot, STAFF, send.pack()), send, _config(), state, None))
+    asyncio.run(mod.process_broadcast_name(
+        fakes.message(bot, STAFF, text="nov-2026-photo"), _config(), state, None))
 
     [job] = asyncio.run(get_unfinished_broadcasts())
-    assert job["text"] == RISKY
+    assert job["text"] == f"[nov-2026-photo] {RISKY}"
     [row] = asyncio.run(claim(50))
     stored = json.loads(row["payload"])["post"]["message"]
     assert stored["photo"][0]["file_id"] == "photo-big"

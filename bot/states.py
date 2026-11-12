@@ -31,3 +31,4 @@ class BroadcastStates(StatesGroup):
     waiting_confirm = State()
     waiting_word = State()
     waiting_buttons = State()
+    waiting_name = State()

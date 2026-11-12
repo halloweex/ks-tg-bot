@@ -67,7 +67,8 @@ class DiscountAction(CallbackData, prefix="disc"):
 
 
 class BroadcastAction(CallbackData, prefix="bcast"):
-    """Broadcast flow: send, test on the team, cancel, reset the filters."""
+    """Broadcast flow: send (which asks for a name), test on the team, add
+    buttons, reset the filters, back to the picker, cancel."""
 
     action: str
 
