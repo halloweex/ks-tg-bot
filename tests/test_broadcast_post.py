@@ -369,6 +369,85 @@ def test_ordinary_text_stays_an_ordinary_message(text):
     assert post.from_markup(post.single(fakes.message(bot, STAFF, text=text))) is None
 
 
+# The staff guide as Telegram for macOS sent it on 2026-11-13: «---» turned into
+# «—» on sending, and the line with ``` dropped together with the line break
+# before it, so the code block is glued to the sentence above.
+SENT_GUIDE = ("## 2. Кому надіслати\n\n"
+              "| Фільтр | Варіанти |\n|—|—|\n| 🛍 Покупки | усі, жодної |\n\n"
+              "Напиши кнопки: текст, тире, посилання."
+              "Обрати - https://a.example/\nInstagram - https://b.example/\n"
+              "Дві кнопки в один ряд розділяє знак «|».")
+SENT_CODE = "Обрати - https://a.example/\nInstagram - https://b.example/\n"
+
+
+def _guide_source() -> str:
+    bot = fakes.RecordingBot()
+    sent = fakes.message(bot, STAFF, text=SENT_GUIDE,
+                         entities=[_entity(SENT_GUIDE, SENT_CODE, "pre")])
+    return post.from_markup(post.single(sent))["markdown"]
+
+
+def test_a_table_whose_hyphens_became_a_dash_is_a_table_again():
+    lines = _guide_source().splitlines()
+
+    assert "|---|---|" in lines
+    assert "| Фільтр | Варіанти |" in lines
+
+
+@pytest.mark.parametrize("sent, restored", [
+    ("|:—|:—:|—:|", "|:---|:---:|---:|"),     # alignment kept
+    ("| — | — |", "| --- | --- |"),
+    ("|——|–|", "|---|---|"),                 # longer runs, an en dash
+    ("—", "---"),                            # a divider typed as ---
+])
+def test_dashes_go_back_to_hyphens_only_where_markdown_needs_them(sent, restored):
+    bot = fakes.RecordingBot()
+    text = f"# Заголовок\n\n| A | B |\n{sent}\n\nЦіна — 520 ₴, термін – 3 дні"
+    source = post.from_markup(post.single(fakes.message(bot, STAFF, text=text)))["markdown"]
+
+    assert restored in source.splitlines()
+    # A dash in a sentence is the client's typography, and stays.
+    assert "Ціна — 520 ₴, термін – 3 дні" in source.splitlines()
+
+
+def test_a_table_alone_is_still_noticed_with_its_dashes():
+    bot = fakes.RecordingBot()
+    text = "| Товар | Ціна |\n|—|—|\n| COSRX | 520 ₴ |"
+    content = post.from_markup(post.single(fakes.message(bot, STAFF, text=text)))
+
+    assert content and "|---|---|" in content["markdown"].splitlines()
+
+
+def test_a_code_block_glued_to_a_sentence_gets_lines_of_its_own():
+    source = _guide_source()
+
+    assert ("Напиши кнопки: текст, тире, посилання.\n<pre>Обрати - https://a.example/\n"
+            in source)
+    assert "</pre>\n\nДві кнопки в один ряд" in source
+
+
+def test_a_quote_from_the_client_is_a_block_and_ends_before_what_follows():
+    """A <blockquote> block runs until a blank line: without one the heading
+    after it would be swallowed as raw HTML."""
+    bot = fakes.RecordingBot()
+    text = "Вступ.Цитата клієнтки\n## Далі"
+    sent = fakes.message(bot, STAFF, text=text,
+                         entities=[_entity(text, "Цитата клієнтки", "blockquote")])
+    source = post.from_markup(post.single(sent))["markdown"]
+
+    assert "Вступ.\n<blockquote>Цитата клієнтки</blockquote>\n\n\n## Далі" in source
+
+
+def test_a_code_block_keeps_its_language_where_telegram_reads_it():
+    bot = fakes.RecordingBot()
+    text = "# Код\nprint(1)"
+    pre = {**_entity(text, "print(1)", "pre"), "language": "python"}
+    source = post.from_markup(post.single(fakes.message(bot, STAFF, text=text,
+                                                        entities=[pre])))["markdown"]
+
+    assert '<pre><code class="language-python">print(1)</code></pre>' in source
+
+
 def test_a_caption_with_markup_is_left_alone():
     bot = fakes.RecordingBot()
     content = post.single(fakes.message(bot, STAFF, **fakes.photo(caption="# Знижки")))

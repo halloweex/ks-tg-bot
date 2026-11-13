@@ -51,6 +51,7 @@ carry them — `sendMediaGroup` takes no keyboard — and is refused with them.
 """
 from __future__ import annotations
 
+import html
 import re
 from typing import Any
 from urllib.parse import urlsplit
@@ -107,9 +108,17 @@ _BARE_HOST = re.compile(r"^[^\s/@]+\.[^\W\d_]{2,}$")
 # row, a quote. Lists alone do not count: «- » and «1. » read fine as they are,
 # and making every such post a rich message would trade its link card for
 # nothing the reader would notice.
-_BLOCK_MARKUP = re.compile(
-    r"^(?:#{1,6}[ \t]+\S|>|[ \t]*\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)+\|?[ \t]*$)",
-    re.MULTILINE)
+#
+# A table's separator row, the line under its header: hyphens as typed, or the
+# dashes a Telegram client turns them into on sending. «---» arrives as «—», so
+# the owner's «|---|---|» came in as «|—|—|» and no table was drawn (2026-11-13).
+_SEPARATOR_ROW = (r"[ \t]*\|?[ \t]*:?[-–—]+:?[ \t]*"
+                  r"(?:\|[ \t]*:?[-–—]+:?[ \t]*)+\|?[ \t]*")
+_BLOCK_MARKUP = re.compile(rf"^(?:#{{1,6}}[ \t]+\S|>|{_SEPARATOR_ROW}$)", re.MULTILINE)
+_DASHED_SEPARATOR = re.compile(rf"^{_SEPARATOR_ROW}$")
+# A divider typed as «---», which arrives as one dash on a line of its own.
+_DASHED_RULE = re.compile(r"^[ \t]*[–—][ \t]*$")
+_DASH_RUN = re.compile(r"[-–—]+")
 
 
 # A promo code as shops write them. No «:», which separates callback fields,
@@ -126,6 +135,26 @@ class _InlineHtml(HtmlDecoration):
 
     def quote(self, value: str) -> str:
         return value.replace("&", "&amp;").replace("<", "&lt;")
+
+    # Blocks get lines of their own. A client drops the line with ``` and the
+    # line break before it, so a code block arrives glued to the sentence
+    # above (2026-11-13); Markdown starts an HTML block only at the start of a
+    # line. The blank line after it ends the block: a <blockquote> block runs
+    # until one, and would swallow the Markdown that follows.
+    def pre(self, value: str) -> str:
+        return f"\n<pre>{value}</pre>\n\n"
+
+    def pre_language(self, value: str, language: str) -> str:
+        # `class`, as Telegram's rich HTML documents it; aiogram writes a
+        # `language` attribute nothing reads.
+        lang = html.escape(language, quote=True)
+        return f'\n<pre><code class="language-{lang}">{value}</code></pre>\n\n'
+
+    def blockquote(self, value: str) -> str:
+        return f"\n{super().blockquote(value)}\n\n"
+
+    def expandable_blockquote(self, value: str) -> str:
+        return f"\n{super().expandable_blockquote(value)}\n\n"
 
 
 _INLINE_HTML = _InlineHtml()
@@ -238,7 +267,26 @@ def from_markup(post: dict[str, Any]) -> dict[str, Any] | None:
     if not text or post.get("markdown") or not _BLOCK_MARKUP.search(text):
         return None
     message = _rebuild(stored)
-    return {**post, "markdown": _INLINE_HTML.unparse(message.text, message.entities)}
+    source = _INLINE_HTML.unparse(message.text, message.entities)
+    return {**post, "markdown": _hyphens_back(source)}
+
+
+def _hyphens_back(source: str) -> str:
+    """The hyphens a Telegram client sent as dashes, where Markdown needs them.
+
+    Only in two kinds of line, both with nothing else on them: a table's
+    separator row and a divider. A dash inside a sentence is the client's
+    typography and stays as it is.
+    """
+    lines = source.split("\n")
+    for number, line in enumerate(lines):
+        if "—" not in line and "–" not in line:
+            continue
+        if _DASHED_SEPARATOR.match(line):
+            lines[number] = _DASH_RUN.sub("---", line)
+        elif _DASHED_RULE.match(line):
+            lines[number] = "---"
+    return "\n".join(lines)
 
 
 def with_buttons(post: dict[str, Any], rows: list[list[dict[str, str]]]) -> dict[str, Any]:
