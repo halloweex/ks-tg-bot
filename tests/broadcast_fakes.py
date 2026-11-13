@@ -96,6 +96,7 @@ def config(admins=(), staff=()):
     return SimpleNamespace(
         env=SimpleNamespace(admin_ids=list(admins), broadcaster_ids=list(staff)),
         support_chat_id=-100,
+        website_url="https://ks.example",
     )
 
 

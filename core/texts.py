@@ -620,6 +620,27 @@ MSG_BROADCAST_ASK_WAITING = (
 )
 BTN_BROADCAST_BUTTONS = "🔗 Кнопки під постом: {value}"
 BROADCAST_BUTTONS_NONE = "немає"
+BTN_BROADCAST_PROMO = "🎁 Промокод: {value}"
+BROADCAST_PROMO_NONE = "немає"
+MSG_BROADCAST_ASK_PROMO = (
+    "Напишіть промокод, наприклад <code>NOV20</code>. Під постом з'явиться кнопка "
+    "«🎁 Забрати промокод»: хто її натисне, отримає код і посилання в магазин, "
+    "де код уже застосовано.\n\n"
+    "Промокод має вже існувати в адмінці магазину: бот його не створює.\n"
+    "Щоб прибрати промокод, надішліть -"
+)
+MSG_BROADCAST_PROMO_INVALID = (
+    "«{code}» не схожий на промокод: потрібні латинські літери, цифри, дефіс або "
+    "підкреслення, від 2 до 40 знаків. Надішліть ще раз або -, щоб без промокоду."
+)
+# What a customer sees: the button under a broadcast post, and its answer.
+BTN_PROMO_CLAIM = "🎁 Забрати промокод"
+BTN_PROMO_SHOP = "🛒 Обрати зі знижкою"
+MSG_PROMO_CODE = (
+    "Твій промокод: <code>{code}</code>\n\n"
+    "Він уже в посиланні нижче: відкривай магазин і обирай, що подобається. "
+    "Або натисни на код, щоб скопіювати, і введи його при оформленні замовлення."
+)
 BTN_BROADCAST_TEST = "🧪 Надіслати тест команді ({count})"
 BTN_BROADCAST_SEND = "✅ Надіслати ({count})"
 BTN_BROADCAST_BACK = "↩️ Назад до вибору"

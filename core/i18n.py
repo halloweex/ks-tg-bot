@@ -215,6 +215,25 @@ EN: dict[str, str] = {
     ),
     "BTN_BROADCAST_BUTTONS": "🔗 Buttons under the post: {value}",
     "BROADCAST_BUTTONS_NONE": "none",
+    "BTN_BROADCAST_PROMO": "🎁 Promo code: {value}",
+    "BROADCAST_PROMO_NONE": "none",
+    "MSG_BROADCAST_ASK_PROMO": (
+        "Type the promo code, for example <code>NOV20</code>. A «🎁 Забрати "
+        "промокод» button appears under the post: whoever taps it gets the code "
+        "and a link to the shop with the code already applied.\n\n"
+        "The code must already exist in the shop's admin: the bot does not create "
+        "it.\nSend - to remove the promo code."
+    ),
+    "MSG_BROADCAST_PROMO_INVALID": (
+        "«{code}» does not look like a promo code: use latin letters, digits, "
+        "dashes or underscores, 2 to 40 characters. Send it again, or - for none."
+    ),
+    "BTN_PROMO_SHOP": "🛒 Shop with the discount",
+    "MSG_PROMO_CODE": (
+        "Your promo code: <code>{code}</code>\n\n"
+        "It is already in the link below: open the shop and pick what you like. "
+        "Or tap the code to copy it and enter it at checkout."
+    ),
     "BTN_BROADCAST_TEST": "🧪 Send a test to the team ({count})",
     "BTN_BROADCAST_SEND": "✅ Send ({count})",
     "BTN_BROADCAST_BACK": "↩️ Back to the picker",

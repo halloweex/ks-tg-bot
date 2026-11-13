@@ -39,6 +39,10 @@ markup is offered as `{"message": …, "markdown": …}` (`from_markup`): the
 text with the client's own formatting written back as inline HTML. The
 preview decides which form is stored — see `bot/handlers/broadcast.py`.
 
+**A promo code rides as one more button.** `{"promo": {"code", "text"}}` puts
+a «🎁 Забрати промокод» button above the links; a customer's tap is answered
+in bot/handlers/broadcast.py with the code and a link that applies it.
+
 **Link buttons are the post's own.** A person cannot put an inline keyboard on
 a message in the client, so the sender types them after the post (`parse_buttons`)
 and they are stored beside it, `{"message": {...}, "buttons": [[{text, url}]]}`.
@@ -56,6 +60,8 @@ from aiogram.client.default import Default
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import ForwardMessage, SendRichMessage
 from aiogram.utils.text_decorations import HtmlDecoration
+
+from bot.callbacks import PromoClaim
 from aiogram.types import (InlineKeyboardButton, InlineKeyboardMarkup,
                            InputMediaAudio, InputMediaDocument, InputMediaPhoto,
                            InputMediaVideo, InputRichMessage, LinkPreviewOptions,
@@ -104,6 +110,11 @@ _BARE_HOST = re.compile(r"^[^\s/@]+\.[^\W\d_]{2,}$")
 _BLOCK_MARKUP = re.compile(
     r"^(?:#{1,6}[ \t]+\S|>|[ \t]*\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)+\|?[ \t]*$)",
     re.MULTILINE)
+
+
+# A promo code as shops write them. No «:», which separates callback fields,
+# and short enough that «promo:» and the code stay inside 64 bytes.
+_PROMO_CODE = re.compile(r"[A-Za-z0-9_-]{2,40}")
 
 
 class _InlineHtml(HtmlDecoration):
@@ -242,13 +253,35 @@ def button_count(post: dict[str, Any] | None) -> int:
     return sum(len(row) for row in (post or {}).get("buttons") or [])
 
 
+def promo_code(typed: str) -> str | None:
+    """The code if it has the shape of one, else None. Case is kept: it is
+    printed for the customer exactly as the shop wrote it."""
+    code = typed.strip()
+    return code if _PROMO_CODE.fullmatch(code) else None
+
+
+def with_promo(post: dict[str, Any], code: str | None, label: str = "") -> dict[str, Any]:
+    """The same post with a promo button labelled `label`, or without one."""
+    changed = {key: value for key, value in post.items() if key != "promo"}
+    if code:
+        changed["promo"] = {"code": code, "text": label}
+    return changed
+
+
+def promo_of(post: dict[str, Any] | None) -> str | None:
+    return ((post or {}).get("promo") or {}).get("code")
+
+
 def _markup(post: dict[str, Any]) -> InlineKeyboardMarkup | None:
-    rows = post.get("buttons")
-    if not rows:
-        return None
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=b["text"], url=b["url"]) for b in row]
-        for row in rows])
+    rows = []
+    promo = post.get("promo")
+    if promo:
+        # First, on a row of its own: it is the offer the post is about.
+        rows.append([InlineKeyboardButton(
+            text=promo["text"], callback_data=PromoClaim(code=promo["code"]).pack())])
+    rows += [[InlineKeyboardButton(text=b["text"], url=b["url"]) for b in row]
+             for row in post.get("buttons") or []]
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
 
 
 def problem(post: dict[str, Any]) -> str | None:
@@ -257,7 +290,7 @@ def problem(post: dict[str, Any]) -> str | None:
     Asked before anything is queued, so the sender hears it at once instead of
     every recipient's row failing one by one.
     """
-    if post.get("buttons"):
+    if post.get("buttons") or post.get("promo"):
         if "album" in post:
             return "buttons on an album"
         try:

@@ -22,7 +22,7 @@ from loguru import logger
 
 from core.i18n import Texts, broadcast_texts
 from bot import post
-from bot.callbacks import BroadcastAction, BroadcastFilter
+from bot.callbacks import BroadcastAction, BroadcastFilter, PromoClaim
 from bot.analytics import track
 from core.config import AppConfig
 from core.domain.audience import STEPPED, WORD_LIMIT, Audience
@@ -35,7 +35,7 @@ from core.repos.events import SqliteActivityLog, SqliteUsageStats
 from core.repos.outbox import SqliteMessageQueue
 from core.repos.users import (SqliteMailingList, get_broadcast_recipients,
                               get_user_language, opt_out_user)
-from bot.keyboards import broadcast_audience_kb, broadcast_name_kb
+from bot.keyboards import broadcast_audience_kb, broadcast_name_kb, promo_shop_kb
 from bot.states import BroadcastStates
 from bot.tasks import spawn
 
@@ -223,12 +223,12 @@ async def _offer(bot: Bot, chat_id: int, content: dict, state: FSMContext,
                             broadcast_text=post.summary(content),
                             audience=Audience().as_dict())
     await state.set_state(BroadcastStates.waiting_confirm)
-    text, markup = await _audience_screen(at, Audience(), team)
+    text, markup = await _audience_screen(at, Audience(), team, content)
     await bot.send_message(chat_id, text, reply_markup=markup)
 
 
 async def _audience_screen(at: Texts, audience: Audience, team: int,
-                           buttons: int = 0):
+                           content: dict | None = None):
     """The picker as it stands: how many the filters leave, out of how many.
 
     Counted afresh on every tap rather than cached in the state, so the number
@@ -241,12 +241,13 @@ async def _audience_screen(at: Texts, audience: Audience, team: int,
     text = (at.MSG_BROADCAST_AUDIENCE.format(count=count, total=total) if count
             else at.MSG_BROADCAST_AUDIENCE_EMPTY.format(total=total))
     return text, broadcast_audience_kb(at, audience, count, team=team,
-                                       buttons=buttons)
+                                       buttons=post.button_count(content),
+                                       promo=post.promo_of(content))
 
 
 async def _redraw(callback: CallbackQuery, at: Texts, audience: Audience,
-                  team: int, buttons: int = 0) -> None:
-    text, markup = await _audience_screen(at, audience, team, buttons)
+                  team: int, content: dict | None = None) -> None:
+    text, markup = await _audience_screen(at, audience, team, content)
     try:
         await callback.message.edit_text(text, reply_markup=markup)
     except TelegramBadRequest as exc:
@@ -310,7 +311,7 @@ async def process_broadcast_filter(
 
     await state.update_data(audience=audience.as_dict())
     await _redraw(callback, at, audience, len(_team(config)),
-                  post.button_count(data.get("broadcast_post")))
+                  data.get("broadcast_post"))
 
 
 async def _ask_word(callback: CallbackQuery, state: FSMContext, field: str,
@@ -352,7 +353,7 @@ async def process_broadcast_word(
     await state.update_data(audience=audience.as_dict())
     await state.set_state(BroadcastStates.waiting_confirm)
     text, markup = await _audience_screen(at, audience, len(_team(config)),
-                                          post.button_count(data.get("broadcast_post")))
+                                          data.get("broadcast_post"))
     await message.answer(text, reply_markup=markup)
 
 
@@ -370,21 +371,21 @@ async def process_broadcast_confirm(
         await callback.answer()
         return
     at = await _flow_texts(callback.from_user.id, config)
-    if callback_data.action == "buttons":
+    if callback_data.action in ("buttons", "promo"):
         # Answers the tap itself: on an album the answer is the explanation.
-        await _ask_buttons(callback, state, at)
+        await _ask_for_post_buttons(callback, state, at, callback_data.action)
         return
     await callback.answer()
 
     team = _team(config)
     data = await state.get_data()
-    buttons = post.button_count(data.get("broadcast_post"))
+    stored = data.get("broadcast_post")
     if callback_data.action == "test":
         await _send_test(callback, state, at, team)
         return
     if callback_data.action == "reset":
         await state.update_data(audience=Audience().as_dict())
-        await _redraw(callback, at, Audience(), len(team), buttons)
+        await _redraw(callback, at, Audience(), len(team), stored)
         return
 
     if callback_data.action != "send":
@@ -401,7 +402,7 @@ async def process_broadcast_confirm(
     if not recipients:
         # A stale send button: since the screen was drawn, the last person
         # these filters matched opted out or stopped matching.
-        await _redraw(callback, at, audience, len(team), buttons)
+        await _redraw(callback, at, audience, len(team), stored)
         return
 
     # The button alone sends nothing. A tap can be a slip of the thumb; typing
@@ -450,8 +451,7 @@ async def _send_test(callback: CallbackQuery, state: FSMContext, at: Texts,
         report += "\n" + at.MSG_BROADCAST_TEST_MISSED
     await callback.message.edit_text(report)
     text, markup = await _audience_screen(
-        at, Audience.from_dict(data.get("audience")), len(team),
-        post.button_count(content))
+        at, Audience.from_dict(data.get("audience")), len(team), content)
     await callback.bot.send_message(callback.message.chat.id, text,
                                     reply_markup=markup)
 
@@ -474,8 +474,9 @@ def _buttons_complaint(at: Texts, exc: post.ButtonsError) -> str:
     return at.MSG_BROADCAST_BUTTONS_INVALID.format(line=html.escape(exc.line))
 
 
-async def _ask_buttons(callback: CallbackQuery, state: FSMContext, at: Texts) -> None:
-    """Turn the picker into the question about link buttons.
+async def _ask_for_post_buttons(callback: CallbackQuery, state: FSMContext,
+                                at: Texts, which: str) -> None:
+    """Turn the picker into the question about link buttons or a promo code.
 
     The same shape as a word filter: the screen becomes the prompt, and the
     answer brings the post back with its buttons and a fresh picker under it.
@@ -485,8 +486,38 @@ async def _ask_buttons(callback: CallbackQuery, state: FSMContext, at: Texts) ->
         await callback.answer(at.MSG_BROADCAST_BUTTONS_ALBUM, show_alert=True)
         return
     await callback.answer()
-    await state.set_state(BroadcastStates.waiting_buttons)
-    await callback.message.edit_text(at.MSG_BROADCAST_ASK_BUTTONS)
+    if which == "promo":
+        await state.set_state(BroadcastStates.waiting_promo)
+        await callback.message.edit_text(at.MSG_BROADCAST_ASK_PROMO)
+    else:
+        await state.set_state(BroadcastStates.waiting_buttons)
+        await callback.message.edit_text(at.MSG_BROADCAST_ASK_BUTTONS)
+
+
+async def _show_post_again(message: Message, state: FSMContext, at: Texts,
+                           config: AppConfig, data: dict, content: dict) -> bool:
+    """Send the changed post back to its sender, then a fresh picker.
+
+    Shown rather than described: a button Telegram will not take fails here,
+    for the sender, instead of in every recipient's row. False when it failed,
+    and then nothing is stored.
+    """
+    reason = post.problem(content)
+    if reason is None:
+        try:
+            await post.send(message.bot, message.chat.id, content, silent=False)
+        except TelegramBadRequest as exc:
+            reason = exc.message
+    if reason:
+        logger.warning("Broadcast buttons refused: {}", reason)
+        await message.answer(at.MSG_BROADCAST_BUTTONS_REFUSED)
+        return False
+    await state.update_data(broadcast_post=content)
+    await state.set_state(BroadcastStates.waiting_confirm)
+    text, markup = await _audience_screen(
+        at, Audience.from_dict(data.get("audience")), len(_team(config)), content)
+    await message.answer(text, reply_markup=markup)
+    return True
 
 
 @router.message(BroadcastStates.waiting_buttons)
@@ -513,25 +544,69 @@ async def process_broadcast_buttons(
     except post.ButtonsError as exc:
         await message.answer(_buttons_complaint(at, exc))
         return
-    content = post.with_buttons(content, rows)
-    # Shown again rather than described: a link Telegram will not take fails
-    # here, for the sender, instead of in every recipient's row.
-    reason = post.problem(content)
-    if reason is None:
-        try:
-            await post.send(message.bot, message.chat.id, content, silent=False)
-        except TelegramBadRequest as exc:
-            reason = exc.message
-    if reason:
-        logger.warning("Broadcast buttons refused: {}", reason)
-        await message.answer(at.MSG_BROADCAST_BUTTONS_REFUSED)
+    await _show_post_again(message, state, at, config, data,
+                           post.with_buttons(content, rows))
+
+
+@router.message(BroadcastStates.waiting_promo)
+async def process_broadcast_promo(
+    message: Message, config: AppConfig, state: FSMContext,
+    t: Texts,
+) -> None:
+    """The promo code for the post's «🎁 Забрати промокод» button, or «-».
+
+    The code must already exist in the shop's admin: the bot hands it out and
+    builds the link that applies it, and creates nothing.
+    """
+    if not _can_broadcast(message.from_user.id, config):
         return
-    await state.update_data(broadcast_post=content)
-    await state.set_state(BroadcastStates.waiting_confirm)
-    text, markup = await _audience_screen(
-        at, Audience.from_dict(data.get("audience")), len(_team(config)),
-        post.button_count(content))
-    await message.answer(text, reply_markup=markup)
+    at = await _flow_texts(message.from_user.id, config)
+    typed = (message.text or "").strip()
+    if not typed or typed.startswith("/"):
+        await message.answer(at.MSG_BROADCAST_ASK_PROMO)
+        return
+    data = await state.get_data()
+    content = data.get("broadcast_post")
+    if not content:
+        await state.clear()
+        await message.answer(at.MSG_BROADCAST_CANCELLED)
+        return
+    if typed in ("-", "–", "—"):
+        await _show_post_again(message, state, at, config, data,
+                               post.with_promo(content, None))
+        return
+    code = post.promo_code(typed)
+    if not code:
+        # The sender's own words, under the bot's HTML parse mode.
+        await message.answer(at.MSG_BROADCAST_PROMO_INVALID.format(
+            code=html.escape(typed[:60])))
+        return
+    # The label is the customer's, so it is Ukrainian whoever is composing.
+    await _show_post_again(message, state, at, config, data,
+                           post.with_promo(content, code, Texts("uk").BTN_PROMO_CLAIM))
+
+
+@router.callback_query(PromoClaim.filter())
+async def claim_promo(
+    callback: CallbackQuery, callback_data: PromoClaim, config: AppConfig,
+    t: Texts,
+) -> None:
+    """A customer tapped «🎁 Забрати промокод»: the code, and the shop with it.
+
+    In any state and for anybody: the button is on a post that went to
+    customers. The code goes out as a message rather than a pop-up, because a
+    pop-up cannot be copied, and under it the link that applies the code by
+    itself (bot/keyboards.py::discount_url).
+    """
+    await callback.answer()
+    code = post.promo_code(callback_data.code)
+    if not code:
+        return
+    chat_id = callback.message.chat.id if callback.message else callback.from_user.id
+    track(chat_id, "promo_claimed", code=code)
+    await callback.bot.send_message(
+        chat_id, t.MSG_PROMO_CODE.format(code=html.escape(code)),
+        reply_markup=promo_shop_kb(t, config.website_url, code))
 
 
 @router.callback_query(BroadcastStates.waiting_name, BroadcastAction.filter())
@@ -556,7 +631,7 @@ async def process_broadcast_name_action(
         data = await state.get_data()
         await state.set_state(BroadcastStates.waiting_confirm)
         await _redraw(callback, at, Audience.from_dict(data.get("audience")),
-                      len(_team(config)), post.button_count(data.get("broadcast_post")))
+                      len(_team(config)), data.get("broadcast_post"))
     elif callback_data.action == "cancel":
         await state.clear()
         await callback.message.edit_text(at.MSG_BROADCAST_CANCELLED)
@@ -574,11 +649,11 @@ async def process_broadcast_name(
     typed = (message.text or "").strip()
     data = await state.get_data()
     audience = Audience.from_dict(data.get("audience"))
-    team, buttons = len(_team(config)), post.button_count(data.get("broadcast_post"))
+    team, stored = len(_team(config)), data.get("broadcast_post")
 
     if typed.casefold() in _BACK_WORDS:
         await state.set_state(BroadcastStates.waiting_confirm)
-        text, markup = await _audience_screen(at, audience, team, buttons)
+        text, markup = await _audience_screen(at, audience, team, stored)
         await message.answer(text, reply_markup=markup)
         return
     name = typed.lower()
@@ -594,7 +669,7 @@ async def process_broadcast_name(
     if not await SqliteMailingList().recipients(audience):
         # Everybody these filters matched left while the name was being typed.
         await state.set_state(BroadcastStates.waiting_confirm)
-        text, markup = await _audience_screen(at, audience, team, buttons)
+        text, markup = await _audience_screen(at, audience, team, stored)
         await message.answer(text, reply_markup=markup)
         return
 

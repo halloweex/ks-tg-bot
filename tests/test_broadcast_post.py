@@ -464,6 +464,51 @@ def test_an_album_with_buttons_is_refused():
     assert post.problem(content)
 
 
+# --- a promo code under the post ------------------------------------------------
+
+@pytest.mark.parametrize("typed, code", [
+    ("NOV20", "NOV20"), (" nov-2026_vip ", "nov-2026_vip"),
+    ("N", None), ("NOV 20", None), ("NOV:20", None), ("<b>20</b>", None),
+    ("ЗНИЖКА20", None), ("A" * 41, None),
+])
+def test_a_promo_code_is_held_to_the_shape_shops_write(typed, code):
+    assert post.promo_code(typed) == code
+
+
+def test_the_promo_button_comes_first_and_the_links_after_it():
+    bot = fakes.RecordingBot()
+    rows = post.parse_buttons("Instagram - instagram.com/shop")
+    for sent in (fakes.message(bot, STAFF, text=RISKY),
+                 fakes.message(bot, STAFF, **fakes.photo(caption="Знижки")),
+                 fakes.message(bot, STAFF, rich_message=RICH)):
+        content = post.with_promo(post.with_buttons(post.single(sent), rows),
+                                  "NOV20", "🎁 Забрати промокод")
+        assert post.problem(content) is None
+        [call] = _deliver(content).calls
+        first, second = call.reply_markup.inline_keyboard
+        assert [(b.text, b.callback_data) for b in first] == [
+            ("🎁 Забрати промокод", "promo:NOV20")]
+        assert [b.url for b in second] == ["https://instagram.com/shop"]
+
+
+def test_a_promo_alone_is_a_keyboard_and_none_takes_it_away():
+    bot = fakes.RecordingBot()
+    plain = post.single(fakes.message(bot, STAFF, text="ok"))
+    with_code = post.with_promo(plain, "NOV20", "🎁 Забрати промокод")
+
+    [call] = _deliver(with_code).calls
+    assert call.reply_markup.inline_keyboard[0][0].callback_data == "promo:NOV20"
+    assert post.promo_of(with_code) == "NOV20"
+    assert post.with_promo(with_code, None) == plain
+
+
+def test_an_album_with_a_promo_is_refused():
+    bot = fakes.RecordingBot()
+    two = [fakes.message(bot, STAFF, media_group_id="g", **fakes.photo(f"p{i}"))
+           for i in range(2)]
+    assert post.problem(post.with_promo(post.album(two), "NOV20", "🎁"))
+
+
 # --- bot/outbox.py ------------------------------------------------------------
 
 def test_the_outbox_sends_a_stored_post():

@@ -68,7 +68,7 @@ class DiscountAction(CallbackData, prefix="disc"):
 
 class BroadcastAction(CallbackData, prefix="bcast"):
     """Broadcast flow: send (which asks for a name), test on the team, add
-    buttons, reset the filters, back to the picker, cancel."""
+    buttons or a promo code, reset the filters, back to the picker, cancel."""
 
     action: str
 
@@ -81,3 +81,15 @@ class BroadcastFilter(CallbackData, prefix="bcf"):
     """
 
     name: str
+
+
+class PromoClaim(CallbackData, prefix="promo"):
+    """A customer tapping «🎁 Забрати промокод» under a broadcast post.
+
+    The code rides in the button. A post is stored and sent as it was composed,
+    so there is no row to look a code up in, and a code printed for everybody
+    who taps is no secret to keep. A forged one gets back a link to a code the
+    shop does not have.
+    """
+
+    code: str

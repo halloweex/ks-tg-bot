@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from urllib.parse import parse_qs, urlparse
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
@@ -23,7 +24,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage
 
 import broadcast_fakes as fakes
-from bot.callbacks import BroadcastAction, BroadcastFilter
+from bot.callbacks import BroadcastAction, BroadcastFilter, PromoClaim
 from bot.handlers import broadcast as mod
 from bot.states import BroadcastStates
 from core.domain.audience import Audience, Profile, Purchase, matches
@@ -648,3 +649,118 @@ def test_typing_on_the_picker_sends_nothing_and_cancels_nothing(shop, typed):
     assert asyncio.run(claim(50)) == []
     assert state.state == BroadcastStates.waiting_confirm.state
     assert _last_to_staff(bot).text == UK.MSG_BROADCAST_USE_SEND
+
+
+# --- a promo code under the post ------------------------------------------------
+
+def _promo(bot, state, text) -> None:
+    asyncio.run(mod.process_broadcast_promo(
+        fakes.message(bot, STAFF, text=text), _config(), state, None))
+
+
+def test_the_picker_has_a_promo_row_saying_there_is_none(shop):
+    bot = fakes.RecordingBot()
+    _at_picker(bot)
+
+    label = UK.BTN_BROADCAST_PROMO.format(value=UK.BROADCAST_PROMO_NONE)
+    assert label in _buttons(bot.to(STAFF)[-1].reply_markup)
+
+
+def test_a_promo_is_asked_for_shown_on_the_post_and_queued_with_it(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+
+    _tap(bot, state, BroadcastAction(action="promo"))
+    assert _screen(bot).text == UK.MSG_BROADCAST_ASK_PROMO
+    assert state.state == BroadcastStates.waiting_promo.state
+
+    before = len(bot.calls)
+    _promo(bot, state, "NOV20")
+    preview, picker = [c for c in bot.calls[before:] if getattr(c, "chat_id", None) == STAFF]
+    [[claim_button]] = preview.reply_markup.inline_keyboard
+    assert (claim_button.text, claim_button.callback_data) == (UK.BTN_PROMO_CLAIM,
+                                                              "promo:NOV20")
+    assert UK.BTN_BROADCAST_PROMO.format(value="NOV20") in _buttons(picker.reply_markup)
+    assert state.state == BroadcastStates.waiting_confirm.state
+
+    _send(bot, state)
+    payloads = [json.loads(row["payload"]) for row in asyncio.run(claim(50))]
+    assert len(payloads) == 3
+    assert all(p["post"]["promo"] == {"code": "NOV20", "text": UK.BTN_PROMO_CLAIM}
+               for p in payloads)
+
+
+def test_a_code_of_the_wrong_shape_is_quoted_back_and_the_question_stays(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    _tap(bot, state, BroadcastAction(action="promo"))
+
+    _promo(bot, state, "<NOV 20>")
+
+    assert _last_to_staff(bot).text == UK.MSG_BROADCAST_PROMO_INVALID.format(
+        code="&lt;NOV 20&gt;")
+    assert state.state == BroadcastStates.waiting_promo.state
+    assert "promo" not in state.data["broadcast_post"]
+
+
+def test_a_dash_takes_the_promo_away(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    _tap(bot, state, BroadcastAction(action="promo"))
+    _promo(bot, state, "NOV20")
+    _tap(bot, state, BroadcastAction(action="promo"))
+
+    _promo(bot, state, "-")
+
+    assert "promo" not in state.data["broadcast_post"]
+    label = UK.BTN_BROADCAST_PROMO.format(value=UK.BROADCAST_PROMO_NONE)
+    assert label in _buttons(_last_to_staff(bot).reply_markup)
+
+
+def test_an_album_is_told_why_it_cannot_have_a_promo(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    state.data["broadcast_post"] = {"album": [{"photo": [{"file_id": "p"}]}]}
+
+    _tap(bot, state, BroadcastAction(action="promo"))
+
+    [answer] = [c for c in bot.calls if isinstance(c, AnswerCallbackQuery)][-1:]
+    assert answer.text == UK.MSG_BROADCAST_BUTTONS_ALBUM and answer.show_alert
+    assert state.state == BroadcastStates.waiting_confirm.state
+
+
+CUSTOMER = 11
+
+
+def _claim(bot, monkeypatch, code: str) -> list:
+    tracked = []
+    monkeypatch.setattr(mod, "track", lambda *a, **kw: tracked.append((a, kw)))
+    data = PromoClaim(code=code)
+    asyncio.run(mod.claim_promo(fakes.callback(bot, CUSTOMER, data.pack()), data,
+                                _config(), UK))
+    return tracked
+
+
+def test_a_customer_who_taps_gets_the_code_and_the_shop_with_it_applied(shop, monkeypatch):
+    bot = fakes.RecordingBot()
+
+    tracked = _claim(bot, monkeypatch, "NOV20")
+
+    [message] = [c for c in bot.to(CUSTOMER) if isinstance(c, SendMessage)]
+    assert message.text == UK.MSG_PROMO_CODE.format(code="NOV20")
+    [[shop_button]] = message.reply_markup.inline_keyboard
+    assert shop_button.text == UK.BTN_PROMO_SHOP
+    link = urlparse(shop_button.url)
+    assert link.path == "/discount/NOV20"
+    landing = parse_qs(link.query)["redirect"][0]
+    assert parse_qs(urlparse(landing).query)["utm_campaign"] == ["broadcast_promo"]
+    assert tracked == [((CUSTOMER, "promo_claimed"), {"code": "NOV20"})]
+
+
+def test_a_forged_code_gets_nothing(shop, monkeypatch):
+    bot = fakes.RecordingBot()
+
+    tracked = _claim(bot, monkeypatch, "<b>x</b>")
+
+    assert [c for c in bot.calls if isinstance(c, SendMessage)] == []
+    assert tracked == []

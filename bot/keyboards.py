@@ -58,7 +58,8 @@ def tagged_website_url(url: str) -> str:
     return f"{url}{'&' if urlparse(url).query else '?'}{tags}"
 
 
-def discount_url(website_url: str, code: str, lang: str = "uk") -> str:
+def discount_url(website_url: str, code: str, lang: str = "uk",
+                 campaign: str = "first_order") -> str:
     """A link that applies a discount code and lands in the shop.
 
     `/discount/{code}?redirect=…` is Shopify's own mechanism, and the reason
@@ -70,7 +71,7 @@ def discount_url(website_url: str, code: str, lang: str = "uk") -> str:
     landing = "/?" + urlencode({
         "utm_source": "telegram",
         "utm_medium": "bot",
-        "utm_campaign": "first_order",
+        "utm_campaign": campaign,
         "locale": lang,
     })
     return (f"{website_url.rstrip('/')}/discount/{quote(code, safe='')}"
@@ -287,7 +288,8 @@ _AUDIENCE_LABELS = {
 
 def broadcast_audience_kb(t: Texts, audience: Audience,
                           count: int, *, team: int = 0,
-                          buttons: int = 0) -> InlineKeyboardMarkup:
+                          buttons: int = 0,
+                          promo: str | None = None) -> InlineKeyboardMarkup:
     """The recipient picker: one filter per row, each tap moves it on.
 
     One per row because every label carries its current value, and an inline
@@ -296,7 +298,7 @@ def broadcast_audience_kb(t: Texts, audience: Audience,
     it — and it is not there at all when the filters leave nobody.
 
     Below the filters, the rows about the post rather than its recipients:
-    its link buttons, then a test send. The test ignores the filters: it is for
+    its link buttons, its promo code, then a test send. The test ignores the filters: it is for
     seeing the post arrive, and the team has no orders to filter on.
     """
     def label(name: str) -> str:
@@ -321,6 +323,9 @@ def broadcast_audience_kb(t: Texts, audience: Audience,
     builder.button(text=t.BTN_BROADCAST_BUTTONS.format(
                        value=buttons or t.BROADCAST_BUTTONS_NONE),
                    callback_data=BroadcastAction(action="buttons"))
+    builder.button(text=t.BTN_BROADCAST_PROMO.format(
+                       value=promo or t.BROADCAST_PROMO_NONE),
+                   callback_data=BroadcastAction(action="promo"))
     if team:
         builder.button(text=t.BTN_BROADCAST_TEST.format(count=team),
                        callback_data=BroadcastAction(action="test"))
@@ -333,6 +338,15 @@ def broadcast_audience_kb(t: Texts, audience: Audience,
     builder.button(text=t.BTN_BROADCAST_CANCEL,
                    callback_data=BroadcastAction(action="cancel"))
     builder.adjust(1)
+    return builder.as_markup()
+
+
+def promo_shop_kb(t: Texts, website_url: str, code: str) -> InlineKeyboardMarkup:
+    """Under the code a customer claimed: the shop, with the code applied."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text=t.BTN_PROMO_SHOP,
+                   url=discount_url(website_url, code, t.lang,
+                                    campaign="broadcast_promo"))
     return builder.as_markup()
 
 
