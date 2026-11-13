@@ -541,6 +541,10 @@ async def _send_test(callback: CallbackQuery, state: FSMContext, at: Texts,
     await callback.message.edit_text(report)
     text, markup = await _audience_screen(
         at, Audience.from_dict(data.get("audience")), len(team), content)
+    # The same picker read, to the owner, as the bot offering to send again.
+    # It is the real send still waiting; said in so many words, and with the
+    # way out for a sender whose test was the whole point.
+    text = f"{at.MSG_BROADCAST_AFTER_TEST}\n\n{text}"
     await callback.bot.send_message(callback.message.chat.id, text,
                                     reply_markup=markup)
 

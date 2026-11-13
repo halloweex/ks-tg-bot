@@ -139,6 +139,7 @@ _NOT_CUSTOMER_FACING = {
     "MSG_BROADCAST_PROMO_USED_UP", "MSG_BROADCAST_PROMO_INACTIVE",
     "MSG_BROADCAST_PROMO_UNCHECKED",
     "MSG_BROADCAST_POST_UPDATED",
+    "MSG_BROADCAST_AFTER_TEST",
 }
 
 #: The bot talking about itself. The brand persona is Анна, so the feminine here

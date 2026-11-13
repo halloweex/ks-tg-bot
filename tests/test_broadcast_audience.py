@@ -406,10 +406,12 @@ def test_a_test_goes_to_the_team_and_to_no_customer(shop):
     assert asyncio.run(claim(50)) == []
     assert asyncio.run(get_unfinished_broadcasts()) == []
     assert _screen(bot).text == UK.MSG_BROADCAST_TEST_SENT.format(sent=2, total=2)
-    # A fresh picker under the copies, with the filters as they were.
+    # A fresh picker under the copies, with the filters as they were, that
+    # says the real send is still to come and how to stop at the test.
     picker = new[-1]
     assert isinstance(picker, SendMessage) and picker.chat_id == STAFF
-    assert picker.text == UK.MSG_BROADCAST_AUDIENCE.format(count=1, total=3)
+    assert picker.text == (UK.MSG_BROADCAST_AFTER_TEST + "\n\n"
+                           + UK.MSG_BROADCAST_AUDIENCE.format(count=1, total=3))
     assert state.state == BroadcastStates.waiting_confirm.state
 
 

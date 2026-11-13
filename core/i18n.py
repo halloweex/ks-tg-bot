@@ -340,6 +340,10 @@ EN: dict[str, str] = {
         "photo or video, or go without buttons."
     ),
     "MSG_BROADCAST_TEST_SENT": "🧪 Test sent to the team: {sent} of {total}.",
+    "MSG_BROADCAST_AFTER_TEST": (
+        "That was a test: customers got nothing. To send it to customers, tap "
+        "«✅ Send». If the test was all you needed, tap «❌ Cancel»."
+    ),
     "MSG_BROADCAST_TEST_MISSED": (
         "Anyone who missed it has to open the bot and press /start first."
     ),
