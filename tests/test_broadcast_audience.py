@@ -909,3 +909,120 @@ def test_a_stale_button_on_the_picker_no_longer_cancels_the_post(shop):
     assert state.state == BroadcastStates.waiting_confirm.state
     assert UK.MSG_BROADCAST_CANCELLED not in [c.text for c in bot.calls
                                               if isinstance(c, EditMessageText)]
+
+
+# --- the sender edits the post in Telegram ---------------------------------------------
+
+def _edit(bot, state, **content) -> None:
+    """The sender's message edited in place: same id, new content."""
+    taken = state.data["broadcast_post"]["message"]["message_id"]
+    asyncio.run(mod.process_broadcast_edit(
+        fakes.message(bot, STAFF, message_id=taken, edit_date=1762960100, **content),
+        _config(), state))
+
+
+def test_an_edited_post_replaces_the_one_taken_and_keeps_everything_else(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)                                 # «Знижка 20%»
+    _tap(bot, state, BroadcastFilter(name="purchases"))     # → без покупок: chat 10
+    _tap(bot, state, BroadcastAction(action="buttons"))
+    _type(bot, state, "Каталог - https://ks.example/catalog")
+    _tap(bot, state, BroadcastAction(action="promo"))
+    _promo(bot, state, "NOV20")
+    before = len(bot.calls)
+
+    _edit(bot, state, text="Знижка 25%")
+
+    note, preview, picker = [c for c in bot.calls[before:]
+                             if isinstance(c, SendMessage) and c.chat_id == STAFF]
+    assert note.text == UK.MSG_BROADCAST_POST_UPDATED
+    assert preview.text == "Знижка 25%"
+    [promo_row], [link_row] = preview.reply_markup.inline_keyboard
+    assert promo_row.callback_data == "promo:NOV20"
+    assert link_row.url == "https://ks.example/catalog"
+    # The filter chosen before the edit is still the one on the screen.
+    assert picker.text == UK.MSG_BROADCAST_AUDIENCE.format(count=1, total=3)
+    assert state.data["broadcast_text"] == "Знижка 25%"
+    assert state.state == BroadcastStates.waiting_confirm.state
+
+
+def test_what_goes_out_is_the_edited_version(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    _edit(bot, state, text="Знижка 25%")
+
+    _send(bot, state)
+
+    texts = {json.loads(row["payload"])["post"]["message"]["text"]
+             for row in asyncio.run(claim(50))}
+    assert texts == {"Знижка 25%"}
+
+
+def test_an_edit_while_the_name_is_asked_asks_again(shop):
+    """A name typed after an edit must answer for the post as it now is."""
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    _tap(bot, state, BroadcastAction(action="send"))
+    assert state.state == BroadcastStates.waiting_name.state
+
+    _edit(bot, state, text="Знижка 25%")
+
+    assert state.state == BroadcastStates.waiting_confirm.state
+    assert asyncio.run(claim(50)) == []
+
+
+def test_an_edit_of_some_other_message_changes_nothing(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    before = len(bot.calls)
+
+    asyncio.run(mod.process_broadcast_edit(
+        fakes.message(bot, STAFF, text="інше повідомлення", edit_date=1762960100),
+        _config(), state))
+
+    assert bot.calls[before:] == []
+    assert state.data["broadcast_post"]["message"]["text"] == "Знижка 20%"
+
+
+def test_an_edited_caption_in_an_album_replaces_that_part_only(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    parts = [fakes.message(bot, STAFF, media_group_id="g", **fakes.photo(f"p{i}",
+             caption="Стара підпис" if i == 0 else None)) for i in range(2)]
+    state.data["broadcast_post"] = mod.post.album(parts)
+
+    asyncio.run(mod.process_broadcast_edit(
+        fakes.message(bot, STAFF, message_id=parts[0].message_id, media_group_id="g",
+                      edit_date=1762960100, **fakes.photo("p0", caption="Нова підпис")),
+        _config(), state))
+
+    first, second = state.data["broadcast_post"]["album"]
+    assert first["caption"] == "Нова підпис"
+    assert second["message_id"] == parts[1].message_id
+
+
+def test_buttons_that_cannot_follow_onto_an_album_are_said_to_be_dropped(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    _tap(bot, state, BroadcastAction(action="buttons"))
+    _type(bot, state, "Каталог - https://ks.example/catalog")
+    album = [fakes.message(bot, STAFF, media_group_id="g", **fakes.photo(f"p{i}"))
+             for i in range(2)]
+
+    asyncio.run(mod._offer(bot, STAFF, mod.post.album(album), state, UK, 2,
+                           kept=dict(state.data)))
+
+    assert UK.MSG_BROADCAST_BUTTONS_ALBUM in _staff_texts(bot)
+    assert "buttons" not in state.data["broadcast_post"]
+
+
+def test_a_fresh_broadcast_forgets_the_last_one(shop):
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+    state.data["promo_pending"] = "OLD"
+
+    asyncio.run(mod.cmd_broadcast(fakes.message(bot, STAFF, text="/broadcast"),
+                                  _config(), state, None))
+
+    assert state.data == {}
+    assert state.state == BroadcastStates.waiting_message.state

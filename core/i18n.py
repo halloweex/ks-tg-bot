@@ -194,8 +194,12 @@ EN: dict[str, str] = {
         "broadcast. Nothing was sent. Type the text again, or /start to leave "
         "the flow."
     ),
+    "MSG_BROADCAST_POST_UPDATED": (
+        "✏️ Post updated. Filters, buttons and the promo code are as they were."
+    ),
     "MSG_BROADCAST_AUDIENCE": (
-        "The post above is shown as recipients will see it.\n\n"
+        "The post above is shown as recipients will see it. A mistake in it? "
+        "Edit your message and the bot will show the updated post.\n\n"
         "Who should get it? Recipients matching these conditions: {count} of "
         "{total}. The conditions apply together: a person has to meet all of "
         "them."

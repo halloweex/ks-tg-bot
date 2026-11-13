@@ -68,6 +68,9 @@ class State:
         self.data.update(kwargs)
         return dict(self.data)
 
+    async def set_data(self, data: dict) -> None:
+        self.data = dict(data)
+
     async def get_data(self) -> dict:
         return dict(self.data)
 

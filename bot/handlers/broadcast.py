@@ -16,7 +16,7 @@ from dataclasses import replace
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from loguru import logger
@@ -115,6 +115,9 @@ async def cmd_broadcast(
     if not _can_broadcast(message.from_user.id, config):
         return
     at = await _flow_texts(message.from_user.id, config)
+    # A fresh start forgets the last one: a promo code that was waiting on
+    # «use anyway» must not turn up under the next post.
+    await state.set_data({})
     await state.set_state(BroadcastStates.waiting_message)
     await message.answer(at.MSG_BROADCAST_PROMPT)
 
@@ -185,13 +188,24 @@ async def _finish_album(key: tuple[int, str], bot: Bot, state: FSMContext,
 
 
 async def _offer(bot: Bot, chat_id: int, content: dict, state: FSMContext,
-                 at: Texts, team: int) -> None:
+                 at: Texts, team: int, *, kept: dict | None = None) -> None:
     """Send the sender exactly what recipients will get, then ask.
 
     The preview goes through the same function the outbox uses, so it is not a
     picture of the post but the post: if Telegram refuses it here, it would
     have refused it for everybody, and nothing has been queued yet.
+
+    `kept` is the conversation so far when the post is a new version of one
+    already taken: its filters stay, and its buttons and promo code move onto
+    the new version. Without it the post starts from everybody and nothing.
     """
+    audience = Audience()
+    if kept is not None:
+        audience = Audience.from_dict(kept.get("audience"))
+        content, dropped = _carry_over(kept.get("broadcast_post") or {}, content)
+        if dropped:
+            await bot.send_message(chat_id, at.MSG_BROADCAST_BUTTONS_ALBUM)
+
     reason = post.problem(content)
     if reason:
         logger.info("Broadcast post refused: {}", reason)
@@ -226,10 +240,75 @@ async def _offer(bot: Bot, chat_id: int, content: dict, state: FSMContext,
 
     await state.update_data(broadcast_post=content,
                             broadcast_text=post.summary(content),
-                            audience=Audience().as_dict())
+                            audience=audience.as_dict(), promo_pending=None)
     await state.set_state(BroadcastStates.waiting_confirm)
-    text, markup = await _audience_screen(at, Audience(), team, content)
+    text, markup = await _audience_screen(at, audience, team, content)
     await bot.send_message(chat_id, text, reply_markup=markup)
+
+
+def _carry_over(taken: dict, new: dict) -> tuple[dict, bool]:
+    """The new version with the old one's buttons and promo code on it.
+
+    True beside it when there were some and they could not come: an album
+    takes no keyboard, so the sender is told rather than finding out later.
+    """
+    had = bool(taken.get("buttons") or taken.get("promo"))
+    if "album" in new:
+        return new, had
+    new = post.with_buttons(new, taken.get("buttons") or [])
+    promo = taken.get("promo")
+    if promo:
+        new = post.with_promo(new, promo["code"], promo["text"])
+    return new, False
+
+
+def _with_edit(taken: dict, edited: Message) -> dict | None:
+    """The post with the edited message in it, or None if it is not part of it."""
+    stored = taken.get("message")
+    if stored is not None:
+        return post.single(edited) if stored.get("message_id") == edited.message_id else None
+    parts = taken.get("album") or []
+    if not any(part.get("message_id") == edited.message_id for part in parts):
+        return None
+    # One part of an album edited, a caption most likely: the rest stay.
+    return {"album": [post.capture(edited) if part.get("message_id") == edited.message_id
+                      else part for part in parts]}
+
+
+# After the post is taken and before it goes: everywhere an edit of it should
+# replace what was taken.
+_POST_TAKEN = StateFilter(
+    BroadcastStates.waiting_confirm, BroadcastStates.waiting_buttons,
+    BroadcastStates.waiting_promo, BroadcastStates.waiting_word,
+    BroadcastStates.waiting_name)
+
+
+@router.edited_message(_POST_TAKEN)
+async def process_broadcast_edit(
+    message: Message, config: AppConfig, state: FSMContext,
+) -> None:
+    """The sender fixed the post in Telegram: take the new version, keep the rest.
+
+    Before this an edit changed nothing: the bot had taken the post when it
+    arrived, so the preview and the broadcast went out as first typed while
+    the sender's own chat showed the fix. The only way to correct a typo was
+    to start /broadcast over and set the filters again.
+
+    Whatever was being asked is dropped and the picker comes back under the
+    new preview: a name typed after an edit must answer for the post as it now
+    is, so the question is asked again. No `t`: the language middleware does
+    not run for edits, and the flow picks its own language anyway.
+    """
+    if not _can_broadcast(message.from_user.id, config):
+        return
+    data = await state.get_data()
+    replaced = _with_edit(data.get("broadcast_post") or {}, message)
+    if replaced is None:
+        return
+    at = await _flow_texts(message.from_user.id, config)
+    await message.answer(at.MSG_BROADCAST_POST_UPDATED)
+    await _offer(message.bot, message.chat.id, replaced, state, at,
+                 len(_team(config)), kept=data)
 
 
 async def _audience_screen(at: Texts, audience: Audience, team: int,

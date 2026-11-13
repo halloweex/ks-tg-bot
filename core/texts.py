@@ -601,9 +601,13 @@ MSG_BROADCAST_LOOKS_LIKE_A_COMMAND = (
 # The recipient picker under the preview. Labels are for staff, so they say
 # exactly what is counted; the values live in core/domain/audience.py.
 MSG_BROADCAST_AUDIENCE = (
-    "Пост вище показано так, як його побачать отримувачі.\n\n"
+    "Пост вище показано так, як його побачать отримувачі. Помилка в пості? "
+    "Відредагуйте своє повідомлення, і бот покаже оновлений.\n\n"
     "Кому надіслати? Отримувачів за цими умовами: {count} з {total}. "
     "Умови діють разом: людина має відповідати всім одразу."
+)
+MSG_BROADCAST_POST_UPDATED = (
+    "✏️ Пост оновлено. Фільтри, кнопки й промокод лишилися як були."
 )
 MSG_BROADCAST_AUDIENCE_EMPTY = (
     "Пост вище показано так, як його побачать отримувачі.\n\n"
