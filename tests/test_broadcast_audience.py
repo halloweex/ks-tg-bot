@@ -21,13 +21,17 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
-from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage
+from aiogram.methods import (AnswerCallbackQuery, EditMessageReplyMarkup,
+                             EditMessageText, SendMessage)
 
 import broadcast_fakes as fakes
 from bot.callbacks import BroadcastAction, BroadcastFilter, PromoClaim
 from bot.handlers import broadcast as mod
 from bot.states import BroadcastStates
 from core.domain.audience import Audience, Profile, Purchase, matches
+from core.domain.promo import Promo
+from core.domain.quiet import SHOP_TZ
+from core.ports.discounts import DiscountLookupFailed
 from core.i18n import Texts
 from core.repos import base as repos_base
 from core.repos.broadcast import get_unfinished_broadcasts
@@ -764,3 +768,144 @@ def test_a_forged_code_gets_nothing(shop, monkeypatch):
 
     assert [c for c in bot.calls if isinstance(c, SendMessage)] == []
     assert tracked == []
+
+
+# --- the promo code looked up in Shopify ---------------------------------------------
+
+class FakeShop:
+    """The shop's admin as the lookup port sees it."""
+
+    def __init__(self, promo: Promo | None = None, fails: bool = False) -> None:
+        self.promo, self.fails, self.asked = promo, fails, []
+
+    async def find(self, code: str) -> Promo | None:
+        self.asked.append(code)
+        if self.fails:
+            raise DiscountLookupFailed("timed out")
+        return self.promo
+
+
+def _promo_checked(bot, state, text, shop) -> None:
+    asyncio.run(mod.process_broadcast_promo(
+        fakes.message(bot, STAFF, text=text), _config(), state, None,
+        promo_lookup=shop))
+
+
+def _at_promo_question(bot) -> fakes.State:
+    state = _at_picker(bot)
+    _tap(bot, state, BroadcastAction(action="promo"))
+    return state
+
+
+def _staff_texts(bot) -> list[str]:
+    return [c.text for c in bot.to(STAFF) if isinstance(c, SendMessage)]
+
+
+def test_a_code_the_shop_has_is_confirmed_with_its_terms_and_used(shop):
+    ends = datetime.now(timezone.utc) + timedelta(days=17)
+    found = Promo("NOV20", status="ACTIVE", ends_at=ends, usage_limit=100, used=12,
+                  percent=20.0)
+    bot = fakes.RecordingBot()
+    state = _at_promo_question(bot)
+
+    _promo_checked(bot, state, "NOV20", FakeShop(found))
+
+    day = ends.astimezone(SHOP_TZ).strftime("%d.%m.%Y")
+    assert UK.MSG_BROADCAST_PROMO_FOUND.format(
+        code="NOV20", details=f"−20%, до {day}, використано 12 з 100") in _staff_texts(bot)
+    assert state.data["broadcast_post"]["promo"]["code"] == "NOV20"
+    assert state.state == BroadcastStates.waiting_confirm.state
+
+
+@pytest.mark.parametrize("found, warning", [
+    (None, UK.MSG_BROADCAST_PROMO_MISSING.format(code="NOV2O")),
+    (Promo("NOV2O", status="ACTIVE", usage_limit=5, used=5),
+     UK.MSG_BROADCAST_PROMO_USED_UP.format(code="NOV2O", used=5, limit=5)),
+    (Promo("NOV2O", status="DISABLED"), UK.MSG_BROADCAST_PROMO_INACTIVE.format(code="NOV2O")),
+])
+def test_a_doubtful_code_is_warned_about_and_not_used_yet(shop, found, warning):
+    bot = fakes.RecordingBot()
+    state = _at_promo_question(bot)
+
+    _promo_checked(bot, state, "NOV2O", FakeShop(found))
+
+    last = _last_to_staff(bot)
+    assert last.text == warning
+    assert _buttons(last.reply_markup) == [UK.BTN_BROADCAST_PROMO_USE,
+                                           UK.BTN_BROADCAST_PROMO_RETRY]
+    assert "promo" not in state.data["broadcast_post"]
+    assert state.state == BroadcastStates.waiting_promo.state
+
+
+def test_an_expired_code_says_when_it_ended(shop):
+    ended = datetime.now(timezone.utc) - timedelta(days=3)
+    bot = fakes.RecordingBot()
+    state = _at_promo_question(bot)
+
+    _promo_checked(bot, state, "OCT10", FakeShop(Promo("OCT10", status="EXPIRED",
+                                                       ends_at=ended)))
+
+    assert _last_to_staff(bot).text == UK.MSG_BROADCAST_PROMO_EXPIRED.format(
+        code="OCT10", date=ended.astimezone(SHOP_TZ).strftime("%d.%m.%Y"))
+
+
+def test_use_anyway_takes_the_code_the_shop_did_not_confirm(shop):
+    """The check is advice. The code may be created a minute from now."""
+    bot = fakes.RecordingBot()
+    state = _at_promo_question(bot)
+    _promo_checked(bot, state, "NEW-CODE", FakeShop(None))
+
+    asyncio.run(mod.process_broadcast_promo_choice(
+        fakes.callback(bot, STAFF, BroadcastAction(action="promo_use").pack()),
+        BroadcastAction(action="promo_use"), _config(), state, None))
+
+    assert state.data["broadcast_post"]["promo"]["code"] == "NEW-CODE"
+    assert state.state == BroadcastStates.waiting_confirm.state
+    assert any(isinstance(c, EditMessageReplyMarkup) for c in bot.calls)
+
+
+def test_type_another_asks_again_and_keeps_nothing(shop):
+    bot = fakes.RecordingBot()
+    state = _at_promo_question(bot)
+    _promo_checked(bot, state, "NOV2O", FakeShop(None))
+
+    asyncio.run(mod.process_broadcast_promo_choice(
+        fakes.callback(bot, STAFF, BroadcastAction(action="promo_retry").pack()),
+        BroadcastAction(action="promo_retry"), _config(), state, None))
+
+    assert _screen(bot).text == UK.MSG_BROADCAST_ASK_PROMO
+    assert state.data.get("promo_pending") is None
+    assert state.state == BroadcastStates.waiting_promo.state
+
+
+def test_a_shop_that_does_not_answer_is_said_and_left_to_the_sender(shop):
+    bot = fakes.RecordingBot()
+    state = _at_promo_question(bot)
+
+    _promo_checked(bot, state, "NOV20", FakeShop(fails=True))
+
+    assert _last_to_staff(bot).text == UK.MSG_BROADCAST_PROMO_UNCHECKED.format(code="NOV20")
+    assert state.state == BroadcastStates.waiting_promo.state
+
+
+def test_without_a_shop_token_the_code_is_taken_as_typed(shop):
+    bot = fakes.RecordingBot()
+    state = _at_promo_question(bot)
+
+    _promo_checked(bot, state, "NOV20", None)
+
+    assert state.data["broadcast_post"]["promo"]["code"] == "NOV20"
+
+
+def test_a_stale_button_on_the_picker_no_longer_cancels_the_post(shop):
+    """«use anyway» or «back» tapped after its screen moved on used to reach
+    the picker's handler as «not send», which meant «cancel»."""
+    bot = fakes.RecordingBot()
+    state = _at_picker(bot)
+
+    for stale in ("promo_use", "back"):
+        _tap(bot, state, BroadcastAction(action=stale))
+
+    assert state.state == BroadcastStates.waiting_confirm.state
+    assert UK.MSG_BROADCAST_CANCELLED not in [c.text for c in bot.calls
+                                              if isinstance(c, EditMessageText)]

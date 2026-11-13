@@ -633,6 +633,31 @@ MSG_BROADCAST_PROMO_INVALID = (
     "«{code}» не схожий на промокод: потрібні латинські літери, цифри, дефіс або "
     "підкреслення, від 2 до 40 знаків. Надішліть ще раз або -, щоб без промокоду."
 )
+MSG_BROADCAST_PROMO_FOUND = "✅ {code} є в Shopify і зараз діє: {details}."
+PROMO_UNTIL = "до {date}"
+PROMO_NO_END = "без кінцевої дати"
+PROMO_USED = "використано {used} з {limit}"
+MSG_BROADCAST_PROMO_MISSING = (
+    "⚠️ Коду {code} у Shopify немає. Перевірте написання: клієнти отримають код, "
+    "який не спрацює."
+)
+MSG_BROADCAST_PROMO_EXPIRED = (
+    "⚠️ {code} є в Shopify, але закінчився {date}. Клієнти отримають код, який "
+    "уже не діє."
+)
+MSG_BROADCAST_PROMO_SCHEDULED = (
+    "⚠️ {code} є в Shopify, але почне діяти тільки {date}. До того клієнтам він "
+    "не спрацює."
+)
+MSG_BROADCAST_PROMO_USED_UP = (
+    "⚠️ {code} є в Shopify, але ліміт використань вичерпано: {used} з {limit}."
+)
+MSG_BROADCAST_PROMO_INACTIVE = "⚠️ {code} є в Shopify, але зараз не діє."
+MSG_BROADCAST_PROMO_UNCHECKED = (
+    "⚠️ Не вдалося перевірити {code} у Shopify: магазин не відповів."
+)
+BTN_BROADCAST_PROMO_USE = "✅ Все одно використати"
+BTN_BROADCAST_PROMO_RETRY = "✏️ Ввести інший"
 # What a customer sees: the button under a broadcast post, and its answer.
 BTN_PROMO_CLAIM = "🎁 Забрати промокод"
 BTN_PROMO_SHOP = "🛒 Обрати зі знижкою"

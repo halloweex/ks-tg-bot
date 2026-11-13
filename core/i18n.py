@@ -228,6 +228,31 @@ EN: dict[str, str] = {
         "«{code}» does not look like a promo code: use latin letters, digits, "
         "dashes or underscores, 2 to 40 characters. Send it again, or - for none."
     ),
+    "MSG_BROADCAST_PROMO_FOUND": "✅ {code} is in Shopify and active: {details}.",
+    "PROMO_UNTIL": "until {date}",
+    "PROMO_NO_END": "no end date",
+    "PROMO_USED": "{used} of {limit} used",
+    "MSG_BROADCAST_PROMO_MISSING": (
+        "⚠️ Shopify has no code {code}. Check the spelling: customers would get a "
+        "code that does not work."
+    ),
+    "MSG_BROADCAST_PROMO_EXPIRED": (
+        "⚠️ {code} is in Shopify, but it ended on {date}. Customers would get a code "
+        "that no longer works."
+    ),
+    "MSG_BROADCAST_PROMO_SCHEDULED": (
+        "⚠️ {code} is in Shopify, but it only starts on {date}. Until then it will "
+        "not work for customers."
+    ),
+    "MSG_BROADCAST_PROMO_USED_UP": (
+        "⚠️ {code} is in Shopify, but its usage limit is reached: {used} of {limit}."
+    ),
+    "MSG_BROADCAST_PROMO_INACTIVE": "⚠️ {code} is in Shopify, but it is not active.",
+    "MSG_BROADCAST_PROMO_UNCHECKED": (
+        "⚠️ Could not check {code} in Shopify: the shop did not answer."
+    ),
+    "BTN_BROADCAST_PROMO_USE": "✅ Use it anyway",
+    "BTN_BROADCAST_PROMO_RETRY": "✏️ Type another",
     "BTN_PROMO_SHOP": "🛒 Shop with the discount",
     "MSG_PROMO_CODE": (
         "Your promo code: <code>{code}</code>\n\n"

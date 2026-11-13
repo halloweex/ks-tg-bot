@@ -341,6 +341,17 @@ def broadcast_audience_kb(t: Texts, audience: Audience,
     return builder.as_markup()
 
 
+def broadcast_promo_doubt_kb(t: Texts) -> InlineKeyboardMarkup:
+    """Under a warning about a promo code: use it anyway, or type another."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text=t.BTN_BROADCAST_PROMO_USE,
+                   callback_data=BroadcastAction(action="promo_use"))
+    builder.button(text=t.BTN_BROADCAST_PROMO_RETRY,
+                   callback_data=BroadcastAction(action="promo_retry"))
+    builder.adjust(1)
+    return builder.as_markup()
+
+
 def promo_shop_kb(t: Texts, website_url: str, code: str) -> InlineKeyboardMarkup:
     """Under the code a customer claimed: the shop, with the code applied."""
     builder = InlineKeyboardBuilder()

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import html
 import re
+from datetime import datetime, timezone
 from dataclasses import replace
 
 from aiogram import Bot, F, Router
@@ -25,7 +26,10 @@ from bot import post
 from bot.callbacks import BroadcastAction, BroadcastFilter, PromoClaim
 from bot.analytics import track
 from core.config import AppConfig
+from core.domain import promo as promos
 from core.domain.audience import STEPPED, WORD_LIMIT, Audience
+from core.domain.quiet import SHOP_TZ
+from core.ports.discounts import DiscountLookup, DiscountLookupFailed
 from core.repos.campaigns import SqliteCampaignOutcomes
 from core.usecases.analytics import (activity_report, campaign_report,
                                      usage_report)
@@ -35,7 +39,8 @@ from core.repos.events import SqliteActivityLog, SqliteUsageStats
 from core.repos.outbox import SqliteMessageQueue
 from core.repos.users import (SqliteMailingList, get_broadcast_recipients,
                               get_user_language, opt_out_user)
-from bot.keyboards import broadcast_audience_kb, broadcast_name_kb, promo_shop_kb
+from bot.keyboards import (broadcast_audience_kb, broadcast_name_kb,
+                           broadcast_promo_doubt_kb, promo_shop_kb)
 from bot.states import BroadcastStates
 from bot.tasks import spawn
 
@@ -388,9 +393,14 @@ async def process_broadcast_confirm(
         await _redraw(callback, at, Audience(), len(team), stored)
         return
 
-    if callback_data.action != "send":
+    if callback_data.action == "cancel":
         await state.clear()
         await callback.message.edit_text(at.MSG_BROADCAST_CANCELLED)
+        return
+    if callback_data.action != "send":
+        # A button from another screen still in the chat, the name question's
+        # «back» or a promo warning's «use anyway», tapped after its moment
+        # passed. Ignored: read as «cancel», it threw the whole post away.
         return
 
     if not data.get("broadcast_text"):
@@ -551,12 +561,13 @@ async def process_broadcast_buttons(
 @router.message(BroadcastStates.waiting_promo)
 async def process_broadcast_promo(
     message: Message, config: AppConfig, state: FSMContext,
-    t: Texts,
+    t: Texts, promo_lookup: DiscountLookup | None = None,
 ) -> None:
     """The promo code for the post's «🎁 Забрати промокод» button, or «-».
 
     The code must already exist in the shop's admin: the bot hands it out and
-    builds the link that applies it, and creates nothing.
+    builds the link that applies it, and creates nothing. With a token it is
+    looked up first (core/domain/promo.py); without one, it is taken as typed.
     """
     if not _can_broadcast(message.from_user.id, config):
         return
@@ -581,9 +592,95 @@ async def process_broadcast_promo(
         await message.answer(at.MSG_BROADCAST_PROMO_INVALID.format(
             code=html.escape(typed[:60])))
         return
+    if promo_lookup is None:
+        await _show_post_again(message, state, at, config, data,
+                               _with_claim(content, code))
+        return
+    try:
+        found = await promo_lookup.find(code)
+        outcome = promos.verdict(found, datetime.now(timezone.utc))
+    except DiscountLookupFailed as exc:
+        logger.warning("Promo code {} not checked: {}", code, exc)
+        found, outcome = None, "unchecked"
+    if outcome == promos.OK:
+        await state.update_data(promo_pending=None)
+        await message.answer(at.MSG_BROADCAST_PROMO_FOUND.format(
+            code=html.escape(code), details=_promo_details(at, found)))
+        await _show_post_again(message, state, at, config, data,
+                               _with_claim(content, code))
+        return
+    # Advice, not a gate: the code may be created a minute from now, and the
+    # shop may simply not have answered. The sender decides.
+    await state.update_data(promo_pending=code)
+    await message.answer(_promo_doubt(at, code, outcome, found),
+                         reply_markup=broadcast_promo_doubt_kb(at))
+
+
+@router.callback_query(BroadcastStates.waiting_promo, BroadcastAction.filter())
+async def process_broadcast_promo_choice(
+    callback: CallbackQuery,
+    callback_data: BroadcastAction,
+    config: AppConfig,
+    state: FSMContext,
+    t: Texts,
+) -> None:
+    """After a warning about the code: use it anyway, or type another."""
+    await callback.answer()
+    if not _can_broadcast(callback.from_user.id, config):
+        return
+    at = await _flow_texts(callback.from_user.id, config)
+    data = await state.get_data()
+    code, content = data.get("promo_pending"), data.get("broadcast_post")
+    if callback_data.action == "promo_use" and code and content:
+        await state.update_data(promo_pending=None)
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await _show_post_again(callback.message, state, at, config, data,
+                               _with_claim(content, code))
+    elif callback_data.action == "promo_retry":
+        await state.update_data(promo_pending=None)
+        await callback.message.edit_text(at.MSG_BROADCAST_ASK_PROMO)
+
+
+def _with_claim(content: dict, code: str) -> dict:
     # The label is the customer's, so it is Ukrainian whoever is composing.
-    await _show_post_again(message, state, at, config, data,
-                           post.with_promo(content, code, Texts("uk").BTN_PROMO_CLAIM))
+    return post.with_promo(content, code, Texts("uk").BTN_PROMO_CLAIM)
+
+
+def _day(moment: datetime) -> str:
+    return moment.astimezone(SHOP_TZ).strftime("%d.%m.%Y")
+
+
+def _promo_details(at: Texts, found: promos.Promo) -> str:
+    """«−10%, до 15.11.2026, використано 0 з 1»: enough to recognise the code."""
+    parts = []
+    if found.percent is not None:
+        parts.append(f"−{found.percent:g}%")
+    elif found.amount:
+        parts.append(f"−{found.amount}")
+    parts.append(at.PROMO_UNTIL.format(date=_day(found.ends_at)) if found.ends_at
+                 else at.PROMO_NO_END)
+    if found.usage_limit is not None:
+        parts.append(at.PROMO_USED.format(used=found.used or 0, limit=found.usage_limit))
+    return ", ".join(parts)
+
+
+def _promo_doubt(at: Texts, code: str, outcome: str,
+                 found: promos.Promo | None) -> str:
+    """What is wrong with the code, as far as the shop said."""
+    code = html.escape(code)
+    if outcome == promos.MISSING:
+        return at.MSG_BROADCAST_PROMO_MISSING.format(code=code)
+    if outcome == promos.EXPIRED and found and found.ends_at:
+        return at.MSG_BROADCAST_PROMO_EXPIRED.format(code=code, date=_day(found.ends_at))
+    if outcome == promos.SCHEDULED and found and found.starts_at:
+        return at.MSG_BROADCAST_PROMO_SCHEDULED.format(code=code,
+                                                       date=_day(found.starts_at))
+    if outcome == promos.USED_UP and found:
+        return at.MSG_BROADCAST_PROMO_USED_UP.format(
+            code=code, used=found.used, limit=found.usage_limit)
+    if outcome == "unchecked":
+        return at.MSG_BROADCAST_PROMO_UNCHECKED.format(code=code)
+    return at.MSG_BROADCAST_PROMO_INACTIVE.format(code=code)
 
 
 @router.callback_query(PromoClaim.filter())

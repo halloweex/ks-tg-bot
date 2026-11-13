@@ -12,7 +12,9 @@ import httpx
 import pytest
 
 from core.adapters.shopify.discounts import ShopifyDiscounts
-from core.ports.discounts import DiscountCodes
+from core.domain.promo import Promo
+from core.ports.discounts import (DiscountCodes, DiscountLookup,
+                                   DiscountLookupFailed)
 
 STORE = "qy2jmd-ui.myshopify.com"
 
@@ -127,3 +129,69 @@ def test_zero_per_cent_asks_for_nothing(transport):
     transport["install"](_ok)
     assert _issue(0) is None
     assert not transport["requests"]
+
+
+# --- reading a code marketing created --------------------------------------------
+
+# The answer the live store gave on 2026-11-13 for one of its codes, renamed.
+FOUND = {"data": {"codeDiscountNodeByCode": {
+    "id": "gid://shopify/DiscountCodeNode/2294357131596",
+    "codeDiscount": {
+        "__typename": "DiscountCodeBasic", "title": "NOV20 (листопад)",
+        "status": "ACTIVE", "startsAt": "2026-11-13T03:52:24Z",
+        "endsAt": "2026-11-15T03:52:24Z", "usageLimit": 1, "asyncUsageCount": 0,
+        "customerGets": {"value": {"__typename": "DiscountPercentage",
+                                   "percentage": 0.1}}}}}}
+
+
+def _find(code: str = "NOV20"):
+    return asyncio.run(ShopifyDiscounts(STORE, "shpat_test").find(code))
+
+
+def test_the_adapter_also_satisfies_the_lookup_port():
+    assert isinstance(ShopifyDiscounts(STORE, "t"), DiscountLookup)
+
+
+def test_a_code_the_shop_has_comes_back_with_its_terms(transport):
+    transport["install"](lambda request: httpx.Response(200, json=FOUND))
+
+    found = _find()
+
+    assert found == Promo(
+        code="NOV20", title="NOV20 (листопад)", status="ACTIVE",
+        starts_at=found.starts_at, ends_at=found.ends_at,
+        usage_limit=1, used=0, percent=10.0, amount=None)
+    assert found.ends_at.isoformat() == "2026-11-15T03:52:24+00:00"
+    assert transport["sent"]()["variables"] == {"code": "NOV20"}
+
+
+def test_a_fixed_amount_is_read_as_money(transport):
+    body = {"data": {"codeDiscountNodeByCode": {"codeDiscount": {
+        "__typename": "DiscountCodeBasic", "title": "200 off", "status": "ACTIVE",
+        "startsAt": None, "endsAt": None, "usageLimit": None, "asyncUsageCount": 3,
+        "customerGets": {"value": {"__typename": "DiscountAmount",
+                                   "amount": {"amount": "200.0", "currencyCode": "UAH"}}}}}}}
+    transport["install"](lambda request: httpx.Response(200, json=body))
+
+    found = _find()
+
+    assert (found.amount, found.percent, found.ends_at) == ("200 UAH", None, None)
+
+
+def test_a_code_the_shop_does_not_have_is_none(transport):
+    """What the live store answered for a code that does not exist: a null
+    node, not an error."""
+    transport["install"](lambda request: httpx.Response(
+        200, json={"data": {"codeDiscountNodeByCode": None}}))
+    assert _find("NOV2O") is None
+
+
+@pytest.mark.parametrize("answer", [
+    lambda request: httpx.Response(500),
+    lambda request: httpx.Response(200, json={"errors": [{"message": "Access denied"}]}),
+    lambda request: httpx.Response(200, text="<html>maintenance</html>"),
+])
+def test_a_shop_that_cannot_be_asked_is_never_read_as_no_such_code(transport, answer):
+    transport["install"](answer)
+    with pytest.raises(DiscountLookupFailed):
+        _find()

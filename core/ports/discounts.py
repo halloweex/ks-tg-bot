@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+from core.domain.promo import Promo
+
 
 @runtime_checkable
 class DiscountCodes(Protocol):
@@ -29,5 +31,23 @@ class DiscountCodes(Protocol):
         must treat that as "no code" and fall back to whatever it does when
         none is configured — never as a code that might work. A promise made on
         a code that does not exist is worse than the slower promise it replaced.
+        """
+        ...
+
+
+class DiscountLookupFailed(Exception):
+    """The shop could not be asked, or did not answer. Never «no such code»."""
+
+
+@runtime_checkable
+class DiscountLookup(Protocol):
+    """Reads a promo code a person created in the shop's admin."""
+
+    async def find(self, code: str) -> Promo | None:
+        """The code as the admin has it, or None when there is no such code.
+
+        Raises DiscountLookupFailed when the shop could not be asked. The two
+        must stay apart: «not found» says the code is wrong, «could not ask»
+        says nothing about it at all.
         """
         ...

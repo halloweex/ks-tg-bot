@@ -107,6 +107,12 @@ async def main() -> None:
     # to anyone, which is the only reason the buy button is possible at all —
     # no Shopify Admin token has ever been configured for this store.
     dp["storefront"] = ShopifyStorefront(config.website_url)
+    # Promo codes are created in the shop's admin by marketing; the broadcast
+    # flow looks one up before handing it out, and goes on without the look
+    # when no token is configured (bot/handlers/broadcast.py).
+    dp["promo_lookup"] = (
+        ShopifyDiscounts(config.env.shopify_store_url, config.env.shopify_api_token)
+        if config.env.shopify_api_token and config.env.shopify_store_url else None)
 
     # The warehouse's answer to "how should this person be addressed", if the
     # read-only DSN is configured. Absent is the normal state of a fresh

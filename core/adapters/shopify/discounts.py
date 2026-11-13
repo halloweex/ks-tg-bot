@@ -1,4 +1,4 @@
-"""Creating a promo code in Shopify, one at a time.
+"""Creating a promo code in Shopify, one at a time, and reading one.
 
 The only write this system makes to the shop. Everything else it does with
 Shopify is reading: the public product feed, and order lookup by phone.
@@ -17,6 +17,9 @@ from datetime import datetime, timezone
 import httpx
 from loguru import logger
 
+from core.domain.promo import Promo
+from core.ports.discounts import DiscountLookupFailed
+
 _MUTATION = """
 mutation Create($discount: DiscountCodeBasicInput!) {
   discountCodeBasicCreate(basicCodeDiscount: $discount) {
@@ -25,6 +28,28 @@ mutation Create($discount: DiscountCodeBasicInput!) {
   }
 }
 """
+
+# One code as the admin has it. The same fields exist on every code type, so
+# a free-shipping or buy-x-get-y code is still checked for dates and usage;
+# only a basic code says how much it takes off. Checked against the live store
+# on 2026-11-13: an unknown code is a null node, not an error.
+_FIELDS = "title status startsAt endsAt usageLimit asyncUsageCount"
+_FIND = """
+query Find($code: String!) {
+  codeDiscountNodeByCode(code: $code) {
+    codeDiscount {
+      __typename
+      ... on DiscountCodeBasic { %s
+        customerGets { value { __typename
+          ... on DiscountPercentage { percentage }
+          ... on DiscountAmount { amount { amount currencyCode } } } } }
+      ... on DiscountCodeBxgy { %s }
+      ... on DiscountCodeFreeShipping { %s }
+      ... on DiscountCodeApp { %s }
+    }
+  }
+}
+""" % (_FIELDS, _FIELDS, _FIELDS, _FIELDS)
 
 # No 0/O, no 1/I/L: a code is read off a screen and typed on a phone, sometimes
 # by the friend it was forwarded to. Twenty-eight letters and digits over eight
@@ -39,7 +64,8 @@ _TIMEOUT = 10.0
 class ShopifyDiscounts:
     """Implements the DiscountCodes port over the GraphQL Admin API.
 
-    Needs a token with `write_discounts`, and nothing else. The token the shop
+    Needs a token with `write_discounts` to create codes and `read_discounts`
+    to look one up, and nothing else. The token the shop
     already uses for its CRM integration carries a hundred more scopes than
     that — including rights over themes, orders and payouts — and is the wrong
     one to put in a bot.
@@ -112,3 +138,54 @@ class ShopifyDiscounts:
 
         logger.info("Issued discount code {} ({}%)", code, percent)
         return code
+
+    async def find(self, code: str) -> Promo | None:
+        """Implements DiscountLookup: the code, None if the shop has none."""
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                response = await client.post(
+                    self._endpoint, headers=self._headers,
+                    json={"query": _FIND, "variables": {"code": code}},
+                )
+                response.raise_for_status()
+                data = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise DiscountLookupFailed(str(exc) or type(exc).__name__) from exc
+        if data.get("errors"):
+            raise DiscountLookupFailed(str(data["errors"])[:300])
+        node = (data.get("data") or {}).get("codeDiscountNodeByCode")
+        if not node:
+            return None
+        return _promo(code, node.get("codeDiscount") or {})
+
+
+def _promo(code: str, found: dict) -> Promo:
+    value = (found.get("customerGets") or {}).get("value") or {}
+    percentage = value.get("percentage")
+    return Promo(
+        code=code,
+        title=found.get("title") or "",
+        status=found.get("status") or "",
+        starts_at=_moment(found.get("startsAt")),
+        ends_at=_moment(found.get("endsAt")),
+        usage_limit=found.get("usageLimit"),
+        used=found.get("asyncUsageCount"),
+        # Shopify answers a fraction: 0.1 is ten per cent.
+        percent=round(float(percentage) * 100, 2) if percentage is not None else None,
+        amount=_money(value.get("amount") or {}),
+    )
+
+
+def _moment(raw: str | None) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _money(money: dict) -> str | None:
+    if not money.get("amount"):
+        return None
+    return f"{float(money['amount']):g} {money.get('currencyCode') or ''}".strip()
